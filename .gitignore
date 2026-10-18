@@ -1,0 +1,79 @@
+# --- Dependencies ---
+node_modules/
+.pnpm-store/
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+
+# --- Build output ---
+dist/
+dist-electron/
+release/
+out/
+build/Release/
+*.tsbuildinfo
+
+# --- Electron / electron-builder artifacts ---
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.msi
+*.blockmap
+latest*.yml
+builder-debug.yml
+
+# --- Native modules (better-sqlite3 build output) ---
+*.node
+*.o
+*.obj
+.node-gyp/
+prebuilds/
+
+# --- SQLite databases (runtime data; never commit campaign data) ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+data/
+userData/
+uploads/
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+certs/
+
+# --- Logs ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Vite / tooling caches ---
+.vite/
+.cache/
+.eslintcache
+.parcel-cache/
+coverage/
+
+# --- Editors / OS ---
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
