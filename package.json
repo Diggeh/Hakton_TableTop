@@ -55,6 +55,7 @@
       "electron/**",
       "backend/**",
       "database/**",
+      "storage/**",
       "shared/**",
       "package.json"
     ],

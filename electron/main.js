@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { openDatabase } from '../database/index.js';
 import { createRepositories } from '../database/repositories.js';
 import { seedIfEmpty } from '../database/seed.js';
+import { initStorage } from '../storage/index.js';
 import { startServer } from '../backend/server.js';
 import { DEFAULT_PORT } from '../shared/events.js';
 
@@ -27,7 +28,8 @@ else {
 
 async function bootstrap() {
   // 1. Storage
-  db = openDatabase(path.join(app.getPath('userData'), 'hakton.db'));
+  const storage = initStorage(app.getPath('userData'));
+  db = openDatabase(storage.dbPath);
   const repos = createRepositories(db);
   seedIfEmpty(repos);
 

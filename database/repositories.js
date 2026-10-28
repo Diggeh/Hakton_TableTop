@@ -1,3 +1,8 @@
+import { createCharacterModel } from './models/characters.js';
+import { createCompendiumModel } from './models/compendium.js';
+import { createChatModel } from './models/chat.js';
+import { createDmRecordModel } from './models/dmRecords.js';
+
 /**
  * Repository layer: the ONLY place SQL lives. The backend consumes these
  * plain-object methods and never touches the better-sqlite3 handle.
@@ -15,6 +20,10 @@ export function createRepositories(db) {
   };
 
   return {
+    characters: createCharacterModel(db),
+    compendium: createCompendiumModel(db),
+    chat: createChatModel(db),
+    dmRecords: createDmRecordModel(db),
     maps: {
       first: () => stmts.firstMap.get() ?? null,
       /** Creates a campaign + map. Returns the map row. */
