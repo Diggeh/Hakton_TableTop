@@ -2,6 +2,21 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import { CONNECTION_STATUS, ROLES } from '../../shared/events.js';
 
+/** Normalize a wire token (camelCase) or raw SQLite row (snake_case). */
+function normalizeToken(token) {
+  if (!token) return null;
+  return {
+    id: token.id,
+    mapId: token.mapId ?? token.map_id ?? null,
+    label: token.label,
+    x: token.x,
+    y: token.y,
+    ownerId: token.ownerId ?? token.owner_id ?? null,
+    locked: Boolean(token.locked),
+    color: token.color ?? null,
+  };
+}
+
 /**
  * Vanilla Zustand store: lives outside the React tree so the network layer
  * (and canvas tools) can read/write it without components mounted.
@@ -17,7 +32,8 @@ export const sessionStore = createStore((set) => ({
 
   // Board state (existing)
   map: null,
-  tokens: {}, // id -> { id, label, x, y }
+  tokens: {}, // id -> { id, label, x, y, ownerId, locked, color }
+  lastMoveLatencyMs: null,
 
   setConnection: (connection, connectionError = null) =>
     set({ connection, connectionError }),
@@ -97,18 +113,45 @@ export const sessionStore = createStore((set) => ({
     }),
 
   // Board actions (existing)
+  setMap: (map) => set({ map: map ?? null }),
+
   applySnapshot: ({ map, tokens } = {}) =>
     set({
       map: map ?? null,
       tokens: Array.isArray(tokens)
-        ? Object.fromEntries(tokens.map((t) => [t.id, t]))
+        ? Object.fromEntries(
+            tokens
+              .map(normalizeToken)
+              .filter(Boolean)
+              .map((token) => [token.id, token]),
+          )
         : {},
+    }),
+
+  upsertToken: (token) =>
+    set((state) => {
+      const normalized = normalizeToken(token);
+      if (!normalized) return state;
+      return {
+        tokens: { ...state.tokens, [normalized.id]: normalized },
+      };
+    }),
+
+  removeToken: (id) =>
+    set((state) => {
+      if (!state.tokens[id]) return state;
+      const next = { ...state.tokens };
+      delete next[id];
+      return { tokens: next };
     }),
 
   moveToken: (id, x, y) =>
     set((s) =>
       s.tokens[id] ? { tokens: { ...s.tokens, [id]: { ...s.tokens[id], x, y } } } : s,
     ),
+
+  setMoveLatency: (lastMoveLatencyMs) =>
+    set({ lastMoveLatencyMs: Number.isFinite(lastMoveLatencyMs) ? lastMoveLatencyMs : null }),
 }));
 
 /** React binding. Always pass a selector to avoid whole-store re-renders. */

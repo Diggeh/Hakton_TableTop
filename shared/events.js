@@ -29,8 +29,30 @@ export const EVENTS = Object.freeze({
   // Board & Game State (existing contracts)
   SESSION_STATE: 'session:state',
   SESSION_PEERS: 'session:peers',
+  STATE_REQUEST: 'state:request',
   TOKEN_MOVE: 'token:move',
   TOKEN_MOVED: 'token:moved',
+  TOKENS_MOVE: 'tokens:move',
+  TOKENS_MOVED: 'tokens:moved',
+  TOKEN_CREATE: 'token:create',
+  TOKEN_CREATED: 'token:created',
+  TOKEN_UPDATE: 'token:update',
+  TOKEN_UPDATED: 'token:updated',
+  TOKEN_DELETE: 'token:delete',
+  TOKEN_DELETED: 'token:deleted',
+
+  // Chat & Dice
+  CHAT_SEND: 'chat:send',
+  CHAT_MESSAGE: 'chat:message',
+  CHAT_HISTORY: 'chat:history',
+  DICE_ROLL: 'dice:roll',
+  DICE_ROLLED: 'dice:rolled',
+
+  // Scenes / shared board settings
+  MAP_SELECT: 'map:select',
+  MAP_SELECTED: 'map:selected',
+  MAP_UPDATE: 'map:update',
+  MAP_UPDATED: 'map:updated',
 });
 
 export const CONNECTION_STATUS = Object.freeze({
