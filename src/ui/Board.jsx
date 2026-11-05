@@ -10,6 +10,7 @@ const MapStage = lazy(() => import('../canvas/MapStage.jsx'));
 // Keeps the existing live canvas and network store intact. Preview never seeds live state.
 export default function Board({
   preview,
+  displayName,
   scene,
   role,
   onAction,
@@ -22,6 +23,7 @@ export default function Board({
   const [grid, setGrid] = useState(true);
   const [error, setError] = useState('');
   const connection = useSession((s) => s.connection);
+  const connectionError = useSession((s) => s.connectionError);
   const map = useSession((s) => s.map);
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) =>
@@ -34,8 +36,11 @@ export default function Board({
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!preview && window.hakton) connect().catch((e) => setError(e.message));
-  }, [preview]);
+    if (!preview && window.hakton)
+      connect({ displayName, role: role === 'DM' ? 'dm' : 'player' }).catch(
+        (e) => setError(e.message),
+      );
+  }, [preview, displayName, role]);
   return (
     <section className="board" aria-label="Tabletop canvas">
       <nav className="extension-toolbar" aria-label="VTT extensions">
@@ -134,14 +139,16 @@ export default function Board({
             <MapStage width={size.width} height={size.height} />
           </Suspense>
         )}
-        {!preview && (error || connection !== 'connected') && (
-          <div className="board-notice" role="status">
-            {error ||
-              (window.hakton
-                ? `Session ${connection}. Waiting for the local host.`
-                : 'The live board requires the Electron desktop app.')}
-          </div>
-        )}
+        {!preview &&
+          (error || connectionError || connection !== 'connected') && (
+            <div className="board-notice" role="status">
+              {error ||
+                connectionError ||
+                (window.hakton
+                  ? `Session ${connection}. Waiting for the local host.`
+                  : 'The live board requires the Electron desktop app.')}
+            </div>
+          )}
       </div>
       <nav className="utility-toolbar" aria-label="VTT utilities">
         <IconButton

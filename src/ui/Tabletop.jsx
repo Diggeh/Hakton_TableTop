@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import Board from './Board.jsx';
+import { disconnect } from '../net/socket.js';
+import { SessionStatus, LiveRoster } from './SessionStatus.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
 import ChatPanel from './ChatPanel.jsx';
 import DiceTray from './DiceTray.jsx';
@@ -50,10 +52,14 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
           <span>{role === 'DM' ? 'Dungeon Master' : 'Player'}</span>
         </div>
         <div className="table-header-actions">
+          {!preview && <SessionStatus />}
           <select
             aria-label="Board source"
             value={preview ? 'preview' : 'live'}
-            onChange={(e) => setPreview(e.target.value === 'preview')}
+            onChange={(e) => {
+              if (e.target.value === 'preview') disconnect();
+              setPreview(e.target.value === 'preview');
+            }}
           >
             <option value="preview">Preview board</option>
             <option value="live">Existing live board</option>
@@ -76,23 +82,29 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
               {left ? '−' : '+'}
             </IconButton>
           </header>
-          {left && (
-            <div className="player-list-content">
-              <button className="player-host" onClick={() => setModal('leave')}>
-                {role === 'DM' ? name : 'Dungeon Master'}
-                <small>DM</small>
-              </button>
-              {party.map((p) => (
+          {left &&
+            (!preview ? (
+              <LiveRoster />
+            ) : (
+              <div className="player-list-content">
                 <button
-                  key={p.name}
-                  disabled={role !== 'DM' && p.name !== 'Mira'}
-                  onClick={() => inspect(p.name)}
+                  className="player-host"
+                  onClick={() => setModal('leave')}
                 >
-                  {p.name}
+                  {role === 'DM' ? name : 'Dungeon Master'}
+                  <small>DM</small>
                 </button>
-              ))}
-            </div>
-          )}
+                {party.map((p) => (
+                  <button
+                    key={p.name}
+                    disabled={role !== 'DM' && p.name !== 'Mira'}
+                    onClick={() => inspect(p.name)}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            ))}
         </aside>
         <aside className="dice-window" hidden={!diceOpen}>
           <DiceTray
@@ -131,6 +143,7 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
           )}
           <Board
             preview={preview}
+            displayName={name}
             scene={scene}
             role={role}
             onAction={(action) => {
@@ -194,7 +207,13 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
                   : 'Do you wish to leave? You may rejoin if you wish.'}
               </p>
               <div className="form-actions leave-actions">
-                <button className="primary" onClick={onLeave}>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    if (!preview) disconnect();
+                    onLeave();
+                  }}
+                >
                   Yes
                 </button>
                 <button onClick={() => setModal(null)}>No</button>

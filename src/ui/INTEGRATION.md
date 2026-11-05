@@ -1,6 +1,6 @@
 # Frontend integration
 
-The presentation lives in `src/ui/`; `src/App.jsx` only mounts it. No backend, database, network, storage, Electron, or existing Konva files were changed. No dependencies were added to the package manifest or lockfile.
+The presentation lives in `src/ui/`; `src/App.jsx` only mounts it. The Socket.io implementation from `implement_socket_io_networking` is merged unchanged; its backend, preload APIs, and Zustand store remain the networking source of truth. The existing Konva file is unchanged. No dependencies were added to the package manifest or lockfile.
 
 ## Running
 
@@ -29,3 +29,9 @@ Impeccable source detection reported zero anti-pattern failures and one advisory
 Design references: https://impeccable.style/slop/ and https://github.com/wpgaurav/design-slop. The interface keeps the supplied prototype structure while refining the visual treatment: separate rounded panels; compact extension toolbar at canvas top-left; vertical utilities at top-right; centered asset launcher at the bottom; category bar above the canvas; and a separate asset manager below. The compact player list sits at upper-left, the dice tray below it, and chat at upper-right. DM and Player are separate role views, not two simultaneous canvases. Voice remains excluded even though newer screenshots show its reserved area. No remote fonts, image downloads, decorative gradients, or new UI libraries.
 
 Visual refinement: larger type and controls, differentiated scene thumbnails, and more legible map linework. The preview map and thumbnails remain local schematic fixtures, not imported campaign assets.
+
+## Socket.io branch integration
+
+The `src/App.jsx` merge conflict was resolved by retaining the frontend entry point and moving the networking status presentation into `SessionStatus.jsx`. Live mode displays the authoritative participant roster, connected user, online count, host address, and connection errors. Board connection requests use the selected display name and role; the backend still authorizes the role. Returning to preview or leaving the live table disconnects the client. Sample campaign selection and preview tools remain local; live mode connects to the embedded session, not the sample campaign ID.
+
+Validation after merging: renderer production build and all 16 existing networking tests.
