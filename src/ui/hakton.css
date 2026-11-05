@@ -1,0 +1,1239 @@
+/* Scrying Pool: docked desktop surfaces, restrained aqua selection, no remote assets. */
+.hakton-app {
+  --surface: #101e39;
+  --raised: #172842;
+  --line: #2b4058;
+  --muted: #a5b8ca;
+  --ink: #eef5fa;
+  height: 100%;
+  color: var(--ink);
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  background: #091540;
+}
+.hakton-app * {
+  box-sizing: border-box;
+}
+.hakton-app button,
+.hakton-app input,
+.hakton-app select,
+.hakton-app textarea {
+  font: inherit;
+}
+.hakton-app button {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--raised);
+  color: var(--ink);
+  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  line-height: 1.4;
+}
+.hakton-app button:hover:not(:disabled) {
+  background: #243d56;
+  border-color: #64849e;
+}
+.hakton-app button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.hakton-app :focus-visible {
+  outline: 2px solid #adfcf9;
+  outline-offset: 3px;
+}
+.hakton-app button.primary {
+  background: #adfcf9;
+  color: #091540;
+  border-color: #adfcf9;
+  font-weight: 600;
+}
+.hakton-app button.primary:hover {
+  background: #d4fffd;
+}
+.hakton-app input,
+.hakton-app select,
+.hakton-app textarea {
+  background: #0b172c;
+  border: 1px solid #3c526c;
+  border-radius: 3px;
+  color: var(--ink);
+  padding: 8px 10px;
+  min-width: 0;
+}
+.hakton-app input::placeholder,
+.hakton-app textarea::placeholder {
+  color: #9bafc1;
+}
+.hakton-app label {
+  display: block;
+  color: #bdccda;
+  font-size: 13px;
+}
+.hakton-app label input,
+.hakton-app label select,
+.hakton-app label textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}
+.hakton-app h1,
+.hakton-app h2,
+.hakton-app p {
+  margin: 0;
+}
+.hakton-app h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.hakton-app small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.hakton-app .icon-button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  font-size: 20px;
+}
+.app-header {
+  height: 76px;
+  display: flex;
+  align-items: center;
+  padding: 0 36px;
+  border-bottom: 1px solid #243354;
+  gap: 20px;
+}
+.hakton-app .brand {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: #adfcf9;
+  gap: 12px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 3px;
+}
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.hakton-app .profile {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  gap: 10px;
+}
+.avatar {
+  width: 32px;
+  height: 32px;
+  background: #243950;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #adfcf9;
+  flex-shrink: 0;
+}
+.start-screen {
+  height: calc(100% - 76px);
+  min-height: 420px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+.start-emblem {
+  color: #adfcf9;
+  margin-bottom: 16px;
+}
+.start-emblem .brand-mark {
+  height: 72px;
+  width: 72px;
+}
+.start-screen h1 {
+  font-family: Georgia, serif;
+  font-size: 52px;
+  letter-spacing: 3px;
+  font-weight: 400;
+}
+
+.start-actions {
+  display: grid;
+  width: 264px;
+  gap: 10px;
+  margin-top: 36px;
+}
+.start-actions button {
+  min-height: 44px;
+  justify-content: space-between;
+  padding: 10px 18px;
+}
+.start-actions button.quiet {
+  justify-content: center;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.campaign-screen {
+  height: calc(100% - 76px);
+  overflow: auto;
+  padding: 28px max(32px, calc((100vw - 1220px) / 2));
+}
+.page-top,
+.page-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+.hakton-app .text-button {
+  background: transparent;
+  border: 0;
+  padding-left: 0;
+  color: var(--muted);
+}
+.preview-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.page-title {
+  margin: 24px 0;
+}
+.page-title h1 {
+  font-size: 28px;
+  font-weight: 500;
+}
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 3px;
+  background: #0c1931;
+}
+.segmented button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.segmented button[aria-pressed='true'] {
+  background: #29445c;
+  color: #adfcf9;
+}
+.campaign-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
+  gap: 32px;
+}
+.campaign-list {
+  border-top: 1px solid var(--line);
+}
+.hakton-app .campaign-row {
+  padding: 20px 12px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  gap: 14px;
+  justify-content: start;
+  text-align: left;
+}
+.campaign-row.selected {
+  background: #172d48;
+}
+.campaign-row.selected strong {
+  color: #adfcf9;
+}
+.campaign-row small {
+  display: block;
+  margin-top: 5px;
+}
+.campaign-row > span:last-child {
+  margin-left: auto;
+}
+.campaign-monogram {
+  width: 44px;
+  height: 50px;
+  background: #263b50;
+  display: grid;
+  place-items: center;
+  color: #adfcf9;
+  font:
+    19px Georgia,
+    serif;
+  flex-shrink: 0;
+}
+.hakton-app .add-campaign {
+  width: 100%;
+  margin-top: 16px;
+  background: transparent;
+  color: #adfcf9;
+}
+.campaign-detail {
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.campaign-copy {
+  padding: 24px;
+}
+.detail-meta {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  gap: 12px;
+}
+.campaign-copy h2 {
+  font:
+    30px Georgia,
+    serif;
+  margin-top: 20px;
+}
+.chapter {
+  color: #adfcf9;
+  margin-top: 8px !important;
+  font-size: 13px;
+}
+.campaign-description {
+  margin: 22px 0 !important;
+  max-width: 520px;
+  color: #c3d0dc;
+  line-height: 1.7;
+}
+.hakton-app dl {
+  margin: 16px 0;
+}
+.hakton-app dl > div {
+  display: flex;
+  gap: 20px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+.hakton-app dt {
+  color: var(--muted);
+  min-width: 110px;
+}
+.hakton-app dd {
+  margin: 0;
+}
+.detail-actions {
+  margin-top: 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.hakton-app .danger-text {
+  border: 0;
+  background: transparent;
+  color: #f0a9a4;
+}
+.hakton-app .danger {
+  background: #9a3e43;
+  border-color: #b5686d;
+}
+.empty-state {
+  padding: 50px;
+  color: var(--muted);
+}
+/* The tabletop is a work surface; panels share edges instead of floating cards. */
+.tabletop {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #0c1729;
+}
+.table-header {
+  height: 64px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  background: #101e39;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 20px;
+}
+.table-header .brand {
+  font-size: 15px;
+  letter-spacing: 2px;
+}
+.table-header .brand-mark {
+  width: 29px;
+  height: 29px;
+}
+.header-divider,
+.tool-divider {
+  height: 22px;
+  border-left: 1px solid var(--line);
+}
+.table-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.table-title strong {
+  font-weight: 500;
+}
+.table-title > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.table-header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+}
+.table-header-actions select {
+  font-size: 12px;
+}
+.table-workspace {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+}
+.left-panel {
+  width: 222px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.left-panel > header,
+.chat-panel > header,
+.assets-panel > header {
+  height: 46px;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.left-panel h2,
+.chat-panel h2,
+.assets-panel h2 {
+  font-size: 14px;
+}
+.party-host {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px;
+}
+.party-host small {
+  display: block;
+}
+.section-label {
+  padding: 2px 16px 10px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.hakton-app .party-member {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  justify-content: start;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 9px 16px;
+  gap: 10px;
+}
+.party-member small {
+  display: block;
+  margin-top: 2px;
+}
+.party-member strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.member-ac {
+  text-align: center;
+  margin-left: auto;
+  color: #dce6ef;
+  font-size: 13px;
+}
+.member-ac small {
+  font-size: 10px;
+}
+.left-navigation {
+  display: grid;
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding: 8px;
+}
+.hakton-app .left-navigation button {
+  background: transparent;
+  border: 0;
+  justify-content: space-between;
+  padding: 9px;
+  font-size: 13px;
+}
+.left-navigation button > span {
+  color: var(--muted);
+}
+.dice-tray {
+  margin-top: auto;
+  padding: 18px 14px 10px;
+  border-top: 1px solid var(--line);
+}
+.dice-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 12px 0;
+}
+.hakton-app .dice-options button {
+  padding: 6px;
+  min-width: 34px;
+  font-size: 12px;
+  background: transparent;
+}
+.hakton-app button[aria-pressed='true'] {
+  color: #adfcf9;
+  background: #29445c;
+}
+.dice-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.dice-tray select {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.dice-fields input {
+  padding: 6px 8px;
+}
+.hakton-app .dice-submit {
+  margin-top: 10px;
+  width: 100%;
+  justify-content: space-between;
+  background: #305f7d;
+  border-color: #3a7ca5;
+}
+
+.collapsed-rail {
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  width: 35px;
+  flex-shrink: 0;
+  padding-top: 8px;
+}
+.table-center {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.board {
+  flex: 1;
+  min-height: 150px;
+  position: relative;
+  overflow: hidden;
+  background: #0d1828;
+}
+.board-caption {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  z-index: 1;
+  background: #101e39;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.board-caption strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.board-caption > span:last-child {
+  color: var(--muted);
+  font-size: 11px;
+}
+.scene-indicator {
+  width: 6px;
+  height: 6px;
+  background: #adfcf9;
+}
+.board-host {
+  height: 100%;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+.preview-map {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 800px;
+  height: 540px;
+  background: #111f30;
+}
+.preview-map.with-grid {
+  background-image:
+    linear-gradient(#2b40584d 1px, transparent 1px),
+    linear-gradient(90deg, #2b40584d 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.map-room {
+  position: absolute;
+  border: 5px solid #526777;
+  background: #314656;
+  color: #91a6b3;
+}
+.map-room > span {
+  position: absolute;
+  font-size: 10px;
+  letter-spacing: 2px;
+  left: 16px;
+  top: 13px;
+}
+.room-a {
+  width: 160px;
+  height: 200px;
+  top: 220px;
+  left: 80px;
+}
+.room-b {
+  width: 320px;
+  height: 280px;
+  top: 100px;
+  left: 320px;
+}
+.room-c {
+  width: 160px;
+  height: 120px;
+  top: 380px;
+  left: 440px;
+}
+.map-corridor {
+  position: absolute;
+  width: 240px;
+  height: 80px;
+  top: 260px;
+  left: 160px;
+  background: #314656;
+  border-top: 5px solid #526777;
+  border-bottom: 5px solid #526777;
+}
+.map-altar {
+  position: absolute;
+  width: 80px;
+  height: 40px;
+  background: #4b6575;
+  border: 1px solid #91a6b3;
+  top: 65px;
+  left: 115px;
+}
+.map-token {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--token-color, #adfcf9);
+  color: var(--token-color, #adfcf9);
+  background: #152d40;
+  position: absolute;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+.token-0 {
+  left: 242px;
+  top: 282px;
+}
+.token-1 {
+  left: 322px;
+  top: 282px;
+}
+.token-2 {
+  left: 202px;
+  top: 322px;
+}
+.enemy-token {
+  left: 482px;
+  top: 202px;
+  color: #f3b8a7;
+  border-color: #db9685;
+  background: #4a3235;
+}
+.board-tools {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  position: absolute;
+  bottom: 18px;
+  left: 20px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #101e39;
+  padding: 3px;
+}
+.board-tools button {
+  background: transparent;
+  border-color: transparent;
+  font-size: 12px;
+}
+.board-scale {
+  position: absolute;
+  bottom: 22px;
+  right: 20px;
+  color: var(--muted);
+  font-size: 11px;
+  background: #0d1828;
+  padding: 4px;
+}
+.board-notice {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(400px, 80%);
+  text-align: center;
+  color: #d6c4ac;
+  background: #172842;
+  padding: 20px;
+  border: 1px solid var(--line);
+}
+.board-notice p {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.table-hotbar {
+  height: 48px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  padding: 5px 12px;
+  gap: 12px;
+}
+.table-hotbar button {
+  border-color: transparent;
+  background: transparent;
+  font-size: 12px;
+}
+.shortcut-key {
+  font-size: 10px;
+  color: var(--muted);
+}
+.hotbar-space {
+  flex: 1;
+}
+.chat-panel {
+  width: 282px;
+  min-width: 238px;
+  max-width: 380px;
+  resize: horizontal;
+  overflow: auto;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+.hakton-app .tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+  padding: 11px 14px;
+  color: var(--muted);
+}
+.hakton-app .tabs button[aria-selected='true'] {
+  border-bottom-color: #adfcf9;
+  color: #adfcf9;
+}
+.chat-panel .tabs {
+  padding: 0 4px;
+}
+.message-list {
+  flex: 1;
+  min-height: 100px;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+.log-divider {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  padding: 20px 0 8px;
+}
+.message {
+  padding: 16px 0;
+  border-bottom: 1px solid #26384e;
+}
+.message > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.message strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #adfcf9;
+}
+.message time {
+  color: var(--muted);
+  font-size: 10px;
+}
+.message p {
+  margin-top: 7px;
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.chat-composer {
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+.chat-composer .preview-label {
+  display: block;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.chat-composer textarea {
+  width: 100%;
+  height: 78px;
+  resize: vertical;
+  max-height: 180px;
+  font-size: 12px;
+}
+.chat-composer > div {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 7px;
+  gap: 8px;
+}
+.chat-composer button {
+  font-size: 11px;
+  padding: 6px 10px;
+}
+.recipient {
+  padding: 12px;
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+}
+.recipient select {
+  margin: 0 !important;
+}
+.empty-inline {
+  padding: 28px 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.assets-panel {
+  height: 248px;
+  min-height: 180px;
+  max-height: 45vh;
+  resize: vertical;
+  overflow: auto;
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+.assets-panel > header {
+  gap: 12px;
+}
+.assets-panel .tabs {
+  flex: 1;
+  border: 0;
+  align-self: stretch;
+}
+.assets-panel .tabs button {
+  padding: 8px 10px;
+}
+.asset-content {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 16px;
+}
+.asset-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.asset-search input {
+  padding: 5px 8px;
+  width: 190px;
+  font-size: 12px;
+}
+.asset-search button {
+  margin-left: auto;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.asset-items {
+  display: flex;
+  gap: 16px;
+  padding: 12px 0;
+}
+.hakton-app .asset-item {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  width: 140px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  align-items: start;
+  gap: 5px;
+  text-align: left;
+}
+.asset-item.selected {
+  border-color: #adfcf9;
+}
+.asset-thumbnail {
+  height: 64px;
+  background: #263f52;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  color: #adfcf9;
+  font-family: Georgia, serif;
+  font-size: 22px;
+}
+.mini-plan {
+  display: block;
+  height: 35px;
+  width: 60px;
+  border: 3px solid #7993a3;
+  outline: 1px solid #486171;
+  outline-offset: 5px;
+}
+.asset-item strong {
+  font-size: 11px;
+  font-weight: 400;
+  padding: 0 5px 4px;
+}
+.asset-item small {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  font:
+    10px 'Segoe UI',
+    sans-serif;
+  padding: 1px 5px;
+  color: #adfcf9;
+  background: #091540;
+}
+.asset-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+.asset-bottom button {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+/* Native dialogs provide focus trapping, Escape, and inert background. */
+.hakton-app dialog {
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid #567189;
+  border-radius: 5px;
+  padding: 0;
+  width: 520px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 64px);
+  margin: auto;
+}
+.hakton-app dialog::backdrop {
+  background: #030b1cc9;
+}
+.hakton-app dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.dialog-body {
+  padding: 22px;
+}
+.dialog-body > p {
+  line-height: 1.65;
+  margin-bottom: 18px;
+}
+.dialog-body form {
+  display: grid;
+  gap: 18px;
+}
+.form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+.notice {
+  color: #bcceda;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.notes-editor {
+  min-height: 220px;
+  resize: vertical;
+  line-height: 1.65;
+}
+.reference-row {
+  padding: 12px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+.reference-entry {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.hakton-app summary {
+  cursor: pointer;
+  padding: 10px 0;
+}
+.reference-entry summary small {
+  float: right;
+}
+.reference-entry p {
+  color: #c3d0dc;
+  line-height: 1.7;
+  margin: 8px 0;
+}
+.character-detail {
+  color: #adfcf9;
+}
+.sheet-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 20px 0;
+}
+.sheet-summary input {
+  width: 75px !important;
+  display: inline-block !important;
+  font-size: 18px;
+}
+.sheet-summary > div > span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sheet-summary strong {
+  display: block;
+  font-size: 22px;
+  margin-top: 8px;
+  font-weight: 500;
+}
+.ability-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  margin: 20px 0;
+}
+.ability-grid > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  border-right: 1px solid var(--line);
+}
+.ability-grid > div:last-child {
+  border: 0;
+}
+.ability-grid span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.ability-grid strong {
+  font-size: 22px;
+  font-weight: 500;
+}
+.prepared-dice {
+  color: #adfcf9;
+  font:
+    36px Georgia,
+    serif;
+  padding: 10px 0 20px;
+}
+@media (max-width: 1100px) {
+  .left-panel {
+    width: 195px;
+  }
+  .chat-panel {
+    width: 244px;
+  }
+  .table-header {
+    gap: 12px;
+  }
+  .table-header .brand span {
+    display: none;
+  }
+  .campaign-layout {
+    gap: 24px;
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+  .board-caption {
+    left: 12px;
+    top: 12px;
+  }
+  .board-caption > span:last-child {
+    display: none;
+  }
+  .board-scale {
+    right: 10px;
+    bottom: 66px;
+  }
+  .assets-panel .tabs button {
+    padding: 8px 6px;
+    font-size: 11px;
+  }
+  .assets-panel > header {
+    padding: 0 8px;
+    gap: 6px;
+  }
+}
+@media (max-height: 730px) {
+  .party-host {
+    padding: 10px 14px;
+  }
+  .left-navigation {
+    margin-top: 8px;
+    padding: 4px;
+  }
+  .left-navigation button {
+    padding: 6px 10px !important;
+  }
+  .dice-tray {
+    padding-top: 10px;
+  }
+  .dice-options {
+    margin: 8px 0;
+  }
+  .start-screen {
+    min-height: 0;
+  }
+  .start-emblem .brand-mark {
+    width: 50px;
+    height: 50px;
+  }
+  .start-actions {
+    margin-top: 24px;
+  }
+
+  .campaign-screen {
+    padding-top: 18px;
+  }
+  .page-title {
+    margin: 16px 0;
+  }
+}
+@media (max-width: 800px) {
+  .app-header {
+    padding: 0 20px;
+  }
+
+  .campaign-screen {
+    padding: 20px;
+  }
+  .campaign-layout {
+    grid-template-columns: 1fr;
+  }
+  .campaign-list {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .campaign-row {
+    flex: 1;
+    min-width: 240px;
+  }
+  .page-title {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .left-panel {
+    width: 180px;
+  }
+  .chat-panel {
+    position: absolute;
+    right: 0;
+    top: 64px;
+    bottom: 0;
+    z-index: 4;
+    width: 270px;
+  }
+  .table-title {
+    max-width: 170px;
+  }
+  .table-header-actions {
+    gap: 5px;
+  }
+  .table-header-actions button {
+    font-size: 11px;
+  }
+  .table-header-actions select {
+    max-width: 130px;
+  }
+  .table-hotbar > .preview-label {
+    display: none;
+  }
+}
+.panel-resizer {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: #14243b;
+  touch-action: none;
+}
+.panel-resizer:hover {
+  background: #3a7ca5;
+}
+.chat-panel {
+  resize: none;
+}
+.hakton-app [hidden] {
+  display: none !important;
+}
+@media (max-width: 800px) {
+  .panel-resizer {
+    display: none;
+  }
+}

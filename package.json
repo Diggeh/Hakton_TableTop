@@ -17,6 +17,7 @@
     "build:renderer": "vite build",
     "build": "npm run build:renderer && electron-builder",
     "build:dir": "npm run build:renderer && electron-builder --dir",
+    "test": "node --test --test-concurrency=1 test/networking/server.test.js test/networking/sessionManager.test.js test/networking/socketRouter.test.js",
     "postinstall": "electron-builder install-app-deps",
     "rebuild:native": "electron-builder install-app-deps"
   },
