@@ -1440,3 +1440,8 @@
     display: none;
   }
 }
+.chat-status { color:#a4bac3; font-size:12px; padding:6px 0; }
+.chat-error { color:#e6b6a6; font-size:12px; padding:5px 0; }
+.chat-error button { margin-left:5px; font-size:11px; padding:3px 7px; }
+.message-pending { opacity:.7; }
+.message p { white-space:pre-wrap; overflow-wrap:anywhere; }

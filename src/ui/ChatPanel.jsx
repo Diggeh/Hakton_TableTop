@@ -1,7 +1,15 @@
+import LiveChatPanel from './LiveChatPanel.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { IconButton, Tabs } from './Primitives.jsx';
 import { party } from './fixtures.js';
-export default function ChatPanel({ name, onClose, hidden, width }) {
+export default function ChatPanel({ preview = true, ...props }) {
+  return preview ? (
+    <PreviewChatPanel {...props} />
+  ) : (
+    <LiveChatPanel {...props} />
+  );
+}
+function PreviewChatPanel({ name, onClose, hidden, width }) {
   const [tab, setTab] = useState('Table');
   const [recipient, setRecipient] = useState('Dungeon Master');
   const [draft, setDraft] = useState('');

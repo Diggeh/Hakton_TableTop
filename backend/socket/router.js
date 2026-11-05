@@ -1,3 +1,4 @@
+import { registerChatHandlers } from '../chat/handlers.js';
 import { EVENTS } from '../../shared/events.js';
 import { SessionManager, sanitizeParticipant } from '../session/sessionManager.js';
 
@@ -30,6 +31,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
   registeredServers.add(io);
 
   io.on('connection', (socket) => {
+    registerChatHandlers(io, socket, { repository: repos?.chat, sessionManager, roomFor: getSessionRoom });
     socket.removeAllListeners(EVENTS.SESSION_JOIN);
     socket.removeAllListeners(EVENTS.SESSION_LEAVE);
     socket.removeAllListeners(EVENTS.TOKEN_MOVE);

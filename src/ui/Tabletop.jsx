@@ -174,6 +174,7 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
         )}
         <div className="chat-window">
           <ChatPanel
+            preview={preview}
             name={name}
             hidden={!chat}
             onClose={() => setChat(false)}
