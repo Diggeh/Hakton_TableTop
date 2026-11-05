@@ -9,6 +9,7 @@ Hakton utilizes a decentralized, zero-cloud-dependency architecture. The Dungeon
 *   **Desktop Shell:** Electron (packages React frontend and Node.js backend).
 *   **Frontend Engine:** React.js.
 *   **Canvas Engine:** Konva.js (`react-konva`) for HTML5 2D canvas rendering. Strict layer isolation required (background, grid, interactive tokens).
+*   **3D Rendering & Physics Engine:** Three.js paired with Cannon.js (or `cannon-es`) for 3D polyhedral dice meshes with real-time gravity, friction, and collision physics on a transparent overlay canvas positioned directly above the 2D Konva board.
 *   **State Management:** Zustand (Strictly isolated state outside the React component tree. *Do not use React Context for high-frequency updates*).
 *   **Backend Engine:** Node.js embedded within the host Electron app.
 *   **Real-Time Bus:** Socket.io for state synchronization (tokens, chat, dice). 
@@ -94,12 +95,37 @@ CREATE VIRTUAL TABLE IF NOT EXISTS compendium_fts USING fts5(
 }
 ```
 
-## 5. Current Project Status & Immediate Focus
+## 5. 3D Dice Rolling Physics & Overlay Architecture
+
+### 5.1 Layering & Visual Integration
+* **Overlay Hierarchy:** A transparent HTML5 Canvas layer managed by **Three.js** mounts on top of the 2D Konva stage (`pointer-events: none` during idle, with pass-through or selective capture during active rolls).
+* **Viewport Matching:** Three.js camera (PerspectiveCamera) and renderer match the primary window dimensions, synchronizing invisible bounding collision planes with screen edges and board floor.
+
+### 5.2 Deterministic Dice Roll Pipeline
+1. **Local Formula Parsing:** Parse dice expressions (e.g., `2d20kh1 + 5`, `4d6ro<2`) locally using an RPG dice roller engine to resolve terms, dropped dice, and modifiers.
+2. **Pre-Determined Target Outcomes:** Compute the exact target integer outcome for each physical die before launching the simulation.
+3. **Target Orientation & Impulse Calculation:**
+   * Look up the polyhedral face normal and corresponding quaternion rotation for the desired result face.
+   * Spawn the corresponding Three.js mesh and Cannon.js (`cannon-es`) rigid body (`CANNON.Body` with convex polyhedral hull shape) from an off-screen or top-view trajectory.
+   * Apply randomized throw impulses (linear velocity) and rotational torque (angular velocity) designed to naturally rotate through chaos while settling on the computed orientation face upward (+Z / screen outward).
+4. **Network Synchronization & Persistence:**
+   * Broadcast the roll payload (roller identity, formula, breakdown, individual die results, total) across the peer network via Socket.io (`DICE_ROLLED` event).
+   * Persist the roll entry into the embedded SQLite database (`chat_messages` table with type `dice_roll` and structured JSON payload).
+
+### 5.3 Performance & Resource Lifecycle Best Practices
+* **Active-Only Simulation Lifecycle:** Three.js and Cannon.js simulation loops (`requestAnimationFrame`) must run **only** during active rolls.
+* **GPU Resource Optimization:** 
+  * When no dice are in flight and animations settle, hide/unmount the overlay canvas or suspend the render loop (`renderer.setAnimationLoop(null)`), pausing all physics step evaluations (`world.step(...)`).
+  * Explicitly dispose of mesh geometries, face textures/materials, and Cannon body references when tearing down dice instances to prevent V8/GPU memory leaks.
+* **Shared Geometry Caching:** Polyhedral geometries (d4, d6, d8, d10, d12, d20, d100) and material shaders are pre-instantiated in memory once and cloned or re-used across rolls to prevent JIT stutter on roll initiation.
+
+## 6. Current Project Status & Immediate Focus
 *   **Timeline:** Week 6 of 13.
 *   **Current Phase:** Phase 1 & 2 (Core Architecture & Board Mechanics).
 *   **Immediate Backlog Items:** 
     1. Complete Local File Storage pipeline (resolving OS paths via `app.getPath('userData')` to create the `/uploads` directory for lossless assets).
     2. Establish the Socket.io host server and initial "Welcome Packet" sync broadcast.
     3. Build the base React + Konva canvas layers.
+    4. Implement the 3D dice overlay component with Three.js and `cannon-es` integrated into the chat/roller event stream.
 
 *Agent Instruction: When generating code for this project, always adhere strictly to the decoupled architecture defined above. Output production-ready, highly technical code without generic filler.*
