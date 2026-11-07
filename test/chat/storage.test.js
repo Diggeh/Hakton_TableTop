@@ -47,6 +47,18 @@ it('persists text across reopen and scopes history before applying its limit', (
     type: 'text',
     payload: { text: 'Legacy' },
   });
+  chat.append({
+    id: 'attachment',
+    senderId: 'josh',
+    senderName: 'Josh',
+    recipientId: 'private',
+    type: 'image',
+    payload: {
+      text: 'Private image',
+      sessionId: 'table-a',
+      image: 'stored-bytes',
+    },
+  });
   db.close();
   db = null;
   db = openDatabase(file);
@@ -55,6 +67,19 @@ it('persists text across reopen and scopes history before applying its limit', (
     chat.publicHistoryForSession('table-a').map((m) => m.id),
     ['keep'],
   );
+  assert.deepEqual(
+    chat.historyForSession('table-a', 'bystander', 100).map((m) => m.id),
+    ['keep'],
+  );
+  for (const user of ['josh', 'private']) {
+    const history = chat.historyForSession('table-a', user, 100);
+    assert.deepEqual(
+      history.map((m) => m.id),
+      ['keep', 'secret', 'attachment'],
+    );
+    assert.equal(history[2].payload.image, undefined);
+  }
+  assert.equal(chat.get('attachment').payload.image, 'stored-bytes');
   assert.equal(chat.get('keep').payload.text, 'Persist me');
   assert.equal(chat.get('missing'), null);
   assert.equal(chat.publicHistoryForSession('table-b', 10000).length, 100);

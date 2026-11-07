@@ -2,6 +2,7 @@ import {
   CHAT_ACK_TIMEOUT,
   CHAT_EVENTS,
   MAX_TEXT_LENGTH,
+  MAX_IMAGE_BYTES,
 } from '../../shared/chatEvents.js';
 import { chatStore } from '../store/chatStore.js';
 import { sessionStore } from '../store/sessionStore.js';
@@ -17,24 +18,25 @@ const scopeFor = (state) =>
 const canSend = (state) => state.connection === 'connected' && scopeFor(state);
 function request(socket, event, payload) {
   return new Promise((resolve) => {
-    socket
-      .timeout(CHAT_ACK_TIMEOUT)
-      .emit(event, payload, (error, response) =>
-        resolve(
-          error
-            ? {
-                success: false,
-                error: 'Host did not confirm the request. Please retry.',
-              }
-            : response || { success: false, error: 'Invalid host response.' },
-        ),
-      );
+    socket.timeout(CHAT_ACK_TIMEOUT).emit(event, payload, (error, response) =>
+      resolve(
+        error
+          ? {
+              success: false,
+              error: 'Host did not confirm the request. Please retry.',
+            }
+          : response || { success: false, error: 'Invalid host response.' },
+      ),
+    );
   });
 }
-function validPublic(message, sessionId) {
+function validMessage(message, state) {
   return (
-    message?.sessionId === sessionId &&
-    message.type === 'text' &&
+    message?.sessionId === state.session?.id &&
+    ['text', 'whisper', 'image'].includes(message.type) &&
+    (message.recipientId == null ||
+      message.senderId === state.currentUser?.id ||
+      message.recipientId === state.currentUser?.id) &&
     typeof message.id === 'string' &&
     typeof message.text === 'string' &&
     typeof message.senderName === 'string' &&
@@ -65,9 +67,7 @@ export function loadChatHistory() {
       ) {
         chatStore
           .getState()
-          .accept(
-            response.messages.filter((m) => validPublic(m, state.session.id)),
-          );
+          .accept(response.messages.filter((m) => validMessage(m, state)));
         chatStore.getState().setHistoryState('ready');
       } else
         chatStore
@@ -89,7 +89,7 @@ export function bindChat(socket) {
   needsHistory = true;
   const receive = (message) => {
     const state = sessionStore.getState();
-    if (canSend(state) && validPublic(message, state.session.id))
+    if (canSend(state) && validMessage(message, state))
       chatStore.getState().accept([message]);
   };
   const disconnected = () => {
@@ -131,42 +131,74 @@ export function unbindChat() {
   unbind = null;
 }
 
-export async function sendPublicText(text, requestId = crypto.randomUUID()) {
+export function sendPublicText(text, requestId) {
+  return sendChatMessage({ text, type: 'text' }, requestId);
+}
+
+export async function sendChatMessage(draft, requestId = crypto.randomUUID()) {
   const state = sessionStore.getState();
   const socket = activeSocket;
   if (!socket?.connected || !canSend(state))
     return { success: false, error: 'Connect to a session before sending.' };
-  if (typeof text !== 'string' || !text.trim() || text.length > MAX_TEXT_LENGTH)
+  const { text, type, recipientId = null, recipientName, image } = draft;
+  if (
+    typeof text !== 'string' ||
+    text.length > MAX_TEXT_LENGTH ||
+    (!text.trim() && type !== 'image')
+  )
     return { success: false, error: `Use 1–${MAX_TEXT_LENGTH} characters.` };
   const scope = scopeFor(state);
-  chatStore
-    .getState()
-    .pending({
-      id: `pending:${requestId}`,
-      requestId,
-      sessionId: state.session.id,
-      senderId: state.currentUser.id,
-      senderName: state.currentUser.displayName,
-      text: text.trim(),
-      createdAt: new Date().toISOString(),
-      type: 'text',
-    });
-  const response = await request(socket, CHAT_EVENTS.SEND, { text, requestId });
+  const payload = { text: text.trim(), type, recipientId, image };
+  chatStore.getState().pending({
+    ...payload,
+    id: `pending:${requestId}`,
+    requestId,
+    sessionId: state.session.id,
+    senderId: state.currentUser.id,
+    senderName: state.currentUser.displayName,
+    recipientName,
+    createdAt: new Date().toISOString(),
+  });
+  const response = await request(socket, CHAT_EVENTS.SEND, {
+    ...payload,
+    requestId,
+  });
   if (socket !== activeSocket || chatStore.getState().scope !== scope)
     return response;
-  if (response.success && validPublic(response.message, state.session.id))
+  if (response.success && validMessage(response.message, state)) {
     chatStore.getState().accept([response.message]);
-  else
-    chatStore
-      .getState()
-      .fail(requestId, response.error || 'Message could not be sent.');
-  return response;
+    return response;
+  }
+  const error = response.error || 'Message could not be sent.';
+  chatStore.getState().fail(requestId, error);
+  return { success: false, error };
 }
-export function retryPublicText(requestId) {
+
+export function retryChatMessage(requestId) {
   const message = chatStore
     .getState()
     .messages.find((m) => m.requestId === requestId && m.status === 'failed');
   return message
-    ? sendPublicText(message.text, requestId)
+    ? sendChatMessage(message, requestId)
     : Promise.resolve({ success: false });
 }
+
+export async function fetchChatImage(id) {
+  const socket = activeSocket;
+  const state = sessionStore.getState();
+  if (!socket?.connected || !canSend(state))
+    throw new Error('Reconnect to load the image.');
+  const result = await request(socket, CHAT_EVENTS.IMAGE, id);
+  if (
+    socket !== activeSocket ||
+    scopeFor(sessionStore.getState()) !== scopeFor(state) ||
+    !result.success ||
+    typeof result.image !== 'string' ||
+    result.image.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4
+  ) {
+    throw new Error(result.error || 'Image unavailable.');
+  }
+  return result.image;
+}
+
+export { retryChatMessage as retryPublicText };

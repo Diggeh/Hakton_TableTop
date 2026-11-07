@@ -33,13 +33,15 @@ function repository() {
       rows.set(row.id, row);
       return row;
     },
-    publicHistoryForSession: (id, limit) =>
+    historyForSession: (id, userId, limit) =>
       [...rows.values()]
         .filter(
           (r) =>
             r.payload.sessionId === id &&
-            r.type === 'text' &&
-            r.recipient_id === null,
+            ['text', 'whisper', 'image'].includes(r.type) &&
+            (r.recipient_id === null ||
+              r.recipient_id === userId ||
+              r.sender_id === userId),
         )
         .slice(-limit),
   };
@@ -133,7 +135,7 @@ describe('Delgado public text chat', () => {
     ]);
   });
 
-  it('isolates live delivery and history by joined session and excludes whispers/legacy rows', async () => {
+  it('isolates delivery and history by session and excludes unscoped rows', async () => {
     server.sessionManager.createSession({
       id: 'other',
       name: 'Other campaign',
@@ -148,7 +150,7 @@ describe('Delgado public text chat', () => {
       senderName: 'DM',
       recipientId: a.welcome.playerId,
       type: 'whisper',
-      payload: { text: 'secret', sessionId: 'default' },
+      payload: { text: 'secret' },
     });
     repo.append({
       id: 'legacy',
@@ -170,6 +172,122 @@ describe('Delgado public text chat', () => {
     const local = await ack(a.socket, CHAT_EVENTS.HISTORY, {});
     assert.equal(local.messages.length, 1);
     assert.equal(local.messages[0].text, 'Only this table.');
+  });
+
+  it('delivers whispers and private images only to sender and recipient', async () => {
+    const a = await raw('Josh');
+    const b = await raw('Mira');
+    const c = await raw('Thorne');
+    server.sessionManager.createSession({ id: 'another', name: 'Another' });
+    const other = await raw('Visitor', 'another');
+    const unrelated = [];
+    c.socket.on(CHAT_EVENTS.MESSAGE, (m) => unrelated.push(m));
+    const delivered = once(b.socket, CHAT_EVENTS.MESSAGE);
+    const whisper = {
+      requestId: 'private',
+      type: 'whisper',
+      recipientId: b.welcome.playerId,
+      text: 'Secret',
+    };
+    const sent = await ack(a.socket, CHAT_EVENTS.SEND, whisper);
+    assert.equal(sent.success, true);
+    assert.deepEqual((await delivered)[0], sent.message);
+    assert.equal(
+      (await ack(a.socket, CHAT_EVENTS.SEND, whisper)).message.id,
+      sent.message.id,
+    );
+    assert.equal(repo.rows.size, 1);
+    assert.equal(
+      (
+        await ack(a.socket, CHAT_EVENTS.SEND, {
+          ...whisper,
+          requestId: 'cross-session',
+          recipientId: other.welcome.playerId,
+        })
+      ).success,
+      false,
+    );
+
+    const image =
+      'UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoEAAQAAUAmJaACdLoB+AADsAD+8ut//NgVzXPv9//S4P0uD9Lg/9KQAAA=';
+    const incoming = once(b.socket, CHAT_EVENTS.MESSAGE);
+    const attachment = await ack(a.socket, CHAT_EVENTS.SEND, {
+      type: 'image',
+      requestId: 'attachment',
+      recipientId: b.welcome.playerId,
+      image,
+    });
+    assert.equal(attachment.success, true);
+    assert.equal((await incoming)[0].image, undefined);
+    for (const participant of [a, b]) {
+      const history = await ack(participant.socket, CHAT_EVENTS.HISTORY, {});
+      assert.deepEqual(
+        history.messages.map((m) => m.type),
+        ['whisper', 'image'],
+      );
+      assert.equal(history.messages[1].image, undefined);
+      assert.equal(
+        (
+          await ack(
+            participant.socket,
+            CHAT_EVENTS.IMAGE,
+            attachment.message.id,
+          )
+        ).image,
+        image,
+      );
+    }
+    for (const participant of [c, other]) {
+      assert.equal(
+        (await ack(participant.socket, CHAT_EVENTS.HISTORY, {})).messages
+          .length,
+        0,
+      );
+      assert.equal(
+        (
+          await ack(
+            participant.socket,
+            CHAT_EVENTS.IMAGE,
+            attachment.message.id,
+          )
+        ).success,
+        false,
+      );
+    }
+    const publicImage = once(c.socket, CHAT_EVENTS.MESSAGE);
+    const publicSend = await ack(a.socket, CHAT_EVENTS.SEND, {
+      type: 'image',
+      requestId: 'public-image',
+      image,
+    });
+    assert.equal(publicSend.success, true);
+    assert.deepEqual((await publicImage)[0], publicSend.message);
+    assert.equal(
+      (await ack(c.socket, CHAT_EVENTS.IMAGE, publicSend.message.id)).image,
+      image,
+    );
+    assert.equal(
+      (await ack(other.socket, CHAT_EVENTS.IMAGE, publicSend.message.id))
+        .success,
+      false,
+    );
+    assert.deepEqual(
+      unrelated.map((m) => m.id),
+      [publicSend.message.id],
+    );
+    for (const invalid of ['PHN2Zy8+', image + 'AAAA', 'A'.repeat(350000)]) {
+      assert.equal(
+        (
+          await ack(a.socket, CHAT_EVENTS.SEND, {
+            type: 'image',
+            requestId: 'invalid-image',
+            image: invalid,
+          })
+        ).success,
+        false,
+      );
+    }
+    assert.equal(repo.rows.size, 3);
   });
 
   it('rejects unjoined send/history, malformed text, and private/roll payloads', async () => {

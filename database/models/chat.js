@@ -17,7 +17,18 @@ export function createChatModel(db) {
       AND json_extract(payload, '$.sessionId') = @sessionId
     ORDER BY created_at DESC, rowid DESC LIMIT @limit`);
 
+  const sessionHistory = db.prepare(`
+    SELECT id, sender_id, sender_name, recipient_id, type, created_at,
+           json_remove(payload, '$.image') AS payload
+    FROM chat_messages
+    WHERE json_extract(payload, '$.sessionId') = @sessionId
+      AND type IN ('text', 'whisper', 'image')
+      AND (recipient_id IS NULL OR recipient_id = @userId OR sender_id = @userId)
+    ORDER BY created_at DESC, rowid DESC LIMIT @limit`);
+
   return {
+    historyForSession: (sessionId, userId, limit) =>
+      sessionHistory.all({ sessionId, userId, limit }).reverse().map(hydrate),
     get: (id) => {
       const row = byId.get(id);
       return row ? hydrate(row) : null;
