@@ -11,7 +11,39 @@ export function createChatModel(db) {
     WHERE recipient_id IS NULL OR recipient_id = @userId OR sender_id = @userId
     ORDER BY created_at DESC, rowid DESC LIMIT @limit`);
 
+  const publicHistory = db.prepare(`
+    SELECT * FROM chat_messages
+    WHERE recipient_id IS NULL AND type = 'text'
+      AND json_extract(payload, '$.sessionId') = @sessionId
+    ORDER BY created_at DESC, rowid DESC LIMIT @limit`);
+
+  const sessionHistory = db.prepare(`
+    SELECT id, sender_id, sender_name, recipient_id, type, created_at,
+           json_remove(payload, '$.image') AS payload
+    FROM chat_messages
+    WHERE json_extract(payload, '$.sessionId') = @sessionId
+      AND type IN ('text', 'whisper', 'image')
+      AND (recipient_id IS NULL OR recipient_id = @userId OR sender_id = @userId)
+    ORDER BY created_at DESC, rowid DESC LIMIT @limit`);
+
   return {
+    historyForSession: (sessionId, userId, limit) =>
+      sessionHistory.all({ sessionId, userId, limit }).reverse().map(hydrate),
+    get: (id) => {
+      const row = byId.get(id);
+      return row ? hydrate(row) : null;
+    },
+    publicHistoryForSession: (sessionId, limit = 100) =>
+      publicHistory
+        .all({
+          sessionId,
+          limit: Math.max(
+            1,
+            Math.min(100, Number.isInteger(limit) ? limit : 100),
+          ),
+        })
+        .reverse()
+        .map(hydrate),
     append(m) {
       insert.run({
         id: m.id,
@@ -24,6 +56,7 @@ export function createChatModel(db) {
       return hydrate(byId.get(m.id));
     },
     /** History visible to `userId`, returned oldest-first for rendering. */
-    historyFor: (userId, limit = 100) => recent.all({ userId, limit }).reverse().map(hydrate),
+    historyFor: (userId, limit = 100) =>
+      recent.all({ userId, limit }).reverse().map(hydrate),
   };
 }

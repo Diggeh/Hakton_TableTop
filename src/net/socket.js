@@ -1,3 +1,4 @@
+import { bindChat, unbindChat } from './chat.js';
 import { io } from 'socket.io-client';
 import {
   CONNECTION_STATUS,
@@ -75,6 +76,7 @@ export function getSocket() {
  * Intentionally closes the active client connection and releases all listeners.
  */
 export function disconnect() {
+  unbindChat();
   if (socket) {
     detachListeners(socket);
     try {
@@ -277,6 +279,7 @@ export async function connect(options) {
   });
 
   detachListeners(socket);
+  bindChat(socket);
 
   socket.on('connect', () => {
     const currentState = sessionStore.getState();
