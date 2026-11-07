@@ -1,0 +1,1451 @@
+/* Scrying Pool, refined: midnight workspace, slate tools, mineral map surface.
+   Layout follows the prototype; color and scale are purpose-built for desktop play. */
+.hakton-app {
+  --surface: #172630;
+  --raised: #223640;
+  --line: #354c57;
+  --muted: #9bafb7;
+  --ink: #e4eceb;
+  background: #0d171f;
+  color: var(--ink);
+}
+.hakton-app button {
+  border-radius: 6px;
+  color: var(--ink);
+  border-color: transparent;
+  background: #263b46;
+}
+.hakton-app button:hover:not(:disabled) {
+  background: #344f5b;
+  border-color: #669eaa;
+}
+.hakton-app button.primary {
+  background: #86c9bd;
+  border-color: #86c9bd;
+}
+.hakton-app button.primary:hover {
+  background: #a3e1d4;
+}
+.hakton-app button[aria-pressed='true'] {
+  background: #2c5557;
+  color: #b4e7dd;
+}
+.hakton-app :focus-visible {
+  outline-color: #a3e1d4;
+}
+.hakton-app input,
+.hakton-app textarea,
+.hakton-app select {
+  background: #101f28;
+  border-color: #354c57;
+  color: #e4eceb;
+}
+.hakton-app input::placeholder,
+.hakton-app textarea::placeholder {
+  color: #8a9da5;
+}
+.hakton-app label {
+  color: #b4c3c8;
+}
+.hakton-app .icon-button {
+  background: transparent;
+  border: 0;
+  width: 29px;
+  height: 29px;
+  padding: 5px;
+}
+.app-header {
+  height: 56px;
+  padding: 0 28px;
+  border: 0;
+  color: #e4eceb;
+}
+.hakton-app .profile {
+  color: #e4eceb;
+}
+.screen-home .app-header .brand {
+  visibility: hidden;
+}
+.start-screen {
+  width: min(560px, calc(100% - 48px));
+  min-height: 0;
+  margin: max(20px, calc((100vh - 500px) / 2)) auto 0;
+  position: relative;
+}
+.campaign-screen {
+  height: calc(100% - 80px);
+  margin: 0 auto;
+  padding: 16px 0;
+  overflow: auto;
+}
+.page-top .text-button,
+.page-top .preview-label {
+  color: #a8bdc5;
+  font-size: 12px;
+}
+.page-title {
+  display: block;
+  margin: 16px 0 12px;
+}
+.page-title h1 {
+  color: #edf2ed;
+  font-size: 18px;
+}
+.segmented {
+  background: #16252f;
+  display: flex;
+}
+.segmented button {
+  flex: 1;
+  color: #a8bdc5;
+  background: transparent;
+}
+.segmented button[aria-pressed='true'] {
+  color: #e4eceb;
+  background: #a2dcd0;
+}
+.campaign-layout {
+  display: block;
+}
+.campaign-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+  background: #172630;
+  overflow: auto;
+}
+.hakton-app .campaign-row {
+  border-bottom: 1px solid #2c414b;
+  border-radius: 5px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+.campaign-row.selected {
+  background: #26444c;
+}
+.campaign-row.selected strong {
+  color: #b6e7de;
+}
+.campaign-monogram {
+  border-radius: 3px;
+  font:
+    18px Georgia,
+    serif;
+}
+.hakton-app .add-campaign {
+  width: auto;
+  min-width: 160px;
+  margin-top: auto;
+}
+.tabletop {
+  background: #0d171f;
+}
+.table-header {
+  background: transparent;
+  border: 0;
+  padding: 0 20px;
+  color: #dbe6e7;
+  gap: 16px;
+}
+.table-header .brand {
+  font-size: 13px;
+}
+.table-header .brand-mark {
+  width: 24px;
+  height: 24px;
+}
+.table-title {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 12px;
+}
+.table-title span {
+  color: #90a8b2;
+}
+.table-header-actions select {
+  background: #172a35;
+  border: 1px solid #304854;
+  color: #c7deeb;
+  font-size: 11px;
+  padding: 5px 8px;
+}
+.table-header-actions .icon-button {
+  color: #a2dcd0;
+}
+.prototype-layout {
+  display: grid;
+  grid-template-rows: minmax(220px, 1fr) 0;
+  min-height: 0;
+}
+.player-list-window {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
+  margin-top: 37px;
+  background: #192c37;
+}
+.player-list-window header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 3px;
+}
+.player-list-window h2 {
+  font-weight: 600;
+}
+.player-list-window .icon-button {
+  height: 22px;
+  width: 22px;
+  font-size: 16px;
+}
+.player-list-content {
+  display: flex;
+  flex-direction: column;
+}
+.player-list-content button {
+  justify-content: space-between;
+}
+.player-host small {
+  font-size: 9px;
+}
+.dice-window {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: start;
+  max-height: 100%;
+  overflow: auto;
+}
+.prototype-layout:not(.assets-open) .dice-window {
+  grid-row: 1;
+  align-self: end;
+  max-height: calc(100% - 230px);
+}
+.dice-window .dice-tray {
+  margin: 0;
+  border: 0;
+  border-radius: 8px;
+}
+.dice-well {
+  background: #0e2029;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+}
+.dice-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+.hakton-app .dice-options button {
+  min-width: 0;
+  padding: 0;
+}
+.dice-fields {
+  gap: 5px;
+  margin-bottom: 5px;
+}
+.dice-fields label {
+  font-size: 9px;
+}
+.dice-fields input {
+  padding: 3px;
+  margin-top: 2px !important;
+}
+.dice-tray select {
+  font-size: 10px;
+  padding: 3px;
+}
+.hakton-app .dice-submit {
+  margin-top: 5px;
+  border: 0;
+}
+.canvas-window {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.scene-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 6px;
+  width: max-content;
+  max-width: 100%;
+}
+.hakton-app .scene-bar button {
+  background: transparent;
+  color: #a8bec5;
+}
+.hakton-app .scene-bar button[aria-pressed='true'] {
+  color: #0e2529;
+  background: #a2dcd0;
+}
+.board {
+  border: 1px solid #526b6a;
+  min-height: 0;
+}
+.board-host {
+  position: absolute;
+  inset: 0;
+}
+.board-caption {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: #9bafb7;
+  gap: 6px;
+  pointer-events: none;
+}
+.board-caption strong {
+  font-weight: 400;
+}
+.scene-indicator {
+  display: none;
+}
+.extension-toolbar,
+.utility-toolbar,
+.asset-launcher {
+  position: absolute;
+  display: flex;
+  z-index: 2;
+  background: #172e39;
+  padding: 2px;
+  gap: 1px;
+}
+.extension-toolbar {
+  border-radius: 12px;
+}
+.hakton-app .extension-toolbar .icon-button,
+.hakton-app .utility-toolbar .icon-button,
+.hakton-app .asset-launcher .icon-button {
+  width: 28px;
+  height: 26px;
+  padding: 5px;
+  border-radius: 8px;
+  color: #c9dadc;
+}
+.utility-toolbar {
+  flex-direction: column;
+  align-items: center;
+  border-radius: 13px;
+}
+.toolbar-divider {
+  width: 18px;
+  border-top: 1px solid #3a535e;
+  margin: 3px 0;
+}
+.hakton-app .zoom-value {
+  font-size: 9px;
+  width: 28px;
+  padding: 3px 0;
+  background: transparent;
+}
+.asset-launcher {
+  left: 50%;
+  transform: translateX(-50%);
+}
+.board-scale {
+  bottom: 10px;
+  right: 12px;
+  background: transparent;
+  color: #425b58;
+  font-size: 10px;
+}
+.prototype-layout > .assets-panel {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  resize: none;
+}
+.assets-panel > header {
+  border: 0;
+  padding: 0 8px;
+  gap: 8px;
+}
+.assets-panel > header h2 {
+  display: none;
+}
+.assets-panel .tabs {
+  min-width: 0;
+}
+.hakton-app .assets-panel .tabs button {
+  color: #b1c5ca;
+}
+.hakton-app .assets-panel .tabs button[aria-selected='true'] {
+  color: #e4eceb;
+  border-color: #86c9bd;
+}
+.asset-search input {
+  background: #11232c;
+}
+.asset-thumbnail {
+  color: #c9dddd;
+}
+.mini-plan {
+  border-color: #97b5bd;
+  outline-color: #527281;
+}
+.asset-items {
+  gap: 12px;
+  overflow-x: auto;
+}
+.chat-window {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  align-self: start;
+  margin-top: 37px;
+  min-width: 0;
+}
+.chat-window .chat-panel {
+  position: static;
+  width: 100% !important;
+  min-width: 0;
+  max-width: none;
+  min-height: 250px;
+  max-height: min(70vh, 600px);
+  resize: vertical;
+  overflow: auto;
+}
+.chat-panel .tabs {
+  border-color: #304752;
+}
+.hakton-app .chat-panel .tabs button {
+  color: #99b3bd;
+}
+.hakton-app .chat-panel .tabs button[aria-selected='true'] {
+  color: #b7e8db;
+  border-color: #8acfc2;
+}
+.log-divider {
+  display: none;
+}
+.message p {
+  margin-top: 5px;
+}
+.chat-composer .preview-label {
+  margin-bottom: 4px;
+}
+.chat-composer textarea {
+  min-height: 40px;
+}
+.chat-composer > div {
+  margin-top: 4px;
+}
+.recipient {
+  padding: 6px 10px;
+}
+.chat-reopen {
+  width: 100%;
+}
+.hakton-app dialog {
+  width: 500px;
+}
+.hakton-app dialog > header {
+  padding: 10px 16px;
+}
+.hakton-app dialog::backdrop {
+  background: #050d16cc;
+}
+.dialog-body {
+  padding: 20px;
+}
+.campaign-info {
+  margin: -20px;
+}
+.campaign-cover {
+  height: 150px;
+  margin: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+.campaign-cover .brand-mark {
+  width: 55px;
+  height: 55px;
+}
+.campaign-cover > span {
+  font:
+    20px Georgia,
+    serif;
+}
+.campaign-info-body {
+  padding: 14px 22px 22px;
+}
+.campaign-info-body .chapter {
+  margin-bottom: 12px;
+}
+.campaign-info-body > p {
+  line-height: 1.7;
+}
+.campaign-info-meta {
+  margin-top: 12px;
+}
+.detail-actions {
+  margin-top: 24px;
+}
+.detail-actions button {
+  border-radius: 18px;
+  padding: 6px 20px;
+  font-size: 12px;
+}
+.leave-prompt {
+  text-align: center;
+  max-width: 280px;
+  margin: 15px auto 25px !important;
+  font-size: 16px;
+}
+.leave-actions {
+  justify-content: center;
+  gap: 28px;
+}
+.leave-actions button {
+  width: 90px;
+  border-radius: 18px;
+}
+.character-detail {
+  color: #86c9bd;
+}
+.prepared-dice {
+  color: #86c9bd;
+}
+.reference-row,
+.reference-entry,
+.hakton-app dl > div {
+  border-color: #304752;
+}
+.reference-entry p {
+  color: #b4c3c8;
+}
+@media (max-width: 1100px) {
+  .prototype-layout {
+    grid-template-columns: 108px minmax(0, 1fr) 218px;
+    gap: 12px;
+    padding: 0 14px 14px;
+  }
+  .dice-window {
+    width: 108px;
+  }
+  .hakton-app .dice-options button {
+    width: 25px;
+    height: 25px;
+  }
+  .scene-bar {
+    gap: 0;
+    padding: 0 3px;
+  }
+  .hakton-app .scene-bar button {
+    padding: 3px 7px;
+    font-size: 10px;
+  }
+  .assets-panel .tabs button {
+    padding: 6px !important;
+  }
+  .table-title {
+    max-width: none;
+  }
+}
+@media (max-height: 730px) {
+  .prototype-layout.assets-open {
+    grid-template-rows: minmax(200px, 1fr) 200px;
+    gap: 10px 14px;
+  }
+  .dice-well {
+    height: 35px;
+  }
+  .dice-tray h2 {
+    margin-bottom: 4px;
+  }
+  .dice-window .dice-tray {
+    padding: 6px;
+  }
+  .dice-options {
+    margin: 4px 0;
+    gap: 2px;
+  }
+  .hakton-app .dice-options button {
+    height: 22px;
+    width: 25px;
+  }
+  .chat-window .chat-panel {
+    height: 330px;
+    max-height: calc(100vh - 110px);
+  }
+  .campaign-cover {
+    height: 110px;
+  }
+  .start-screen {
+    height: 350px;
+    margin-top: 15px;
+  }
+}
+@media (max-width: 800px) {
+  .prototype-layout {
+    grid-template-columns: 90px minmax(320px, 1fr);
+    overflow: auto;
+  }
+  .chat-window {
+    position: fixed;
+    right: 12px;
+    top: 60px;
+    z-index: 5;
+    width: 218px;
+  }
+  .dice-window {
+    width: 90px;
+  }
+  .scene-bar {
+    overflow: auto;
+  }
+  .page-title {
+    display: block;
+  }
+}
+/* Compact dice controls match the separate tray, without hiding its action. */
+.roll-modes {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.hakton-app .roll-modes button {
+  flex: 1;
+  font-size: 9px;
+}
+.hakton-app .dice-submit {
+  min-height: 22px;
+  padding: 3px;
+}
+.chat-window .message {
+  display: grid;
+  grid-template-columns: 23px minmax(0, 1fr);
+  gap: 8px;
+}
+.message-avatar {
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+}
+.message > .message-body {
+  display: block;
+}
+.message-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+@media (max-height: 730px) {
+  .prototype-layout.assets-open {
+    grid-template-rows: minmax(200px, 1fr) 200px;
+  }
+}
+.hakton-app .tabs button[aria-selected='true'] {
+  color: #abe3d7;
+  border-bottom-color: #8acfc2;
+}
+.hakton-app .notice {
+  color: #b4c3c8;
+}
+.hakton-app .danger {
+  color: #f2f5ee;
+}
+.tabletop[data-role='Player'] .canvas-window {
+  padding-top: 37px;
+}
+/* Final hierarchy and sizing: rounded window geometry, sharper working controls. */
+.hakton-app {
+  font-size: 14px;
+  --aqua: #a2dcd0;
+  scrollbar-color: #49636d #192c37;
+  scrollbar-width: thin;
+}
+.hakton-app button.primary {
+  color: #102d31;
+  font-weight: 600;
+}
+.hakton-app button:disabled {
+  opacity: 0.42;
+}
+.hakton-app input,
+.hakton-app textarea,
+.hakton-app select {
+  border-radius: 5px;
+}
+.hakton-app .brand {
+  color: #a2dcd0;
+}
+.start-screen {
+  background: transparent;
+  height: 430px;
+  border-radius: 0;
+}
+.start-screen h1 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 0;
+  background: transparent;
+  color: #e8efeb;
+  font:
+    46px Georgia,
+    serif;
+  letter-spacing: 1px;
+}
+.start-screen h1 .brand-mark {
+  width: 62px;
+  height: 62px;
+  color: #a2dcd0;
+}
+.start-actions {
+  width: 250px;
+  margin-top: 34px;
+  gap: 10px;
+}
+.start-actions button {
+  border-radius: 5px;
+  min-height: 42px;
+  font-size: 14px;
+  justify-content: space-between;
+  padding: 9px 15px;
+  background: #203540;
+  color: #dce9e7;
+}
+.start-actions button > span {
+  display: inline;
+  color: #8fb7b8;
+}
+.start-actions button.quiet {
+  justify-content: center;
+  color: #a1b5be;
+  background: transparent;
+}
+.start-actions button.primary > span {
+  color: #214a49;
+}
+.campaign-screen {
+  width: min(440px, calc(100% - 48px));
+  padding-top: 32px;
+}
+.page-title {
+  margin-top: 24px;
+}
+.page-title h1 {
+  font:
+    25px Georgia,
+    serif;
+  margin-bottom: 18px;
+}
+.segmented {
+  border: 1px solid #304752;
+  border-radius: 7px;
+  padding: 4px;
+}
+.segmented button {
+  min-height: 32px;
+  font-size: 13px;
+}
+.segmented button[aria-pressed='true'] {
+  background: #305250;
+  color: #bcf0e1;
+}
+.campaign-list {
+  height: min(430px, calc(100vh - 270px));
+  border-radius: 9px;
+  border: 1px solid #304752;
+  padding: 12px;
+}
+.hakton-app .campaign-row {
+  padding: 14px 8px;
+}
+.campaign-row strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.campaign-row small {
+  font-size: 12px;
+}
+.campaign-monogram {
+  border: 1px solid #507782;
+  color: #b9e0db;
+  background: #25434e;
+  font-size: 21px;
+  width: 52px;
+  height: 52px;
+}
+.hakton-app .add-campaign {
+  align-self: stretch;
+  border-radius: 5px;
+  border: 1px solid #41606c;
+  padding: 8px 16px;
+  color: #b9dad9;
+  font-size: 13px;
+  background: #203843;
+}
+.table-header {
+  height: 54px;
+}
+.table-title strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.table-title span {
+  font-size: 12px;
+}
+.prototype-layout {
+  grid-template-columns: 140px minmax(0, 1fr) 270px;
+  gap: 16px 18px;
+  padding: 0 20px 20px;
+}
+.prototype-layout.assets-open {
+  grid-template-rows: minmax(220px, 1fr) 266px;
+}
+.player-list-window {
+  border-radius: 8px;
+  padding: 9px;
+  border: 1px solid #304752;
+}
+.player-list-window h2 {
+  font-size: 12px;
+}
+.player-list-content {
+  gap: 5px;
+  padding-top: 8px;
+}
+.player-list-content button {
+  background: #243d48;
+  min-height: 31px;
+  font-size: 12px;
+  color: #d8e4e5;
+  border-radius: 4px;
+  padding: 6px 9px;
+}
+.player-host {
+  color: #a2dcd0 !important;
+}
+.player-host small {
+  color: #8eacb5;
+}
+.dice-window {
+  width: 140px;
+  background: #192c37;
+  border: 1px solid #304752;
+  border-radius: 8px;
+}
+.dice-window .dice-tray {
+  background: transparent;
+  padding: 9px;
+}
+.dice-tray h2 {
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.dice-well {
+  height: 40px;
+  border: 1px solid #37555f;
+  color: #c3e7de;
+  font:
+    22px Georgia,
+    serif;
+}
+.dice-options {
+  gap: 5px;
+  margin: 8px 0 6px;
+}
+.hakton-app .dice-options button {
+  border-radius: 5px;
+  height: 24px;
+  width: 30px;
+  font-size: 11px;
+  border: 1px solid #3a5662;
+  background: #233c47;
+  color: #bbd0d5;
+}
+.hakton-app .dice-options button[aria-pressed='true'] {
+  background: #2f5b59;
+  color: #c7f3e4;
+  border-color: #74b1a9;
+}
+.hakton-app .roll-modes button {
+  background: #213b46;
+  color: #a6bfc8;
+  border-radius: 4px;
+  padding: 3px;
+}
+.hakton-app .roll-modes button[aria-pressed='true'] {
+  color: #b4e7dd;
+  background: #2c5557;
+}
+.dice-fields label {
+  color: #a1b8bf;
+}
+.dice-fields input {
+  height: 21px;
+  font-size: 11px;
+}
+.dice-tray select {
+  height: 22px;
+  color: #b4cbd1;
+}
+.hakton-app .dice-submit {
+  border-radius: 4px;
+  background: #86c9bd;
+  color: #173b3c;
+  font-size: 11px;
+  font-weight: 600;
+}
+.scene-bar {
+  background: #1b303b;
+  border: 1px solid #304752;
+  border-radius: 6px;
+  margin-bottom: 7px;
+  height: 32px;
+  padding: 3px;
+}
+.hakton-app .scene-bar button {
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.board {
+  border-radius: 7px;
+  background: #aab8b2;
+  border-color: #4e6667;
+}
+.board-caption {
+  top: 48px;
+  left: 18px;
+}
+.board-caption strong {
+  color: #405b57;
+  font-size: 12px;
+}
+.extension-toolbar,
+.utility-toolbar,
+.asset-launcher {
+  background: #172d37;
+  border: 1px solid #405964;
+  box-shadow: 0 2px 8px #09172035;
+  border-radius: 7px;
+  padding: 3px;
+}
+.extension-toolbar {
+  top: 8px;
+  left: 8px;
+}
+.utility-toolbar {
+  top: 8px;
+  right: 8px;
+}
+.hakton-app .extension-toolbar .icon-button,
+.hakton-app .utility-toolbar .icon-button,
+.hakton-app .asset-launcher .icon-button {
+  width: 29px;
+  height: 28px;
+  border-radius: 4px;
+  color: #c0d4d9;
+}
+.hakton-app .utility-toolbar button[aria-pressed='true'] {
+  background: #325c5a;
+  color: #b9e7dc;
+}
+.hakton-app .zoom-value {
+  color: #aac5cb;
+}
+.asset-launcher {
+  padding: 3px 6px;
+  border-radius: 8px;
+  bottom: 10px;
+}
+.preview-map {
+  background-color: transparent;
+}
+.preview-map.with-grid {
+  background-image:
+    linear-gradient(#546e6524 1px, transparent 1px),
+    linear-gradient(90deg, #546e6524 1px, transparent 1px);
+}
+.map-room {
+  background: #c5cec3;
+  border-width: 4px;
+  border-color: #566e65;
+  color: #52685e;
+}
+.map-room > span {
+  font-family: Georgia, serif;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.map-corridor {
+  background: #c5cec3;
+  border-color: #566e65;
+  border-width: 4px;
+}
+.map-altar {
+  background: #91a79b;
+  border-color: #536e62;
+}
+.map-token {
+  width: 38px;
+  height: 38px;
+  background: #153b3c;
+  font-size: 11px;
+  box-shadow: 0 2px 3px #1a302f30;
+}
+.enemy-token {
+  background: #67483f;
+}
+.prototype-layout > .assets-panel {
+  width: min(660px, 100%);
+  border-radius: 8px;
+  border: 1px solid #304752;
+  background: #192c37;
+}
+.assets-panel > header {
+  border-radius: 7px 7px 0 0;
+  background: #203741;
+  border-bottom: 1px solid #304752;
+  height: 39px;
+  min-height: 39px;
+}
+.hakton-app .assets-panel .tabs button {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.asset-content {
+  padding: 12px;
+}
+.asset-search input {
+  border-color: #35515e;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.asset-search button {
+  color: #a6bec7;
+  border: 1px solid #3c5965;
+}
+.asset-items {
+  padding: 12px 0;
+}
+.hakton-app .asset-item {
+  border-radius: 5px;
+  padding: 3px;
+}
+.asset-thumbnail {
+  height: 72px;
+  background: #2d4b56;
+  border-radius: 3px;
+}
+.asset-item strong {
+  font-size: 12px;
+  padding: 2px 3px 4px;
+  color: #b9ced3;
+}
+.asset-item.selected {
+  background: #28494f;
+  border-color: #76b9ae;
+}
+.asset-item small {
+  color: #c1efe2;
+  background: #284b4e;
+  font-size: 9px;
+}
+.asset-bottom button {
+  border-radius: 4px;
+  background: #2c4d58;
+  color: #c5dedf;
+  font-size: 12px;
+}
+.chat-window .chat-panel {
+  border-radius: 8px;
+  background: #192c37;
+  border: 1px solid #304752;
+  height: 420px;
+}
+.chat-panel > header {
+  height: 39px;
+  min-height: 39px;
+  padding: 0 12px;
+  background: #203741;
+  border-color: #304752;
+}
+.chat-panel > header h2 {
+  font-size: 13px;
+}
+.hakton-app .chat-panel .tabs button {
+  font-size: 12px;
+  padding: 8px 12px;
+}
+.message-list {
+  padding: 0 12px 10px;
+}
+.message {
+  border-color: #2c424c;
+  padding: 12px 0;
+}
+.message-avatar {
+  background: #294751;
+  color: #b8d9d7;
+}
+.message strong {
+  color: #aadbcf;
+  font-weight: 500;
+  font-size: 12px;
+}
+.message p {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #d1dedf;
+}
+.message time {
+  color: #93aab4;
+  font-size: 10px;
+}
+.chat-composer {
+  border-color: #304752;
+  padding: 10px;
+}
+.chat-composer .preview-label {
+  font-size: 10px;
+  color: #99afb8;
+}
+.chat-composer textarea {
+  border-radius: 5px;
+  height: 60px;
+  padding: 9px;
+  font-size: 12px;
+}
+.chat-composer button {
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 5px 10px;
+}
+.hakton-app dialog {
+  background: #192c37;
+  color: #e4eceb;
+  border: 1px solid #45616b;
+  border-radius: 9px;
+}
+.hakton-app dialog > header {
+  background: #203741;
+  border-color: #354c57;
+}
+.hakton-app dialog h2 {
+  font-size: 16px;
+  font-weight: 500;
+}
+.campaign-cover {
+  background: #2a454e;
+  color: #b4d7d2;
+  border-radius: 5px;
+}
+.campaign-cover > span {
+  font-size: 23px;
+}
+.campaign-info-body .chapter {
+  color: #a3d9d0;
+}
+.campaign-info-body > p {
+  font-size: 14px;
+}
+.campaign-info-meta {
+  color: #9bafb7;
+  font-size: 12px;
+}
+.detail-actions button,
+.leave-actions button {
+  border-radius: 5px;
+  min-height: 35px;
+  font-size: 13px;
+}
+.hakton-app .tabs button {
+  color: #a4bac3;
+}
+.hakton-app .tabs button[aria-selected='true'] {
+  color: #abe3d7;
+  border-bottom-color: #7dc4b7;
+}
+@media (max-width: 1100px) {
+  .prototype-layout {
+    grid-template-columns: 125px minmax(0, 1fr) 238px;
+    gap: 12px;
+    padding: 0 14px 14px;
+  }
+  .dice-window {
+    width: 125px;
+  }
+  .hakton-app .dice-options button {
+    width: 26px;
+  }
+  .hakton-app .scene-bar button {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+  .hakton-app .assets-panel .tabs button {
+    font-size: 11px;
+  }
+}
+@media (max-height: 730px) {
+  .prototype-layout.assets-open {
+    grid-template-rows: minmax(200px, 1fr) 210px;
+  }
+  .dice-well {
+    height: 26px;
+  }
+  .chat-window .chat-panel {
+    height: 350px;
+  }
+  .start-screen {
+    margin-top: 0;
+    height: 410px;
+  }
+}
+@media (max-width: 800px) {
+  .prototype-layout {
+    grid-template-columns: 110px minmax(320px, 1fr);
+  }
+  .dice-window {
+    width: 110px;
+  }
+}
+/* Cartographic details belong to the sample map, not application chrome. */
+.map-corridor {
+  border-left: 0;
+  border-right: 0;
+}
+.room-a::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  top: 36px;
+  width: 4px;
+  height: 72px;
+  background: #c5cec3;
+}
+.room-b::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 156px;
+  width: 4px;
+  height: 72px;
+  background: #c5cec3;
+}
+.room-c::before {
+  content: '';
+  position: absolute;
+  left: 55px;
+  top: -4px;
+  width: 40px;
+  height: 4px;
+  background: #c5cec3;
+}
+.map-pillars {
+  position: absolute;
+  inset: 55px 36px 32px;
+  display: grid;
+  grid-template-columns: 18px 18px;
+  justify-content: space-between;
+  align-content: space-between;
+  gap: 110px;
+}
+.map-pillars i {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #6e8277;
+  border-radius: 50%;
+  background: #a4b4a8;
+}
+.map-stairs {
+  position: absolute;
+  bottom: 15px;
+  left: 40px;
+  width: 70px;
+  display: grid;
+  gap: 0;
+}
+.map-stairs i {
+  display: block;
+  height: 6px;
+  border: 1px solid #81968a;
+  border-bottom: 0;
+}
+.map-shelves {
+  display: grid;
+  gap: 12px;
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 20px;
+}
+.map-shelves i {
+  height: 6px;
+  border: 1px solid #748c7b;
+  background: #a9b9aa;
+}
+.mini-plan {
+  position: relative;
+  outline: 0;
+  height: 44px;
+  width: 65px;
+  border: 2px solid #89aeb6;
+}
+.mini-plan i {
+  position: absolute;
+  border: 1px solid #89aeb6;
+  background: #36545e;
+}
+.mini-plan i:nth-child(1) {
+  width: 20px;
+  height: 19px;
+  left: -13px;
+  bottom: -6px;
+}
+.mini-plan i:nth-child(2) {
+  width: 24px;
+  height: 14px;
+  left: 24px;
+  bottom: -12px;
+}
+.mini-plan i:nth-child(3) {
+  width: 16px;
+  height: 8px;
+  left: 23px;
+  top: 8px;
+}
+.thumbnail-0 {
+  background: #2c4a53;
+}
+.thumbnail-1 {
+  background: #2d4556;
+}
+.thumbnail-1 .mini-plan {
+  width: 78px;
+  height: 27px;
+  transform: rotate(-8deg);
+  border-width: 0 0 3px;
+}
+.thumbnail-1 .mini-plan i {
+  width: 8px;
+  top: 0;
+  height: 41px;
+}
+.thumbnail-1 .mini-plan i:nth-child(1) {
+  left: 7px;
+}
+.thumbnail-1 .mini-plan i:nth-child(2) {
+  left: 33px;
+}
+.thumbnail-1 .mini-plan i:nth-child(3) {
+  left: 59px;
+}
+.thumbnail-2 {
+  background: #3d4e50;
+}
+.thumbnail-2 .mini-plan {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+.thumbnail-2 .mini-plan i:nth-child(1) {
+  width: 20px;
+  height: 20px;
+  left: 10px;
+  top: 10px;
+  border-radius: 50%;
+}
+.thumbnail-2 .mini-plan i:nth-child(2) {
+  width: 26px;
+  height: 10px;
+  left: 7px;
+  bottom: -10px;
+}
+.thumbnail-2 .mini-plan i:nth-child(3) {
+  display: none;
+}
+.hakton-app .scene-bar button[aria-pressed='true'] {
+  background: #315364;
+  color: #d1eceb;
+}
+/* Keep the full tray action visible at standard desktop heights. */
+@media (min-height: 731px) {
+  .prototype-layout.assets-open {
+    grid-template-rows: minmax(220px, 1fr) 290px;
+  }
+}
+@media (max-height: 730px) {
+  .hakton-app .utility-toolbar .icon-button {
+    height: 24px;
+  }
+  .utility-toolbar {
+    gap: 0;
+    max-height: calc(100% - 16px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .board-scale {
+    left: 12px;
+    right: auto;
+    bottom: 10px;
+  }
+}
+.session-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #a8bdc5;
+  font-size: 11px;
+}
+.session-status .connection-connected {
+  color: #a2dcd0;
+}
+.session-status .connection-failed,
+.session-status .connection-disconnected {
+  color: #e4ad9f;
+}
+.live-participant {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 6px;
+  font-size: 12px;
+  border-bottom: 1px solid #304752;
+}
+.live-participant span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.live-participant small,
+.roster-empty {
+  color: #93adb7;
+  font-size: 10px;
+}
+@media (max-width: 1100px) {
+  .session-status {
+    max-width: 220px;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+  }
+  .session-status > span:first-child {
+    display: none;
+  }
+}
+.chat-status { color:#a4bac3; font-size:12px; padding:6px 0; }
+.chat-error { color:#e6b6a6; font-size:12px; padding:5px 0; }
+.chat-error button { margin-left:5px; font-size:11px; padding:3px 7px; }
+.message-pending { opacity:.7; }
+.message p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.chat-attachment { margin-top: 6px; }
+.chat-attachment img { display: block; max-width: 100%; max-height: 260px; object-fit: contain; border-radius: 4px; }
+.chat-file { min-width: 0; align-items: center; }
+.chat-file small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
