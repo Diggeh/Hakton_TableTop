@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2100" height="1400" viewBox="0 0 2100 1400" role="img" aria-label="Drowned Sanctuary battle map">
+  <defs>
+    <radialGradient id="water" cx="50%" cy="60%" r="75%">
+      <stop offset="0%" stop-color="#134154"/>
+      <stop offset="55%" stop-color="#0e2f40"/>
+      <stop offset="100%" stop-color="#081a28"/>
+    </radialGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#27414f"/>
+      <stop offset="100%" stop-color="#1c3140"/>
+    </linearGradient>
+    <pattern id="stone" width="70" height="70" patternUnits="userSpaceOnUse">
+      <rect width="70" height="70" fill="url(#floor)"/>
+      <path d="M0 35h70M35 0v70" stroke="#3b5a68" stroke-width="1" opacity="0.5"/>
+      <circle cx="12" cy="16" r="2" fill="#3e5e6d" opacity="0.45"/>
+      <circle cx="54" cy="48" r="1.6" fill="#0c1d28" opacity="0.5"/>
+    </pattern>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+
+  <!-- Sea floor -->
+  <rect width="2100" height="1400" fill="url(#water)"/>
+  <g fill="none" stroke="#2b6375" stroke-width="3" opacity="0.35">
+    <path d="M60 120 q120 -30 240 0 t240 0 t240 0"/>
+    <path d="M1180 90 q120 -30 240 0 t240 0"/>
+    <path d="M90 1290 q140 -34 280 0 t280 0 t280 0 t280 0"/>
+    <path d="M1260 1320 q120 -26 240 0 t240 0"/>
+  </g>
+
+  <!-- Vestibule -->
+  <rect x="70" y="350" width="210" height="350" fill="url(#stone)" stroke="#5c7887" stroke-width="9"/>
+  <text x="96" y="390" fill="#9fb8c2" font-family="Georgia, serif" font-size="20" letter-spacing="5">VESTIBULE</text>
+
+  <!-- Entry corridor -->
+  <rect x="280" y="490" width="140" height="70" fill="#213a49" stroke="#5c7887" stroke-width="9"/>
+
+  <!-- Sanctuary -->
+  <rect x="420" y="210" width="840" height="560" fill="url(#stone)" stroke="#6d8a98" stroke-width="12"/>
+  <text x="540" y="260" fill="#bed5dc" font-family="Georgia, serif" font-size="26" letter-spacing="8">DROWNED SANCTUARY</text>
+
+  <!-- Altar -->
+  <rect x="770" y="420" width="140" height="70" fill="#4b6575" stroke="#9fb8c2" stroke-width="4"/>
+  <rect x="800" y="440" width="80" height="30" fill="#adfcf9" opacity="0.22"/>
+  <circle cx="840" cy="455" r="56" fill="#adfcf9" opacity="0.12" filter="url(#soft)"/>
+
+  <!-- Sanctuary pillars -->
+  <g fill="#3f5b6a" stroke="#8da7b2" stroke-width="4">
+    <circle cx="490" cy="315" r="22"/>
+    <circle cx="1120" cy="315" r="22"/>
+    <circle cx="490" cy="665" r="22"/>
+    <circle cx="1120" cy="665" r="22"/>
+  </g>
+
+  <!-- East corridor -->
+  <rect x="1260" y="490" width="140" height="70" fill="#213a49" stroke="#5c7887" stroke-width="9"/>
+
+  <!-- Archive -->
+  <rect x="1400" y="280" width="420" height="420" fill="url(#stone)" stroke="#6d8a98" stroke-width="10"/>
+  <text x="1450" y="330" fill="#9fb8c2" font-family="Georgia, serif" font-size="20" letter-spacing="5">ARCHIVE</text>
+  <g fill="#314b59" stroke="#51707f" stroke-width="3">
+    <rect x="1450" y="380" width="140" height="42"/>
+    <rect x="1450" y="460" width="140" height="42"/>
+    <rect x="1450" y="540" width="140" height="42"/>
+    <rect x="1660" y="380" width="110" height="42"/>
+    <rect x="1660" y="460" width="110" height="42"/>
+  </g>
+
+  <!-- Descent to the tide pool -->
+  <rect x="805" y="770" width="140" height="210" fill="#213a49" stroke="#5c7887" stroke-width="9"/>
+  <g stroke="#6d8a98" stroke-width="5">
+    <path d="M805 840h140M805 875h140M805 910h140M805 945h140"/>
+  </g>
+
+  <!-- Tide pool -->
+  <rect x="560" y="1050" width="980" height="245" fill="#0f3b4b" stroke="#4d7d8c" stroke-width="10"/>
+  <text x="690" y="1094" fill="#8db9c3" font-family="Georgia, serif" font-size="20" letter-spacing="5">THE TIDE POOL</text>
+  <g fill="none" stroke="#2f7487" stroke-width="4" opacity="0.7">
+    <path d="M620 1140 q70 -18 140 0 t140 0 t140 0 t140 0"/>
+    <path d="M680 1195 q70 -18 140 0 t140 0 t140 0"/>
+    <path d="M620 1240 q70 -18 140 0 t140 0 t140 0 t140 0"/>
+  </g>
+
+  <!-- Braziers -->
+  <g fill="#db9685">
+    <circle cx="350" cy="420" r="11"/>
+    <circle cx="350" cy="630" r="11"/>
+    <circle cx="1310" cy="420" r="9"/>
+    <circle cx="1310" cy="630" r="9"/>
+  </g>
+
+  <!-- Compass -->
+  <g transform="translate(1930 1235)" stroke="#7d9aa6" fill="none" stroke-width="3" opacity="0.8">
+    <circle r="52"/>
+    <path d="M0 -38 L12 0 L0 38 L-12 0 Z" fill="#adfcf9" opacity="0.5"/>
+    <text x="-5" y="-62" fill="#9fb8c2" stroke="none" font-size="18" font-family="Georgia, serif">N</text>
+  </g>
+
+  <!-- Frame -->
+  <rect x="6" y="6" width="2088" height="1388" fill="none" stroke="#0a1b27" stroke-width="12"/>
+</svg>

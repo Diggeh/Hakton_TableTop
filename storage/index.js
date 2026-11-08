@@ -38,8 +38,17 @@ export class InvalidAssetError extends Error {
   }
 }
 
-// Lossless/raster formats accepted for maps & tokens. Extension is validated against actual binary header, never trusted raw.
-export const SUPPORTED_IMAGE_EXTENSIONS = Object.freeze(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
+// Lossless/raster formats (plus sanitized SVG) accepted for maps & tokens.
+// Extension is validated against actual binary/XML header, never trusted raw.
+export const SUPPORTED_IMAGE_EXTENSIONS = Object.freeze([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.webp',
+  '.gif',
+  '.bmp',
+  '.svg',
+]);
 const ALLOWED_EXT = new Set(SUPPORTED_IMAGE_EXTENSIONS);
 const HEADER_READ_BYTES = 256 * 1024; // 256 KB covers EXIF/ICC metadata before JPEG SOF markers
 
@@ -50,9 +59,49 @@ const JPEG_SOF_MARKERS = new Set([
   0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf,
 ]);
 
+function inspectSvgContent(buf) {
+  const text = buf.toString('utf8').trim();
+  if (!text.includes('<svg') || !/<svg\b[^>]*>/i.test(text)) {
+    return null;
+  }
+  // Reject dangerous SVG features (embedded scripts, inline event handlers, javascript: URIs, foreignObject)
+  if (
+    /<script\b/i.test(text) ||
+    /\bon[a-z]+\s*=/i.test(text) ||
+    /javascript\s*:/i.test(text) ||
+    /<foreignObject\b/i.test(text)
+  ) {
+    throw new InvalidAssetError('Unsafe SVG content: embedded scripts or event handlers are not allowed');
+  }
+
+  const svgTagMatch = text.match(/<svg\b([^>]*)>/i);
+  const attrs = svgTagMatch ? svgTagMatch[1] : '';
+  const widthMatch = attrs.match(/\bwidth\s*=\s*["']\s*([0-9]+(?:\.[0-9]+)?)/i);
+  const heightMatch = attrs.match(/\bheight\s*=\s*["']\s*([0-9]+(?:\.[0-9]+)?)/i);
+  const viewBoxMatch = attrs.match(
+    /\bviewBox\s*=\s*["']\s*[-+0-9.]+\s+[-+0-9.]+\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)/i,
+  );
+
+  const width = Math.round(Number(widthMatch?.[1] ?? viewBoxMatch?.[1] ?? 1024));
+  const height = Math.round(Number(heightMatch?.[2] ?? heightMatch?.[1] ?? viewBoxMatch?.[2] ?? 1024));
+
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new InvalidAssetError('Corrupted SVG file: invalid dimensions');
+  }
+
+  return {
+    format: 'svg',
+    mimeType: 'image/svg+xml',
+    width,
+    height,
+    canonicalExt: '.svg',
+    allowedExts: ['.svg'],
+  };
+}
+
 /**
  * Inspects binary image header bytes to verify format integrity and extract dimensions.
- * Rejects unsupported, truncated, or corrupted image content.
+ * Rejects unsupported, truncated, unsafe, or corrupted image content.
  *
  * @param {Buffer | Uint8Array} inputBuffer header bytes (or full file buffer)
  * @param {{ totalBytes?: number, expectedExt?: string }} [opts]
@@ -273,7 +322,11 @@ export function inspectImageHeader(inputBuffer, { totalBytes, expectedExt } = {}
       allowedExts: ['.bmp'],
     };
   } else {
-    throw new InvalidAssetError('Unsupported or corrupted image file content');
+    // 6. Sanitized SVG (used by bundled starter-map.svg and clean vector maps)
+    detected = inspectSvgContent(buf);
+    if (!detected) {
+      throw new InvalidAssetError('Unsupported or corrupted image file content');
+    }
   }
 
   if (expectedExt) {

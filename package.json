@@ -17,15 +17,20 @@
     "build:renderer": "vite build",
     "build": "npm run build:renderer && electron-builder",
     "build:dir": "npm run build:renderer && electron-builder --dir",
-    "test": "node --test tests/assetManagement.test.js",
+    "test": "cross-env ELECTRON_RUN_AS_NODE=1 electron --test --test-concurrency=1 test/networking/server.test.js test/networking/sessionManager.test.js test/networking/socketRouter.test.js test/chat/chat.test.js test/dice/formula.test.js test/dice/geometry.test.js test/dice/simulator.test.js test/dice/meshAndTray.test.js test/dice/routerUnit.test.js test/dice/socketSync.test.js tests/assetManagement.test.js",
+    "test:assets": "node --test tests/assetManagement.test.js",
+    "test:dice": "node --test --test-concurrency=1 test/dice/formula.test.js test/dice/geometry.test.js test/dice/simulator.test.js test/dice/meshAndTray.test.js test/dice/routerUnit.test.js",
+    "test:chat:storage": "cross-env ELECTRON_RUN_AS_NODE=1 electron --test test/chat/storage.test.js",
     "postinstall": "electron-builder install-app-deps",
     "rebuild:native": "electron-builder install-app-deps"
   },
   "dependencies": {
     "better-sqlite3": "^12.2.0",
+    "cannon-es": "^0.20.0",
     "express": "^4.21.2",
     "peer": "^1.0.2",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "three": "^0.170.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",

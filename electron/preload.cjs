@@ -4,6 +4,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('hakton', {
   getServerInfo: () => ipcRenderer.invoke('hakton:server-info'),
+  getServerStatus: () => ipcRenderer.invoke('hakton:server-status'),
+  startServer: (opts) => ipcRenderer.invoke('hakton:server-start', opts),
+  stopServer: () => ipcRenderer.invoke('hakton:server-stop'),
   assets: {
     list: (filters = {}) => ipcRenderer.invoke('hakton:assets:list', filters),
     get: (id) => ipcRenderer.invoke('hakton:assets:get', { id }),

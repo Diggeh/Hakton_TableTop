@@ -5,7 +5,12 @@ import { openDatabase } from '../database/index.js';
 import { createRepositories } from '../database/repositories.js';
 import { seedIfEmpty } from '../database/seed.js';
 import { initStorage } from '../storage/index.js';
-import { startServer } from '../backend/server.js';
+import {
+  getLocalIpAddresses,
+  getServerStatus,
+  startServer,
+  stopServer,
+} from '../backend/server.js';
 import { createAssetService } from '../backend/assetService.js';
 import { registerAssetIpcHandlers } from './assetIpc.js';
 import { DEFAULT_PORT } from '../shared/events.js';
@@ -14,6 +19,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.VITE_DEV_SERVER_URL; // set by `npm run dev`
 
 let db = null;
+let repos = null;
+let storage = null;
 let server = null;
 let mainWindow = null;
 
@@ -28,29 +35,94 @@ else {
   app.whenReady().then(bootstrap).catch(fatal);
 }
 
-async function bootstrap() {
-  // 1. Storage & SQLite
-  const storage = initStorage(app.getPath('userData'));
-  db = openDatabase(storage.dbPath);
-  const repos = createRepositories(db);
-  seedIfEmpty(repos);
-
-  // 2. Embedded backend (HTTP + Socket.io + PeerJS signaling)
-  const port = Number(process.env.HAKTON_PORT) || DEFAULT_PORT;
-  server = await startServer({ repos, storage, port });
-  console.log(`[hakton] backend listening on :${server.port}`);
-
-  // 3. IPC: renderer asks where the local backend lives
-  ipcMain.handle('hakton:server-info', () => ({
-    url: `http://127.0.0.1:${server.port}`,
+function buildServerInfo() {
+  if (!server) {
+    return {
+      running: false,
+      url: null,
+      port: null,
+      hostSecret: null,
+      sessionId: null,
+      lanIps: getLocalIpAddresses(),
+      lanUrls: [],
+      status: getServerStatus(),
+    };
+  }
+  return {
+    running: true,
+    url: server.localUrl,
     port: server.port,
-  }));
+    hostSecret: server.hostSecret,
+    sessionId: server.sessionId,
+    lanIps: server.lanIps,
+    lanUrls: server.lanUrls,
+    status: server.getStatus(),
+  };
+}
 
-  // 4. IPC: narrowly scoped Asset Management & Catalog operations
+function registerIpcHandlers() {
+  ipcMain.handle('hakton:server-info', () => buildServerInfo());
+
+  ipcMain.handle('hakton:server-status', () => getServerStatus());
+
+  ipcMain.handle('hakton:server-start', async (_event, opts = {}) => {
+    try {
+      if (server) {
+        await stopServer();
+        server = null;
+      }
+      const targetPort =
+        opts?.port !== undefined
+          ? Number(opts.port)
+          : Number(process.env.HAKTON_PORT) || DEFAULT_PORT;
+
+      server = await startServer({
+        repos,
+        storage,
+        port: targetPort,
+        host: opts?.host || '0.0.0.0',
+        sessionId: opts?.sessionId,
+        sessionName: opts?.sessionName,
+      });
+      console.log(`[hakton] backend listening on :${server.port}`);
+      return {
+        ok: true,
+        ...buildServerInfo(),
+      };
+    } catch (err) {
+      console.error('[hakton] failed to start host server:', err.message);
+      return {
+        ok: false,
+        error: err.message,
+        code: err.code || 'E_SERVER_START_FAILED',
+        ...buildServerInfo(),
+      };
+    }
+  });
+
+  ipcMain.handle('hakton:server-stop', async () => {
+    try {
+      await stopServer();
+      server = null;
+      console.log('[hakton] backend stopped');
+      return {
+        ok: true,
+        ...buildServerInfo(),
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err.message,
+        ...buildServerInfo(),
+      };
+    }
+  });
+
+  // Narrowly scoped Asset Management & Catalog IPC operations
   const assetService = createAssetService({
     storage,
     repos,
-    getBaseUrl: () => (server ? `http://127.0.0.1:${server.port}` : null),
+    getBaseUrl: () => (server ? server.localUrl ?? `http://127.0.0.1:${server.port}` : null),
   });
   registerAssetIpcHandlers({
     ipcMain,
@@ -58,8 +130,28 @@ async function bootstrap() {
     getMainWindow: () => mainWindow,
     assetService,
   });
+}
 
-  // 5. UI
+async function bootstrap() {
+  // 1. Storage & Database
+  storage = initStorage(app.getPath('userData'));
+  db = openDatabase(storage.dbPath);
+  repos = createRepositories(db);
+  await seedIfEmpty(repos, storage);
+
+  // 2. Register IPC bridge handlers before launching renderer
+  registerIpcHandlers();
+
+  // 3. Embedded backend (Socket.IO + PeerJS signaling)
+  const port = Number(process.env.HAKTON_PORT) || DEFAULT_PORT;
+  try {
+    server = await startServer({ repos, storage, port });
+    console.log(`[hakton] backend listening on :${server.port}`);
+  } catch (err) {
+    console.error(`[hakton] initial host startup failed on port ${port}:`, err.message);
+  }
+
+  // 4. UI
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -104,9 +196,10 @@ app.on('before-quit', (event) => {
   if (shuttingDown) return;
   shuttingDown = true;
   event.preventDefault();
-  Promise.resolve(server?.close())
+  Promise.resolve(stopServer())
     .catch(() => {})
     .finally(() => {
+      server = null;
       db?.close();
       app.exit(0);
     });

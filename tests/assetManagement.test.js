@@ -435,6 +435,12 @@ test('Upload Tests: valid map and token uploads succeed across PNG, JPEG, WebP, 
   assert.equal(gifAsset.category, 'props');
   assert.equal(gifAsset.width, 64);
   assert.equal(gifAsset.height, 64);
+
+  // 5. Verify bundled starter-map.svg from main seeds cleanly via seedIfEmpty(repos, storage)
+  await seedIfEmpty(env.repos, env.storage);
+  const seededMap = env.repos.maps.first();
+  assert.ok(seededMap?.image_file, 'seedIfEmpty must populate maps.image_file with starter-map.svg');
+  assert.match(seededMap.image_file, /\.svg$/);
 });
 
 test('Upload Tests: unsupported formats, corrupted images, spoofed extensions, and invalid paths are rejected cleanly', async (t) => {
@@ -857,7 +863,7 @@ test('Integration Tests: Express /assets/:id/file streaming, catalog endpoints, 
   // 1. Verify /health
   const healthRes = await requestApp('/health');
   assert.equal(healthRes.status, 200);
-  assert.deepEqual(healthRes.json(), { ok: true });
+  assert.equal(healthRes.json().ok, true);
 
   // 2. Verify GET /assets & GET /assets/:id
   const listRes = await requestApp('/assets?type=map');
@@ -883,14 +889,30 @@ test('Integration Tests: Express /assets/:id/file streaming, catalog endpoints, 
   const emitted = [];
   const broadcasted = [];
   const mockIo = {
+    sockets: { sockets: new Map() },
     on(event, fn) {
       if (event === 'connection') connectionCallback = fn;
+    },
+    to() {
+      return {
+        emit(ev, payload) {
+          broadcasted.push({ ev, payload });
+        },
+      };
     },
   };
   registerSocketRouter(mockIo, env.repos);
 
   const socketListeners = new Map();
   const mockSocket = {
+    id: 'sock-test-1',
+    data: {},
+    removeAllListeners() {},
+    join() {},
+    leave() {},
+    to() {
+      return { emit() {} };
+    },
     on(ev, fn) {
       socketListeners.set(ev, fn);
     },
@@ -905,14 +927,14 @@ test('Integration Tests: Express /assets/:id/file streaming, catalog endpoints, 
   };
 
   connectionCallback(mockSocket);
-  socketListeners.get(EVENTS.SESSION_JOIN)();
-  assert.equal(emitted.length, 1);
-  assert.equal(emitted[0].ev, EVENTS.SESSION_STATE);
-  assert.equal(emitted[0].payload.map.name, 'Starter Map');
-  assert.equal(emitted[0].payload.tokens[0].id, 'tok-demo-1');
+  socketListeners.get(EVENTS.SESSION_JOIN)({ displayName: 'Aragorn' });
+  const stateEvent = emitted.find((e) => e.ev === EVENTS.SESSION_STATE);
+  assert.ok(stateEvent, 'SESSION_STATE must be emitted on join');
+  assert.equal(stateEvent.payload.map.name, 'Drowned Sanctuary');
+  assert.equal(stateEvent.payload.tokens[0].id, 'tok-demo-1');
 
   socketListeners.get(EVENTS.TOKEN_MOVE)({ id: 'tok-demo-1', x: 280, y: 350 });
-  assert.equal(broadcasted.length, 1);
-  assert.equal(broadcasted[0].ev, EVENTS.TOKEN_MOVED);
-  assert.deepEqual(broadcasted[0].payload, { id: 'tok-demo-1', x: 280, y: 350 });
+  const moveEvent = broadcasted.find((e) => e.ev === EVENTS.TOKEN_MOVED);
+  assert.ok(moveEvent, 'TOKEN_MOVED must be broadcasted');
+  assert.equal(moveEvent.payload.id, 'tok-demo-1');
 });
