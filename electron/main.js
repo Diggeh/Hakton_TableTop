@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase } from '../database/index.js';
@@ -11,6 +11,8 @@ import {
   startServer,
   stopServer,
 } from '../backend/server.js';
+import { createAssetService } from '../backend/assetService.js';
+import { registerAssetIpcHandlers } from './assetIpc.js';
 import { DEFAULT_PORT } from '../shared/events.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -114,6 +116,19 @@ function registerIpcHandlers() {
         ...buildServerInfo(),
       };
     }
+  });
+
+  // Narrowly scoped Asset Management & Catalog IPC operations
+  const assetService = createAssetService({
+    storage,
+    repos,
+    getBaseUrl: () => (server ? server.localUrl ?? `http://127.0.0.1:${server.port}` : null),
+  });
+  registerAssetIpcHandlers({
+    ipcMain,
+    dialog,
+    getMainWindow: () => mainWindow,
+    assetService,
   });
 }
 

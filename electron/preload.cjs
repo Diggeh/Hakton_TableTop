@@ -7,4 +7,16 @@ contextBridge.exposeInMainWorld('hakton', {
   getServerStatus: () => ipcRenderer.invoke('hakton:server-status'),
   startServer: (opts) => ipcRenderer.invoke('hakton:server-start', opts),
   stopServer: () => ipcRenderer.invoke('hakton:server-stop'),
+  assets: {
+    list: (filters = {}) => ipcRenderer.invoke('hakton:assets:list', filters),
+    get: (id) => ipcRenderer.invoke('hakton:assets:get', { id }),
+    selectFiles: (options = {}) => ipcRenderer.invoke('hakton:assets:select-files', options),
+    pickAndUpload: (options = {}) => ipcRenderer.invoke('hakton:assets:pick-and-upload', options),
+    uploadPaths: (payload = {}) => ipcRenderer.invoke('hakton:assets:upload-paths', payload),
+    uploadFiles: (payload = {}) => ipcRenderer.invoke('hakton:assets:upload-buffer', payload),
+    rename: (id, name) => ipcRenderer.invoke('hakton:assets:rename', { id, name }),
+    setCategory: (id, category) => ipcRenderer.invoke('hakton:assets:set-category', { id, category }),
+    updateMetadata: (id, metadata) => ipcRenderer.invoke('hakton:assets:update-metadata', { id, metadata }),
+    delete: (id) => ipcRenderer.invoke('hakton:assets:delete', { id }),
+  },
 });
