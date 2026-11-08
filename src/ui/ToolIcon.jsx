@@ -22,6 +22,12 @@ export default function ToolIcon({ name }) {
     ruler: 'M4 16L16 4l5 5L9 21z M9 11l3 3 M13 7l3 3',
     draw: 'M4 20l1-6L16 3l5 5L10 19z',
     grid: 'M3 3h18v18H3z M9 3v18 M15 3v18 M3 9h18 M3 15h18',
+    snap: 'M6 4v8a6 6 0 0 0 12 0V4 M6 9h4 M14 9h4',
+    fit: 'M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5',
+    plus: 'M12 5v14 M5 12h14',
+    trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 14h10l1-14 M9 7V4h6v3',
+    lock: 'M6 11h12v10H6z M9 11V7a3 3 0 0 1 6 0v4',
+    unlock: 'M6 11h12v10H6z M9 11V7a3 3 0 0 1 5-2',
   };
   return (
     <svg

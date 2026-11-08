@@ -1441,7 +1441,8 @@
   }
 }
 
-/* ============================================================================
+/* =====================================================================}
+
  * Remodeled 3D Dice Tray UI & 3D Board Overlay Styles
  * ========================================================================== */
 .dice-window {
@@ -1910,4 +1911,52 @@
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+.chat-status { color:#a4bac3; font-size:12px; padding:6px 0; }
+.chat-error { color:#e6b6a6; font-size:12px; padding:5px 0; }
+.chat-error button { margin-left:5px; font-size:11px; padding:3px 7px; }
+.message-pending { opacity:.7; }
+.message p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.chat-attachment { margin-top: 6px; }
+.chat-attachment img { display: block; max-width: 100%; max-height: 260px; object-fit: contain; border-radius: 4px; }
+.chat-file { min-width: 0; align-items: center; }
+.chat-file small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Live canvas / token dialog ------------------------------------------ */
+.board-host .konvajs-content {
+  touch-action: none;
+  user-select: none;
+}
+.board-scale {
+  pointer-events: none;
+}
+.token-form {
+  display: grid;
+  gap: 12px;
+  min-width: min(320px, 70vw);
+}
+.token-form label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  color: #b9cdd3;
+}
+.token-form input,
+.token-form select {
+  width: 100%;
+  padding: 7px 8px;
+  background: #0e1d2d;
+  border: 1px solid #3d5964;
+  border-radius: 3px;
+  color: #e6f2f3;
+  font: inherit;
+}
+.token-form input[type='color'] {
+  width: 54px;
+  height: 32px;
+  padding: 2px;
+  cursor: pointer;
+}
+.token-form .notice {
+  margin: 0;
 }

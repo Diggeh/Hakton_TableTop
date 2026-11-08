@@ -1,3 +1,4 @@
+import { bindChat, unbindChat } from './chat.js';
 import { io } from 'socket.io-client';
 import {
   CONNECTION_STATUS,
@@ -7,10 +8,47 @@ import {
   ROLES,
 } from '../../shared/events.js';
 import { sessionStore } from '../store/sessionStore.js';
+import { canvasStore } from '../canvas/canvasStore.js';
 
 let socket = null;
 let currentTargetUrl = null;
 let pendingConnectContext = null;
+
+/** moveId -> { started: performance.now() } for the sync-latency readout. */
+const pendingMoves = new Map();
+
+function createMessageId() {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `mv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  );
+}
+
+function recordMoveLatency(moveId) {
+  if (!moveId) return;
+  const pending = pendingMoves.get(moveId);
+  if (!pending) return;
+  pendingMoves.delete(moveId);
+  sessionStore.getState().setMoveLatency(performance.now() - pending.started);
+}
+
+/**
+ * Resolve a server-relative asset path against the active host origin.
+ * Keeps `/assets/maps/...` working in dev (Vite :5173) and packaged file://.
+ */
+export function resolveAssetUrl(assetPath) {
+  if (!assetPath) return null;
+  if (/^(https?:|data:|blob:)/i.test(assetPath)) return assetPath;
+
+  const base =
+    currentTargetUrl ||
+    socket?.io?.uri ||
+    (typeof window !== 'undefined' ? window.location?.origin : null);
+  if (!base) return assetPath;
+  const normalizedBase = String(base).replace(/\/+$/, '');
+  const normalizedPath = assetPath.startsWith('/') ? assetPath : `/${assetPath}`;
+  return `${normalizedBase}${normalizedPath}`;
+}
 
 /**
  * Normalizes a host/IP/URL and port into a valid HTTP URL for Socket.IO.
@@ -55,6 +93,9 @@ function detachListeners(sock) {
   sock.off(EVENTS.SERVER_SHUTDOWN);
   sock.off(EVENTS.SESSION_STATE);
   sock.off(EVENTS.TOKEN_MOVED);
+  sock.off(EVENTS.TOKEN_CREATED);
+  sock.off(EVENTS.TOKEN_UPDATED);
+  sock.off(EVENTS.TOKEN_DELETED);
   sock.off(EVENTS.DICE_ROLLED);
 
   if (sock.io) {
@@ -76,6 +117,7 @@ export function getSocket() {
  * Intentionally closes the active client connection and releases all listeners.
  */
 export function disconnect() {
+  unbindChat();
   if (socket) {
     detachListeners(socket);
     try {
@@ -87,6 +129,7 @@ export function disconnect() {
   }
   currentTargetUrl = null;
   pendingConnectContext = null;
+  pendingMoves.clear();
 
   const state = sessionStore.getState();
   state.setConnection(CONNECTION_STATUS.DISCONNECTED, null);
@@ -278,6 +321,7 @@ export async function connect(options) {
   });
 
   detachListeners(socket);
+  bindChat(socket);
 
   socket.on('connect', () => {
     const currentState = sessionStore.getState();
@@ -384,8 +428,30 @@ export async function connect(options) {
     sessionStore.getState().applySnapshot(snapshot);
   });
 
-  socket.on(EVENTS.TOKEN_MOVED, ({ id, x, y } = {}) => {
+  socket.on(EVENTS.TOKEN_MOVED, (payload = {}) => {
+    const { id, x, y, moveId } = payload;
+    if (typeof id !== 'string' || !Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    // A remote update must not yank a token out from under a local drag.
+    if (canvasStore.getState().draggingIds.includes(id)) {
+      recordMoveLatency(moveId);
+      return;
+    }
     sessionStore.getState().moveToken(id, x, y);
+    recordMoveLatency(moveId);
+  });
+
+  socket.on(EVENTS.TOKEN_CREATED, (token) => {
+    sessionStore.getState().upsertToken(token);
+  });
+
+  socket.on(EVENTS.TOKEN_UPDATED, (token) => {
+    sessionStore.getState().upsertToken(token);
+  });
+
+  socket.on(EVENTS.TOKEN_DELETED, ({ id } = {}) => {
+    if (typeof id === 'string') sessionStore.getState().removeToken(id);
   });
 
   // Remote/confirmed dice roll listener: records the rolled numbers in the log without
@@ -397,10 +463,87 @@ export async function connect(options) {
   return socket;
 }
 
-/** Optimistic local update + broadcast. */
+/** Emit an event and resolve with the server ack (or a timeout result). */
+function emitWithAck(event, payload, timeoutMs = 5000) {
+  const active = socket;
+  if (!active?.connected) {
+    return Promise.resolve({ ok: false, reason: 'disconnected' });
+  }
+  return new Promise((resolve) => {
+    active.timeout(timeoutMs).emit(event, payload, (error, response) => {
+      if (error) {
+        resolve({ ok: false, reason: 'timeout' });
+        return;
+      }
+      resolve(response ?? { ok: false, reason: 'no_response' });
+    });
+  });
+}
+
+/**
+ * Optimistic local update + `token:move` emit on drop.
+ * The server persists first, then echoes authoritative coordinates to every
+ * client (including this one) so all boards converge.
+ */
 export function emitTokenMove(id, x, y) {
   sessionStore.getState().moveToken(id, x, y);
-  socket?.emit(EVENTS.TOKEN_MOVE, { id, x, y });
+
+  const active = socket;
+  if (!active?.connected) return Promise.resolve({ ok: true, offline: true });
+
+  const moveId = createMessageId();
+  pendingMoves.set(moveId, { started: performance.now() });
+
+  return new Promise((resolve) => {
+    active.timeout(5000).emit(
+      EVENTS.TOKEN_MOVE,
+      { id, x, y, moveId },
+      (error, response) => {
+        if (error) {
+          pendingMoves.delete(moveId);
+          resolve({ ok: false, reason: 'timeout' });
+          return;
+        }
+        if (!response?.ok && response?.token) {
+          // Rejected (locked/not owned): snap back to authoritative coordinates.
+          sessionStore
+            .getState()
+            .moveToken(id, response.token.x, response.token.y);
+        }
+        if (response?.ok) recordMoveLatency(moveId);
+        pendingMoves.delete(moveId);
+        resolve(response ?? { ok: false, reason: 'no_response' });
+      },
+    );
+  });
+}
+
+/** DM-only: create a persisted token. */
+export function createToken(token) {
+  return emitWithAck(EVENTS.TOKEN_CREATE, token).then((response) => {
+    if (response?.ok && response.token) {
+      sessionStore.getState().upsertToken(response.token);
+    }
+    return response;
+  });
+}
+
+/** DM-only: patch label/owner/locked/color. */
+export function updateToken(id, patch) {
+  return emitWithAck(EVENTS.TOKEN_UPDATE, { id, ...patch }).then((response) => {
+    if (response?.ok && response.token) {
+      sessionStore.getState().upsertToken(response.token);
+    }
+    return response;
+  });
+}
+
+/** DM-only: remove a persisted token. */
+export function deleteToken(id) {
+  return emitWithAck(EVENTS.TOKEN_DELETE, { id }).then((response) => {
+    if (response?.ok) sessionStore.getState().removeToken(id);
+    return response;
+  });
 }
 
 /**

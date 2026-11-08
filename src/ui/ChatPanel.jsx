@@ -4,10 +4,11 @@ import { isRollCommand } from '../../shared/dice/parser.js';
 import { rollFormula } from '../../shared/dice/roller.js';
 import { emitDiceRoll } from '../net/socket.js';
 import { useSession } from '../store/sessionStore.js';
+import LiveChatPanel from './LiveChatPanel.jsx';
 import { IconButton, Tabs } from './Primitives.jsx';
 import { party } from './fixtures.js';
 
-function RollLogEntry({ roll }) {
+export function RollLogEntry({ roll }) {
   return (
     <article className="message message-roll" key={roll.id}>
       <span className="message-avatar" aria-hidden="true">
@@ -53,7 +54,15 @@ function RollLogEntry({ roll }) {
   );
 }
 
-export default function ChatPanel({ name, onClose, hidden, width }) {
+export default function ChatPanel({ preview = true, ...props }) {
+  return preview ? (
+    <PreviewChatPanel {...props} />
+  ) : (
+    <LiveChatPanel {...props} />
+  );
+}
+
+function PreviewChatPanel({ name, onClose, hidden, width }) {
   const [tab, setTab] = useState('Table');
   const [recipient, setRecipient] = useState('Dungeon Master');
   const [draft, setDraft] = useState('');
