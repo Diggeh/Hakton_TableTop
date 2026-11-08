@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 import { registerChatHandlers } from '../chat/handlers.js';
 import { EVENTS } from '../../shared/events.js';
+=======
+import crypto from 'node:crypto';
+import { EVENTS, ROLES } from '../../shared/events.js';
+>>>>>>> chz
 import { SessionManager, sanitizeParticipant } from '../session/sessionManager.js';
 
 const registeredServers = new WeakSet();
@@ -10,6 +15,51 @@ const registeredServers = new WeakSet();
  */
 export function getSessionRoom(sessionId) {
   return `session:${sessionId}`;
+}
+
+/** Convert a SQLite token row into the wire shape consumed by the renderer. */
+export function tokenToWire(token) {
+  if (!token) return null;
+  return {
+    id: token.id,
+    mapId: token.map_id ?? token.mapId ?? null,
+    label: token.label,
+    x: token.x,
+    y: token.y,
+    ownerId: token.owner_id ?? token.ownerId ?? null,
+    locked: Boolean(token.locked),
+    color: token.color ?? null,
+  };
+}
+
+/** Convert a SQLite map row into the wire shape consumed by the renderer. */
+export function mapToWire(map) {
+  if (!map) return null;
+  return {
+    id: map.id,
+    name: map.name,
+    gridSize: map.grid_size ?? map.gridSize ?? 70,
+    width: map.width,
+    height: map.height,
+    imageUrl: map.image_file
+      ? `/assets/maps/${encodeURIComponent(map.image_file)}`
+      : null,
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function cellCentre(value, grid) {
+  const size = grid > 0 ? grid : 70;
+  return Math.floor(value / size) * size + size / 2;
+}
+
+function normalizeColor(value) {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
+    ? value
+    : null;
 }
 
 /**
@@ -35,6 +85,23 @@ export function registerSocketRouter(io, repos, opts = {}) {
     socket.removeAllListeners(EVENTS.SESSION_JOIN);
     socket.removeAllListeners(EVENTS.SESSION_LEAVE);
     socket.removeAllListeners(EVENTS.TOKEN_MOVE);
+    socket.removeAllListeners(EVENTS.TOKEN_CREATE);
+    socket.removeAllListeners(EVENTS.TOKEN_UPDATE);
+    socket.removeAllListeners(EVENTS.TOKEN_DELETE);
+
+    const roomForSocket = () =>
+      socket.data.sessionId ? getSessionRoom(socket.data.sessionId) : null;
+
+    const broadcast = (event, payload) => {
+      const room = roomForSocket();
+      if (room) io.to(room).emit(event, payload);
+      else socket.broadcast.emit(event, payload);
+    };
+
+    const isDM = () => socket.data.role === ROLES.DM;
+    const isJoined = () => Boolean(socket.data.playerId && socket.data.sessionId);
+
+    const currentMap = () => repos?.maps?.first?.() ?? null;
 
     socket.on(EVENTS.SESSION_JOIN, (rawPayload, maybeAck) => {
       const ack =
@@ -93,19 +160,12 @@ export function registerSocketRouter(io, repos, opts = {}) {
       socket.to(room).emit(EVENTS.SESSION_PARTICIPANT_JOINED, publicParticipant);
       io.to(room).emit(EVENTS.SESSION_PARTICIPANTS_UPDATE, welcome.participants);
 
-      // 3. Preserve existing board state emission when repositories are attached
+      // 3. Deliver the persisted board snapshot to the joining client.
       if (repos?.maps && repos?.tokens) {
         const map = repos.maps.first();
         socket.emit(EVENTS.SESSION_STATE, {
-          map:
-            map && {
-              id: map.id,
-              name: map.name,
-              gridSize: map.grid_size,
-              width: map.width,
-              height: map.height,
-            },
-          tokens: map ? repos.tokens.listByMap(map.id) : [],
+          map: mapToWire(map),
+          tokens: map ? repos.tokens.listByMap(map.id).map(tokenToWire) : [],
         });
       }
     });
@@ -135,16 +195,202 @@ export function registerSocketRouter(io, repos, opts = {}) {
       }
     });
 
-    socket.on(EVENTS.TOKEN_MOVE, ({ id, x, y } = {}) => {
-      if (typeof id !== 'string' || !Number.isFinite(x) || !Number.isFinite(y)) return;
-      if (repos?.tokens?.move(id, x, y)) {
-        const sessionId = socket.data.sessionId;
-        if (sessionId) {
-          socket.to(getSessionRoom(sessionId)).emit(EVENTS.TOKEN_MOVED, { id, x, y });
-        } else {
-          socket.broadcast.emit(EVENTS.TOKEN_MOVED, { id, x, y });
-        }
+    /**
+     * Authoritative token movement:
+     *  1. validate identity/ownership/lock
+     *  2. persist synchronously to SQLite
+     *  3. broadcast the persisted coordinates to every client (sender included)
+     *  4. acknowledge so the sender can revert a rejected optimistic drag
+     */
+    socket.on(EVENTS.TOKEN_MOVE, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (response) => {
+        if (ack) ack(response);
+      };
+
+      if (!repos?.tokens?.get || !repos?.tokens?.move) {
+        respond({ ok: false, reason: 'board_unavailable' });
+        return;
       }
+      if (!isJoined()) {
+        respond({ ok: false, reason: 'not_joined' });
+        return;
+      }
+
+      const { id, x, y, moveId } = payload;
+      if (typeof id !== 'string' || !Number.isFinite(x) || !Number.isFinite(y)) {
+        respond({ ok: false, reason: 'invalid_payload' });
+        return;
+      }
+
+      const token = repos.tokens.get(id);
+      if (!token) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+
+      const ownerId = token.owner_id ?? null;
+      const locked = Boolean(token.locked);
+      const mayMove =
+        isDM() ||
+        (!locked && (!ownerId || ownerId === socket.data.playerId));
+
+      if (!mayMove) {
+        respond({
+          ok: false,
+          reason: locked ? 'locked' : 'forbidden',
+          token: tokenToWire(token),
+        });
+        return;
+      }
+
+      const map = currentMap();
+      const maxX = map?.width ?? Number.POSITIVE_INFINITY;
+      const maxY = map?.height ?? Number.POSITIVE_INFINITY;
+      const nextX = clamp(x, 0, maxX);
+      const nextY = clamp(y, 0, maxY);
+
+      if (!repos.tokens.move(id, nextX, nextY)) {
+        respond({ ok: false, reason: 'move_failed' });
+        return;
+      }
+
+      const updated = tokenToWire(repos.tokens.get(id));
+      broadcast(EVENTS.TOKEN_MOVED, {
+        ...updated,
+        moveId: typeof moveId === 'string' ? moveId : null,
+        movedBy: socket.data.playerId,
+        serverTime: Date.now(),
+      });
+      respond({ ok: true, token: updated });
+    });
+
+    socket.on(EVENTS.TOKEN_CREATE, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (response) => {
+        if (ack) ack(response);
+      };
+
+      if (!repos?.tokens?.create) {
+        respond({ ok: false, reason: 'board_unavailable' });
+        return;
+      }
+      if (!isJoined() || !isDM()) {
+        respond({ ok: false, reason: 'forbidden' });
+        return;
+      }
+
+      const map = currentMap();
+      if (!map) {
+        respond({ ok: false, reason: 'no_map' });
+        return;
+      }
+
+      const grid = map.grid_size || 70;
+      const label =
+        typeof payload.label === 'string' && payload.label.trim()
+          ? payload.label.trim().slice(0, 40)
+          : 'Token';
+      const x = clamp(
+        Number.isFinite(payload.x) ? payload.x : cellCentre(map.width / 2, grid),
+        0,
+        map.width,
+      );
+      const y = clamp(
+        Number.isFinite(payload.y) ? payload.y : cellCentre(map.height / 2, grid),
+        0,
+        map.height,
+      );
+      const ownerId =
+        typeof payload.ownerId === 'string' && payload.ownerId
+          ? payload.ownerId
+          : null;
+
+      const token = repos.tokens.create({
+        id: crypto.randomUUID(),
+        mapId: map.id,
+        label,
+        x,
+        y,
+        ownerId,
+        locked: Boolean(payload.locked),
+        color: normalizeColor(payload.color),
+      });
+
+      const wire = tokenToWire(token);
+      broadcast(EVENTS.TOKEN_CREATED, wire);
+      respond({ ok: true, token: wire });
+    });
+
+    socket.on(EVENTS.TOKEN_UPDATE, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (response) => {
+        if (ack) ack(response);
+      };
+
+      if (!repos?.tokens?.update) {
+        respond({ ok: false, reason: 'board_unavailable' });
+        return;
+      }
+      if (!isJoined() || !isDM()) {
+        respond({ ok: false, reason: 'forbidden' });
+        return;
+      }
+      if (typeof payload.id !== 'string') {
+        respond({ ok: false, reason: 'invalid_payload' });
+        return;
+      }
+
+      const patch = {};
+      if (typeof payload.label === 'string' && payload.label.trim()) {
+        patch.label = payload.label.trim().slice(0, 40);
+      }
+      if ('ownerId' in payload) {
+        patch.ownerId =
+          typeof payload.ownerId === 'string' && payload.ownerId
+            ? payload.ownerId
+            : null;
+      }
+      if ('locked' in payload) patch.locked = Boolean(payload.locked);
+      if ('color' in payload) patch.color = normalizeColor(payload.color);
+
+      const token = repos.tokens.update(payload.id, patch);
+      if (!token) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+
+      const wire = tokenToWire(token);
+      broadcast(EVENTS.TOKEN_UPDATED, wire);
+      respond({ ok: true, token: wire });
+    });
+
+    socket.on(EVENTS.TOKEN_DELETE, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (response) => {
+        if (ack) ack(response);
+      };
+
+      if (!repos?.tokens?.delete) {
+        respond({ ok: false, reason: 'board_unavailable' });
+        return;
+      }
+      if (!isJoined() || !isDM()) {
+        respond({ ok: false, reason: 'forbidden' });
+        return;
+      }
+      if (typeof payload.id !== 'string') {
+        respond({ ok: false, reason: 'invalid_payload' });
+        return;
+      }
+
+      if (!repos.tokens.delete(payload.id)) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+
+      broadcast(EVENTS.TOKEN_DELETED, { id: payload.id });
+      respond({ ok: true, id: payload.id });
     });
 
     socket.on('disconnect', (reason) => {

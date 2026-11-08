@@ -17,7 +17,11 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
   const [diceOpen, setDiceOpen] = useState(true);
   const [assets, setAssets] = useState(true);
   const [assetTab, setAssetTab] = useState('Scenes');
-  const [preview, setPreview] = useState(true);
+  // In the packaged desktop app open on the live board; keep the designed
+  // preview board in a plain browser (where the host server is unavailable).
+  const [preview, setPreview] = useState(
+    () => typeof window === 'undefined' || !window.hakton,
+  );
   const [scene, setScene] = useState(campaign.scene);
   const [modal, setModal] = useState(null);
   const [inspected, setInspected] = useState(null);

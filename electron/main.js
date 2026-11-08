@@ -18,6 +18,7 @@ const DEV_URL = process.env.VITE_DEV_SERVER_URL; // set by `npm run dev`
 
 let db = null;
 let repos = null;
+let storage = null;
 let server = null;
 let mainWindow = null;
 
@@ -75,6 +76,7 @@ function registerIpcHandlers() {
 
       server = await startServer({
         repos,
+        storage,
         port: targetPort,
         host: opts?.host || '0.0.0.0',
         sessionId: opts?.sessionId,
@@ -117,10 +119,10 @@ function registerIpcHandlers() {
 
 async function bootstrap() {
   // 1. Storage & Database
-  const storage = initStorage(app.getPath('userData'));
+  storage = initStorage(app.getPath('userData'));
   db = openDatabase(storage.dbPath);
   repos = createRepositories(db);
-  seedIfEmpty(repos);
+  await seedIfEmpty(repos, storage);
 
   // 2. Register IPC bridge handlers before launching renderer
   registerIpcHandlers();
@@ -128,7 +130,7 @@ async function bootstrap() {
   // 3. Embedded backend (Socket.IO + PeerJS signaling)
   const port = Number(process.env.HAKTON_PORT) || DEFAULT_PORT;
   try {
-    server = await startServer({ repos, port });
+    server = await startServer({ repos, storage, port });
     console.log(`[hakton] backend listening on :${server.port}`);
   } catch (err) {
     console.error(`[hakton] initial host startup failed on port ${port}:`, err.message);

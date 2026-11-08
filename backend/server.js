@@ -166,6 +166,7 @@ function mountPeerServerWithCleanup(app, httpServer) {
  *
  * @param {{
  *   repos?: object,
+ *   storage?: { uploadsDir?: string },
  *   port?: number,
  *   host?: string,
  *   hostSecret?: string,
@@ -189,6 +190,7 @@ function mountPeerServerWithCleanup(app, httpServer) {
  */
 export function startServer({
   repos = null,
+  storage = null,
   port = DEFAULT_PORT,
   host = '0.0.0.0',
   hostSecret = crypto.randomBytes(32).toString('hex'),
@@ -229,6 +231,21 @@ export function startServer({
       activeConnections: activeServer ? activeServer.io.engine.clientsCount : 0,
     }),
   );
+
+  // Lossless battle maps / token art. Uploads are stored unmodified on disk;
+  // the renderer never needs filesystem access.
+  if (storage?.uploadsDir) {
+    app.use(
+      '/assets',
+      express.static(storage.uploadsDir, {
+        maxAge: '1h',
+        setHeaders: (res) => {
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        },
+      }),
+    );
+  }
 
   const httpServer = http.createServer(app);
 
