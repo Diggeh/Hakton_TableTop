@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { connect } from '../net/socket.js';
-import { useSession } from '../store/sessionStore.js';
+import { sessionStore, useSession } from '../store/sessionStore.js';
+import DiceOverlay from '../dice/DiceOverlay.jsx';
 import { party } from './fixtures.js';
 import ToolIcon from './ToolIcon.jsx';
 import { IconButton } from './Primitives.jsx';
@@ -25,6 +26,8 @@ export default function Board({
   const connection = useSession((s) => s.connection);
   const connectionError = useSession((s) => s.connectionError);
   const map = useSession((s) => s.map);
+  const activeRoll = useSession((s) => s.activeRoll);
+
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) =>
       setSize({
@@ -35,12 +38,14 @@ export default function Board({
     observer.observe(host.current);
     return () => observer.disconnect();
   }, []);
+
   useEffect(() => {
     if (!preview && window.hakton)
       connect({ displayName, role: role === 'DM' ? 'dm' : 'player' }).catch(
         (e) => setError(e.message),
       );
   }, [preview, displayName, role]);
+
   return (
     <section className="board" aria-label="Tabletop canvas">
       <nav className="extension-toolbar" aria-label="VTT extensions">
@@ -139,6 +144,15 @@ export default function Board({
             <MapStage width={size.width} height={size.height} />
           </Suspense>
         )}
+        <DiceOverlay
+          width={size.width}
+          height={size.height}
+          activeRoll={activeRoll}
+          onRollSettledIntoTray={(roll) =>
+            sessionStore.getState().settleRollIntoTray(roll)
+          }
+          onRollLifecycleEnd={() => sessionStore.getState().clearActiveRoll()}
+        />
         {!preview &&
           (error || connectionError || connection !== 'connected') && (
             <div className="board-notice" role="status">

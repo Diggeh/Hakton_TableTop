@@ -31,6 +31,10 @@ export const EVENTS = Object.freeze({
   SESSION_PEERS: 'session:peers',
   TOKEN_MOVE: 'token:move',
   TOKEN_MOVED: 'token:moved',
+
+  // 3D Dice Rolling & Chat Log Sync
+  DICE_ROLL: 'dice:roll',
+  DICE_ROLLED: 'dice:rolled',
 });
 
 export const CONNECTION_STATUS = Object.freeze({

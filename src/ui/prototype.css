@@ -1440,3 +1440,474 @@
     display: none;
   }
 }
+
+/* ============================================================================
+ * Remodeled 3D Dice Tray UI & 3D Board Overlay Styles
+ * ========================================================================== */
+.dice-window {
+  background: transparent !important;
+  border: 0 !important;
+  overflow: visible !important;
+}
+.dice-window .dice-tray {
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+.dice-tray-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 4px 5px;
+}
+.hakton-app .dice-visibility-pill {
+  padding: 1px 6px;
+  min-height: 0;
+  height: 16px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  background: #233c47;
+  border: 1px solid #3a5662;
+  color: #a5b8ca;
+}
+.hakton-app .dice-visibility-pill.is-dm {
+  background: #29445c;
+  border-color: #adfcf9;
+  color: #adfcf9;
+}
+
+.dice-tray-shell {
+  background: #263944;
+  border: 1px solid #3c5664;
+  border-radius: 18px;
+  padding: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+
+/* Top Dark 3D Display Well */
+.dice-tray-shell .dice-well {
+  position: relative;
+  width: 100%;
+  height: 152px !important;
+  border-radius: 13px;
+  background: #141f27;
+  border: 1px solid #1f313d;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.55);
+}
+.dice-well-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+.hakton-app .dice-well-roll-btn {
+  position: relative;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 82px;
+  height: 30px;
+  padding: 0 16px;
+  border-radius: 10px;
+  background: rgba(216, 222, 226, 0.24);
+  border: 1.5px solid rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(2px);
+  color: #ffffff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  animation: hakton-pop-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.hakton-app .dice-well-roll-btn:hover:not(.is-result) {
+  background: rgba(173, 252, 249, 0.36);
+  border-color: #adfcf9;
+  color: #ffffff;
+}
+.hakton-app .dice-well-roll-btn.is-result {
+  pointer-events: none;
+  font-size: 15px;
+  color: #adfcf9;
+  border-color: rgba(173, 252, 249, 0.78);
+  background: rgba(9, 21, 64, 0.32);
+  animation: hakton-pop-in 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dice-well-rolling-status {
+  position: relative;
+  z-index: 2;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 11px;
+  color: #86c9bd;
+}
+
+/* Polyhedral Die Selection Grid (4, 6, 8, 10, 20, 12) */
+.dice-tray-shell .dice-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0 !important;
+  justify-items: center;
+}
+.hakton-app .dice-tray-shell .die-token-btn {
+  position: relative;
+  width: 34px !important;
+  height: 34px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  border: 0 !important;
+  background: transparent !important;
+  transition: transform 120ms ease;
+}
+.hakton-app .dice-tray-shell .die-token-btn:hover {
+  transform: scale(1.07);
+  background: transparent !important;
+}
+.hakton-app .dice-tray-shell .die-token-btn:active {
+  transform: scale(0.95);
+}
+.die-token-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.die-token-ring {
+  fill: #d8dee2;
+  transition: fill 120ms ease;
+}
+.die-token-btn.is-picked .die-token-ring,
+.dice-d100-box.is-picked .die-token-ring {
+  fill: #adfcf9;
+}
+.die-token-shape {
+  fill: #0c141c;
+}
+.die-token-text {
+  fill: #f4f8fa;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  text-anchor: middle;
+}
+.die-token-text.is-double {
+  font-size: 11.5px;
+}
+.die-token-text.is-triple {
+  font-size: 9px;
+}
+.die-picked-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #091540;
+  border: 1.5px solid #adfcf9;
+  color: #adfcf9;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+}
+
+/* d100 Token + Clear Button Row */
+.dice-d100-clear-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  align-items: center;
+  justify-items: center;
+}
+.hakton-app .dice-clear-btn {
+  grid-column: 2 / span 2;
+  width: 100%;
+  height: 25px;
+  padding: 0 6px !important;
+  border-radius: 999px !important;
+  background: #d8dee2 !important;
+  border: 1px solid #d8dee2 !important;
+  color: #0c141c !important;
+  font-size: 10.5px !important;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+.hakton-app .dice-clear-btn:hover:not(:disabled) {
+  background: #adfcf9 !important;
+  border-color: #ffffff !important;
+  color: #091540 !important;
+  box-shadow: 0 0 10px rgba(173, 252, 249, 0.45);
+}
+.hakton-app .dice-clear-btn:disabled {
+  opacity: 1 !important;
+  cursor: default;
+}
+
+/* ADV / DIS Pill Row */
+.dice-tray-shell .roll-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0 !important;
+}
+.hakton-app .dice-tray-shell .roll-mode-pill {
+  height: 25px;
+  padding: 0 6px !important;
+  border-radius: 999px !important;
+  background: #d8dee2 !important;
+  border: 1px solid #d8dee2 !important;
+  color: #0c141c !important;
+  font-size: 10.5px !important;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+.hakton-app .dice-tray-shell .roll-mode-pill.is-active {
+  background: #adfcf9 !important;
+  border-color: #ffffff !important;
+  color: #091540 !important;
+  box-shadow: 0 0 10px rgba(173, 252, 249, 0.45);
+}
+
+/* Bottom Modifier Stepper Bar: [ - ] [ modifier ] [ + ] */
+.dice-modifier-bar {
+  display: grid;
+  grid-template-columns: 22px 1fr 22px;
+  align-items: center;
+  height: 25px;
+  padding: 2px;
+  border-radius: 999px;
+  background: #182730;
+  border: 1px solid #36505d;
+}
+.hakton-app .dice-mod-step {
+  width: 20px;
+  height: 20px;
+  min-width: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  color: #d8dee2 !important;
+  font-size: 13px !important;
+  font-weight: 800;
+  line-height: 1;
+}
+.hakton-app .dice-mod-step:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #adfcf9 !important;
+}
+.hakton-app .dice-mod-display {
+  height: 19px;
+  min-width: 0;
+  padding: 0 6px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: #d8dee2 !important;
+  color: #0c141c !important;
+  font-size: 10px !important;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hakton-app .dice-mod-display.has-value {
+  background: #adfcf9 !important;
+  color: #091540 !important;
+}
+
+@media (max-height: 730px) {
+  .dice-tray-shell .dice-well {
+    height: 108px !important;
+  }
+  .hakton-app .dice-tray-shell .die-token-btn {
+    width: 28px !important;
+    height: 28px !important;
+  }
+}
+
+/* 3D Board Overlay Styles */
+.dice-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 20;
+  opacity: 1;
+  transition: opacity 1600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dice-overlay.is-idle {
+  opacity: 0;
+  visibility: hidden;
+}
+.dice-overlay.is-fading {
+  opacity: 0;
+}
+.dice-overlay-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+.dice-overlay-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.dice-floating-badge {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(9, 21, 64, 0.92);
+  border: 1px solid #adfcf9;
+  color: #eef5fa;
+  font-size: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  animation: hakton-pop-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dice-floating-badge small {
+  color: #3a7ca5;
+  font-size: 10px;
+}
+.dice-floating-badge strong {
+  color: #adfcf9;
+  font-size: 14px;
+}
+.dice-floating-badge.is-dropped {
+  opacity: 0.55;
+  border-color: #3a7ca5;
+  text-decoration: line-through;
+}
+.dice-settled-banner {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  background: rgba(9, 21, 64, 0.94);
+  border: 1px solid #adfcf9;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+  animation: hakton-pop-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dice-settled-formula {
+  color: #a5b8ca;
+  font-size: 12px;
+}
+.dice-settled-total {
+  color: #adfcf9;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.dice-tray-error {
+  margin: 2px 0 0;
+  color: #ff9e8e;
+  font-size: 9.5px;
+  text-align: center;
+}
+.dice-tray-secret-tag,
+.chat-roll-secret {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #29445c;
+  color: #adfcf9;
+  font-size: 9px;
+}
+.chat-roll-dice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.dice-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #142644;
+  border: 1px solid #3a7ca5;
+  font-size: 11px;
+  color: #eef5fa;
+}
+.dice-chip small {
+  color: #88a8c4;
+  font-size: 9px;
+}
+.dice-chip.is-dropped {
+  opacity: 0.48;
+  text-decoration: line-through;
+  border-style: dashed;
+}
+.dice-chip.is-crit-max {
+  border-color: #adfcf9;
+  color: #adfcf9;
+}
+.dice-chip.is-crit-min {
+  border-color: #e48f82;
+  color: #ffb4a8;
+}
+.dice-chip.is-modifier {
+  background: transparent;
+  border-color: transparent;
+  color: #a5b8ca;
+}
+
+/* Chat Roll Card */
+.chat-roll-card {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: #0d1d3a;
+  border: 1px solid #2b4564;
+}
+.chat-roll-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: #a5b8ca;
+}
+.chat-roll-total {
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 13px;
+  color: #adfcf9;
+}
+
+@keyframes hakton-pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

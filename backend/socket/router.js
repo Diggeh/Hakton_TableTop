@@ -1,4 +1,6 @@
-import { EVENTS } from '../../shared/events.js';
+import { ERROR_CODES, EVENTS, ROLES } from '../../shared/events.js';
+import { DICE_MESSAGE_TYPE, DICE_VISIBILITY } from '../../shared/dice/constants.js';
+import { validateRollSubmission } from '../../shared/dice/validate.js';
 import { SessionManager, sanitizeParticipant } from '../session/sessionManager.js';
 
 const registeredServers = new WeakSet();
@@ -33,6 +35,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
     socket.removeAllListeners(EVENTS.SESSION_JOIN);
     socket.removeAllListeners(EVENTS.SESSION_LEAVE);
     socket.removeAllListeners(EVENTS.TOKEN_MOVE);
+    socket.removeAllListeners(EVENTS.DICE_ROLL);
 
     socket.on(EVENTS.SESSION_JOIN, (rawPayload, maybeAck) => {
       const ack =
@@ -142,6 +145,104 @@ export function registerSocketRouter(io, repos, opts = {}) {
         } else {
           socket.broadcast.emit(EVENTS.TOKEN_MOVED, { id, x, y });
         }
+      }
+    });
+
+    socket.on(EVENTS.DICE_ROLL, (rawPayload, maybeAck) => {
+      const ack =
+        typeof rawPayload === 'function'
+          ? rawPayload
+          : typeof maybeAck === 'function'
+            ? maybeAck
+            : null;
+
+      const validated = validateRollSubmission(rawPayload);
+      if (!validated.ok) {
+        const errorResponse = {
+          success: false,
+          code: ERROR_CODES.INVALID_PAYLOAD,
+          error: validated.error,
+        };
+        if (ack) ack(errorResponse);
+        socket.emit(EVENTS.SESSION_ERROR, errorResponse);
+        return;
+      }
+
+      const { roll } = validated;
+      const senderId = socket.data.playerId || 'local';
+      const senderName = socket.data.displayName || 'Adventurer';
+      const senderRole = socket.data.role || ROLES.PLAYER;
+      const sessionId = socket.data.sessionId;
+
+      let recipientId = null;
+      if (roll.visibility === DICE_VISIBILITY.DM) {
+        const session = sessionId ? sessionManager.getSession(sessionId) : null;
+        let dmPlayerId = session?.hostPlayerId ?? null;
+        if (!dmPlayerId && session) {
+          for (const p of session.participants.values()) {
+            if (p.role === ROLES.DM) {
+              dmPlayerId = p.id;
+              break;
+            }
+          }
+        }
+        recipientId = dmPlayerId || 'dm';
+      }
+
+      const messageId = `roll_${roll.clientRollId}`;
+      const payload = {
+        clientRollId: roll.clientRollId,
+        formula: roll.formula,
+        visibility: roll.visibility,
+        label: roll.label,
+        dice: roll.dice,
+        modifier: roll.modifier,
+        total: roll.total,
+        senderRole,
+      };
+
+      let record;
+      if (repos?.chat) {
+        record = repos.chat.append({
+          id: messageId,
+          senderId,
+          senderName,
+          recipientId,
+          type: DICE_MESSAGE_TYPE,
+          payload,
+        });
+      } else {
+        record = {
+          id: messageId,
+          sender_id: senderId,
+          sender_name: senderName,
+          recipient_id: recipientId,
+          type: DICE_MESSAGE_TYPE,
+          payload,
+          created_at: new Date().toISOString(),
+        };
+      }
+
+      if (roll.visibility === DICE_VISIBILITY.DM) {
+        // Secret DM roll: emit ONLY to the rolling socket and to authorized DM sockets in the session.
+        socket.emit(EVENTS.DICE_ROLLED, record);
+        for (const peerSocket of io.sockets.sockets.values()) {
+          if (
+            peerSocket.id !== socket.id &&
+            peerSocket.data?.role === ROLES.DM &&
+            (!sessionId || peerSocket.data?.sessionId === sessionId)
+          ) {
+            peerSocket.emit(EVENTS.DICE_ROLLED, record);
+          }
+        }
+      } else if (sessionId) {
+        io.to(getSessionRoom(sessionId)).emit(EVENTS.DICE_ROLLED, record);
+      } else {
+        io.emit(EVENTS.DICE_ROLLED, record);
+      }
+
+      if (ack) {
+        ack({ success: true, roll: record });
       }
     });
 

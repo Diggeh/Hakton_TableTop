@@ -55,6 +55,7 @@ function detachListeners(sock) {
   sock.off(EVENTS.SERVER_SHUTDOWN);
   sock.off(EVENTS.SESSION_STATE);
   sock.off(EVENTS.TOKEN_MOVED);
+  sock.off(EVENTS.DICE_ROLLED);
 
   if (sock.io) {
     sock.io.off('reconnect_attempt');
@@ -387,6 +388,12 @@ export async function connect(options) {
     sessionStore.getState().moveToken(id, x, y);
   });
 
+  // Remote/confirmed dice roll listener: records the rolled numbers in the log without
+  // spawning 3D dice on remote clients (3D physics simulation is strictly client-sided).
+  socket.on(EVENTS.DICE_ROLLED, (record) => {
+    sessionStore.getState().appendRollRecord(record);
+  });
+
   return socket;
 }
 
@@ -394,4 +401,43 @@ export async function connect(options) {
 export function emitTokenMove(id, x, y) {
   sessionStore.getState().moveToken(id, x, y);
   socket?.emit(EVENTS.TOKEN_MOVE, { id, x, y });
+}
+
+/**
+ * Launches the client-side 3D physics roll animation, logs the roll locally,
+ * and broadcasts the pre-determined outcome over Socket.IO for SQLite persistence
+ * and peer chat synchronization.
+ *
+ * @param {import('../../shared/dice/roller.js').RollResult} roll
+ * @param {{ senderName?: string, animate?: boolean }} [opts]
+ * @returns {Promise<{ success: boolean, roll?: object, error?: string }>}
+ */
+export function emitDiceRoll(roll, { senderName, animate = true } = {}) {
+  const store = sessionStore.getState();
+  const resolvedName = senderName || store.currentUser?.displayName || 'Adventurer';
+
+  if (animate) {
+    store.startLocalRoll(roll, resolvedName);
+  }
+  store.appendRollRecord(
+    {
+      ...roll,
+      senderName: resolvedName,
+      createdAt: new Date().toISOString(),
+    },
+    resolvedName,
+  );
+
+  if (!socket || !socket.connected) {
+    return Promise.resolve({ success: true, localOnly: true });
+  }
+
+  return new Promise((resolve) => {
+    socket.emit(EVENTS.DICE_ROLL, roll, (ack) => {
+      if (ack?.success && ack.roll) {
+        store.appendRollRecord(ack.roll, resolvedName);
+      }
+      resolve(ack ?? { success: true });
+    });
+  });
 }

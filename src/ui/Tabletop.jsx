@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { DICE_VISIBILITY } from '../../shared/dice/constants.js';
+import { rollFormula } from '../../shared/dice/roller.js';
+import { disconnect, emitDiceRoll } from '../net/socket.js';
 import Board from './Board.jsx';
-import { disconnect } from '../net/socket.js';
 import { SessionStatus, LiveRoster } from './SessionStatus.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
 import ChatPanel from './ChatPanel.jsx';
-import DiceTray from './DiceTray.jsx';
+import DiceTray, { buildTrayFormula } from './DiceTray.jsx';
 import ToolIcon from './ToolIcon.jsx';
 import { party } from './fixtures.js';
 import CharacterSheet from './CharacterSheet.jsx';
@@ -30,11 +32,27 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
     'The keeper’s journal mentions a sealed chamber beneath the altar.\n\nThe sentinel wakes when the tide returns.',
   );
   const [hp, setHp] = useState(28);
+
   function inspect(asset, category = 'Characters') {
     setInspected({ name: asset, category });
     setModal('inspect');
   }
+
+  function handleRollFormula(formulaText, trayVisibility = visibility) {
+    const result = rollFormula(formulaText);
+    if (!result.ok) return result;
+    const effectiveVisibility =
+      result.roll.visibility === DICE_VISIBILITY.DM ||
+      trayVisibility === 'DM only'
+        ? DICE_VISIBILITY.DM
+        : DICE_VISIBILITY.PUBLIC;
+    const roll = { ...result.roll, visibility: effectiveVisibility };
+    emitDiceRoll(roll, { senderName: name });
+    return { ok: true, roll };
+  }
+
   const person = party.find((p) => p.name === inspected?.name) || party[0];
+
   return (
     <div className="tabletop" data-role={role}>
       <header className="table-header">
@@ -119,7 +137,13 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
             visibility={visibility}
             setVisibility={setVisibility}
             role={role}
-            onPrepare={() => setModal('dice')}
+            onPrepare={() =>
+              handleRollFormula(
+                buildTrayFormula({ die, count, modifier, rollMode }),
+                visibility,
+              )
+            }
+            onRollFormula={handleRollFormula}
           />
         </aside>
         <main className="canvas-window">
@@ -265,14 +289,22 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
           {modal === 'dice' && (
             <>
               <div className="prepared-dice">
-                {count}d{die}
-                {modifier ? `${modifier > 0 ? '+' : ''}${modifier}` : ''}
+                {buildTrayFormula({ die, count, modifier, rollMode })}
               </div>
               <p>
-                {visibility} · {rollMode} · Rolling unavailable
+                {visibility} · {rollMode}
               </p>
-              <button className="primary" onClick={() => setModal(null)}>
-                Done
+              <button
+                className="primary"
+                onClick={() => {
+                  handleRollFormula(
+                    buildTrayFormula({ die, count, modifier, rollMode }),
+                    visibility,
+                  );
+                  setModal(null);
+                }}
+              >
+                Roll now
               </button>
             </>
           )}
