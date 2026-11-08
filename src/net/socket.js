@@ -96,6 +96,7 @@ function detachListeners(sock) {
   sock.off(EVENTS.TOKEN_CREATED);
   sock.off(EVENTS.TOKEN_UPDATED);
   sock.off(EVENTS.TOKEN_DELETED);
+  sock.off(EVENTS.DICE_ROLLED);
 
   if (sock.io) {
     sock.io.off('reconnect_attempt');
@@ -453,6 +454,12 @@ export async function connect(options) {
     if (typeof id === 'string') sessionStore.getState().removeToken(id);
   });
 
+  // Remote/confirmed dice roll listener: records the rolled numbers in the log without
+  // spawning 3D dice on remote clients (3D physics simulation is strictly client-sided).
+  socket.on(EVENTS.DICE_ROLLED, (record) => {
+    sessionStore.getState().appendRollRecord(record);
+  });
+
   return socket;
 }
 
@@ -536,5 +543,44 @@ export function deleteToken(id) {
   return emitWithAck(EVENTS.TOKEN_DELETE, { id }).then((response) => {
     if (response?.ok) sessionStore.getState().removeToken(id);
     return response;
+  });
+}
+
+/**
+ * Launches the client-side 3D physics roll animation, logs the roll locally,
+ * and broadcasts the pre-determined outcome over Socket.IO for SQLite persistence
+ * and peer chat synchronization.
+ *
+ * @param {import('../../shared/dice/roller.js').RollResult} roll
+ * @param {{ senderName?: string, animate?: boolean }} [opts]
+ * @returns {Promise<{ success: boolean, roll?: object, error?: string }>}
+ */
+export function emitDiceRoll(roll, { senderName, animate = true } = {}) {
+  const store = sessionStore.getState();
+  const resolvedName = senderName || store.currentUser?.displayName || 'Adventurer';
+
+  if (animate) {
+    store.startLocalRoll(roll, resolvedName);
+  }
+  store.appendRollRecord(
+    {
+      ...roll,
+      senderName: resolvedName,
+      createdAt: new Date().toISOString(),
+    },
+    resolvedName,
+  );
+
+  if (!socket || !socket.connected) {
+    return Promise.resolve({ success: true, localOnly: true });
+  }
+
+  return new Promise((resolve) => {
+    socket.emit(EVENTS.DICE_ROLL, roll, (ack) => {
+      if (ack?.success && ack.roll) {
+        store.appendRollRecord(ack.roll, resolvedName);
+      }
+      resolve(ack ?? { success: true });
+    });
   });
 }

@@ -5,9 +5,10 @@ import {
   deleteToken,
   updateToken,
 } from '../net/socket.js';
-import { useSession } from '../store/sessionStore.js';
+import { sessionStore, useSession } from '../store/sessionStore.js';
 import { canvasStore, useCanvas } from '../canvas/canvasStore.js';
 import { MAX_SCALE } from '../canvas/viewport.js';
+import DiceOverlay from '../dice/DiceOverlay.jsx';
 import { party } from './fixtures.js';
 import ToolIcon from './ToolIcon.jsx';
 import AddTokenDialog from './AddTokenDialog.jsx';
@@ -38,6 +39,7 @@ export default function Board({
   const tokens = useSession((s) => s.tokens);
   const participants = useSession((s) => s.participants);
   const latency = useSession((s) => s.lastMoveLatencyMs);
+  const activeRoll = useSession((s) => s.activeRoll);
 
   const liveScale = useCanvas((s) => s.viewport.scale);
   const gridVisible = useCanvas((s) => s.gridVisible);
@@ -88,6 +90,7 @@ export default function Board({
       selectedTokens.map((token) => updateToken(token.id, { locked: next })),
     );
   }
+
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) =>
       setSize({
@@ -98,12 +101,14 @@ export default function Board({
     observer.observe(host.current);
     return () => observer.disconnect();
   }, []);
+
   useEffect(() => {
     if (!preview && window.hakton)
       connect({ displayName, role: role === 'DM' ? 'dm' : 'player' })
         .then(() => setError(''))
         .catch((e) => setError(e.message));
   }, [preview, displayName, role]);
+
   return (
     <section className="board" aria-label="Tabletop canvas">
       <nav className="extension-toolbar" aria-label="VTT extensions">
@@ -207,6 +212,15 @@ export default function Board({
             />
           </Suspense>
         )}
+        <DiceOverlay
+          width={size.width}
+          height={size.height}
+          activeRoll={activeRoll}
+          onRollSettledIntoTray={(roll) =>
+            sessionStore.getState().settleRollIntoTray(roll)
+          }
+          onRollLifecycleEnd={() => sessionStore.getState().clearActiveRoll()}
+        />
         {!preview &&
           (error || connectionError || connection !== 'connected') && (
             <div className="board-notice" role="status">

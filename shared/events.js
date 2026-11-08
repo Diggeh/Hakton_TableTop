@@ -41,7 +41,7 @@ export const EVENTS = Object.freeze({
   TOKEN_DELETE: 'token:delete',
   TOKEN_DELETED: 'token:deleted',
 
-  // Chat & Dice
+  // Chat & 3D Dice Rolling Sync
   CHAT_SEND: 'chat:send',
   CHAT_MESSAGE: 'chat:message',
   CHAT_HISTORY: 'chat:history',

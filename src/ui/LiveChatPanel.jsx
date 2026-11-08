@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { chatStore, useChat } from '../store/chatStore.js';
-import { sessionStore, useSession } from '../store/sessionStore.js';
+import { DICE_VISIBILITY } from '../../shared/dice/constants.js';
+import { isRollCommand } from '../../shared/dice/parser.js';
+import { rollFormula } from '../../shared/dice/roller.js';
+import { MAX_TEXT_LENGTH } from '../../shared/chatEvents.js';
 import {
   loadChatHistory,
   retryChatMessage,
   sendChatMessage,
 } from '../net/chat.js';
-import { MAX_TEXT_LENGTH } from '../../shared/chatEvents.js';
-import { IconButton, Tabs } from './Primitives.jsx';
-import ChatImage from './ChatImage.jsx';
 import { prepareChatImage } from '../net/chatImage.js';
+import { emitDiceRoll } from '../net/socket.js';
+import { chatStore, useChat } from '../store/chatStore.js';
+import { sessionStore, useSession } from '../store/sessionStore.js';
+import ChatImage from './ChatImage.jsx';
+import { RollLogEntry } from './ChatPanel.jsx';
+import { IconButton, Tabs } from './Primitives.jsx';
 
 export default function LiveChatPanel({ hidden, width, onClose }) {
   const messages = useChat((s) => s.messages);
@@ -19,6 +24,7 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
   const user = useSession((s) => s.currentUser);
   const sessionId = useSession((s) => s.session?.id);
   const participants = useSession((s) => s.participants);
+  const rollHistory = useSession((s) => s.rollHistory);
   const [tab, setTab] = useState('Table');
   const [recipientId, setRecipientId] = useState('');
   const [attachment, setAttachment] = useState(null);
@@ -29,19 +35,25 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
   const end = useRef(null);
   const connected = connection === 'connected' && Boolean(user?.id);
   const privateTab = tab === 'Whispers';
+  const rollsTab = tab === 'Rolls';
   const recipients = participants.filter((p) => p.id !== user?.id);
   const recipient = recipients.find((p) => p.id === recipientId);
   const canCompose = connected && (!privateTab || Boolean(recipient));
-  const shown = messages.filter(
-    (message) => Boolean(message.recipientId) === privateTab,
-  );
+  const shown = rollsTab
+    ? []
+    : messages.filter((message) => Boolean(message.recipientId) === privateTab);
+  const shownRolls = rollsTab
+    ? rollHistory
+    : tab === 'Table'
+      ? rollHistory.filter((r) => r.visibility !== DICE_VISIBILITY.DM)
+      : [];
   const composeScope = JSON.stringify([sessionId, user?.id, tab, recipientId]);
   const currentScope = useRef(composeScope);
   currentScope.current = composeScope;
 
   useEffect(() => {
     if (!hidden) end.current?.scrollIntoView({ block: 'nearest' });
-  }, [messages, hidden, tab]);
+  }, [messages, rollHistory, hidden, tab]);
   useEffect(() => {
     setDraft('');
     setError('');
@@ -50,8 +62,21 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
 
   async function submit(event) {
     event.preventDefault();
-    if (!canCompose || preparing || (!draft.trim() && !attachment)) return;
+    const trimmed = draft.trim();
+    if (!canCompose || preparing || (!trimmed && !attachment)) return;
     setError('');
+
+    if (!attachment && (rollsTab || isRollCommand(trimmed))) {
+      const evaluated = rollFormula(trimmed);
+      if (!evaluated.ok) {
+        setError(evaluated.error);
+        return;
+      }
+      emitDiceRoll(evaluated.roll, { senderName: user?.displayName });
+      setDraft('');
+      return;
+    }
+
     setPreparing(true);
     let image;
     if (attachment) {
@@ -104,7 +129,7 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
         </IconButton>
       </header>
       <Tabs
-        items={['Table', 'Whispers']}
+        items={['Table', 'Whispers', 'Rolls']}
         value={tab}
         onChange={setTab}
         label="Chat channels"
@@ -129,7 +154,13 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
       <div
         className="message-list"
         role="log"
-        aria-label={privateTab ? 'Private whispers' : 'Public session messages'}
+        aria-label={
+          rollsTab
+            ? 'Session dice rolls'
+            : privateTab
+              ? 'Private whispers'
+              : 'Public session messages'
+        }
         aria-busy={historyState === 'loading'}
       >
         {historyState === 'loading' && (
@@ -148,8 +179,10 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
             </button>
           </div>
         )}
-        {!shown.length && historyState === 'ready' && (
-          <p className="empty-inline">No messages yet.</p>
+        {!shown.length && !shownRolls.length && historyState === 'ready' && (
+          <p className="empty-inline">
+            {rollsTab ? 'No rolls yet.' : 'No messages yet.'}
+          </p>
         )}
         {shown.map((m) => (
           <article className={`message message-${m.status}`} key={m.id}>
@@ -197,6 +230,9 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
             </div>
           </article>
         ))}
+        {shownRolls.map((roll) => (
+          <RollLogEntry key={roll.id} roll={roll} />
+        ))}
         <div ref={end} />
       </div>
       <form className="chat-composer" onSubmit={submit}>
@@ -214,7 +250,13 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
         )}
         <textarea
           aria-label="Message"
-          placeholder={privateTab ? 'Write a whisper…' : 'Message the table…'}
+          placeholder={
+            rollsTab
+              ? 'Roll formula, e.g. 2d20kh1+5 or /gmroll 1d20+7…'
+              : privateTab
+                ? 'Write a whisper…'
+                : 'Message the table or type /r 2d20+5…'
+          }
           maxLength={MAX_TEXT_LENGTH}
           value={draft}
           disabled={!canCompose || preparing}
@@ -256,7 +298,7 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
         <div>
           <button
             type="button"
-            disabled={!canCompose || preparing}
+            disabled={!canCompose || preparing || rollsTab}
             onClick={() => fileInput.current?.click()}
           >
             Attach image
@@ -267,7 +309,13 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
               !canCompose || preparing || (!draft.trim() && !attachment)
             }
           >
-            {preparing ? 'Sending…' : privateTab ? 'Whisper ↑' : 'Send ↑'}
+            {preparing
+              ? 'Sending…'
+              : rollsTab
+                ? 'Roll 🎲'
+                : privateTab
+                  ? 'Whisper ↑'
+                  : 'Send ↑'}
           </button>
         </div>
       </form>
