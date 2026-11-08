@@ -2,6 +2,7 @@ import { createCharacterModel } from './models/characters.js';
 import { createCompendiumModel } from './models/compendium.js';
 import { createChatModel } from './models/chat.js';
 import { createDmRecordModel } from './models/dmRecords.js';
+import { createAssetModel } from './models/assets.js';
 
 /**
  * Repository layer: the ONLY place SQL lives. The backend consumes these
@@ -24,6 +25,7 @@ export function createRepositories(db) {
     compendium: createCompendiumModel(db),
     chat: createChatModel(db),
     dmRecords: createDmRecordModel(db),
+    assets: createAssetModel(db),
     maps: {
       first: () => stmts.firstMap.get() ?? null,
       /** Creates a campaign + map. Returns the map row. */

@@ -4,4 +4,16 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('hakton', {
   getServerInfo: () => ipcRenderer.invoke('hakton:server-info'),
+  assets: {
+    list: (filters = {}) => ipcRenderer.invoke('hakton:assets:list', filters),
+    get: (id) => ipcRenderer.invoke('hakton:assets:get', { id }),
+    selectFiles: (options = {}) => ipcRenderer.invoke('hakton:assets:select-files', options),
+    pickAndUpload: (options = {}) => ipcRenderer.invoke('hakton:assets:pick-and-upload', options),
+    uploadPaths: (payload = {}) => ipcRenderer.invoke('hakton:assets:upload-paths', payload),
+    uploadFiles: (payload = {}) => ipcRenderer.invoke('hakton:assets:upload-buffer', payload),
+    rename: (id, name) => ipcRenderer.invoke('hakton:assets:rename', { id, name }),
+    setCategory: (id, category) => ipcRenderer.invoke('hakton:assets:set-category', { id, category }),
+    updateMetadata: (id, metadata) => ipcRenderer.invoke('hakton:assets:update-metadata', { id, metadata }),
+    delete: (id) => ipcRenderer.invoke('hakton:assets:delete', { id }),
+  },
 });

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase } from '../database/index.js';
@@ -6,6 +6,8 @@ import { createRepositories } from '../database/repositories.js';
 import { seedIfEmpty } from '../database/seed.js';
 import { initStorage } from '../storage/index.js';
 import { startServer } from '../backend/server.js';
+import { createAssetService } from '../backend/assetService.js';
+import { registerAssetIpcHandlers } from './assetIpc.js';
 import { DEFAULT_PORT } from '../shared/events.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,15 +29,15 @@ else {
 }
 
 async function bootstrap() {
-  // 1. Storage
+  // 1. Storage & SQLite
   const storage = initStorage(app.getPath('userData'));
   db = openDatabase(storage.dbPath);
   const repos = createRepositories(db);
   seedIfEmpty(repos);
 
-  // 2. Embedded backend (Socket.io + PeerJS signaling)
+  // 2. Embedded backend (HTTP + Socket.io + PeerJS signaling)
   const port = Number(process.env.HAKTON_PORT) || DEFAULT_PORT;
-  server = await startServer({ repos, port });
+  server = await startServer({ repos, storage, port });
   console.log(`[hakton] backend listening on :${server.port}`);
 
   // 3. IPC: renderer asks where the local backend lives
@@ -44,7 +46,20 @@ async function bootstrap() {
     port: server.port,
   }));
 
-  // 4. UI
+  // 4. IPC: narrowly scoped Asset Management & Catalog operations
+  const assetService = createAssetService({
+    storage,
+    repos,
+    getBaseUrl: () => (server ? `http://127.0.0.1:${server.port}` : null),
+  });
+  registerAssetIpcHandlers({
+    ipcMain,
+    dialog,
+    getMainWindow: () => mainWindow,
+    assetService,
+  });
+
+  // 5. UI
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
