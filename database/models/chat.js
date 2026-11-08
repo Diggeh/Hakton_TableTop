@@ -30,13 +30,8 @@ export function createChatModel(db) {
     ORDER BY created_at DESC, rowid DESC LIMIT @limit`);
 
   return {
-<<<<<<< HEAD
     historyForSession: (sessionId, userId, limit) =>
       sessionHistory.all({ sessionId, userId, limit }).reverse().map(hydrate),
-    get: (id) => {
-      const row = byId.get(id);
-      return row ? hydrate(row) : null;
-    },
     publicHistoryForSession: (sessionId, limit = 100) =>
       publicHistory
         .all({
@@ -48,13 +43,9 @@ export function createChatModel(db) {
         })
         .reverse()
         .map(hydrate),
-    append(m) {
-      insert.run({
-=======
     /** Insert once; returns the stored row plus whether this call created it. */
     appendIfAbsent(m) {
       const result = insert.run({
->>>>>>> chz
         id: m.id,
         senderId: m.senderId,
         senderName: m.senderName,
