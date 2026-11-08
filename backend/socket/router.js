@@ -1,10 +1,6 @@
-<<<<<<< HEAD
-import { registerChatHandlers } from '../chat/handlers.js';
-import { EVENTS } from '../../shared/events.js';
-=======
 import crypto from 'node:crypto';
+import { registerChatHandlers } from '../chat/handlers.js';
 import { EVENTS, ROLES } from '../../shared/events.js';
->>>>>>> chz
 import { SessionManager, sanitizeParticipant } from '../session/sessionManager.js';
 
 const registeredServers = new WeakSet();
