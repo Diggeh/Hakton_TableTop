@@ -1,12 +1,37 @@
 import { useState } from 'react';
 import { Tabs } from './Primitives.jsx';
 
-// Controlled HP stays in the presentation shell; replace with the character adapter later.
-export default function CharacterSheet({ person, hp, setHp }) {
+const FALLBACK_ABILITIES = { str: 12, dex: 16, con: 14, int: 10, wis: 15, cha: 8 };
+const ABILITY_LABELS = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+
+/**
+ * Character sheet bound to the autosaved store document.
+ *
+ * `person` remains the presentation fixture (name, portrait, fallback values);
+ * `character` is the live SQLite-backed row. When it is absent (preview board)
+ * the sheet renders fixture values read-only.
+ *
+ * @param {{
+ *   person: object,
+ *   character?: object|null,
+ *   canEdit?: boolean,
+ *   onHpChange?: (value: number) => void,
+ * }} props
+ */
+export default function CharacterSheet({ person, character = null, canEdit = false, onHpChange }) {
   const [sheetTab, setSheetTab] = useState('Abilities');
+
+  const sheet = character?.sheetData ?? {};
+  const hp = sheet.hp ?? { current: person.hp ?? 0, max: person.max ?? 0 };
+  const maxHp = Number.isFinite(Number(hp.max)) ? Number(hp.max) : (person.max ?? 0);
+  const currentHp = Number.isFinite(Number(hp.current)) ? Number(hp.current) : (person.hp ?? 0);
+  const abilities = sheet.abilities ?? FALLBACK_ABILITIES;
+  const inventory = Array.isArray(sheet.inventory) ? sheet.inventory : null;
+  const editable = Boolean(canEdit && character && typeof onHpChange === 'function');
+
   return (
     <>
-      <p className="character-detail">{person.detail}</p>
+      <p className="character-detail">{sheet.detail ?? person.detail}</p>
       <div className="sheet-summary">
         <label>
           Hit points
@@ -14,22 +39,24 @@ export default function CharacterSheet({ person, hp, setHp }) {
             type="number"
             aria-label="Current hit points"
             min="0"
-            max={person.max}
-            value={person.name === 'Mira' ? hp : person.hp}
-            disabled={person.name !== 'Mira'}
-            onChange={(e) =>
-              setHp(Math.min(person.max, Math.max(0, Number(e.target.value))))
-            }
+            max={maxHp}
+            value={currentHp}
+            disabled={!editable}
+            title={editable ? undefined : 'Only the owner or a DM can edit this sheet.'}
+            onChange={(e) => {
+              const next = Math.min(maxHp, Math.max(0, Number(e.target.value) || 0));
+              onHpChange(next);
+            }}
           />
-          <small> / {person.max}</small>
+          <small> / {maxHp}</small>
         </label>
         <div>
           <span>Armor class</span>
-          <strong>{person.ac}</strong>
+          <strong>{sheet.ac ?? person.ac}</strong>
         </div>
         <div>
           <span>Speed</span>
-          <strong>30 ft</strong>
+          <strong>{sheet.speed ?? 30} ft</strong>
         </div>
       </div>
       <Tabs
@@ -40,24 +67,32 @@ export default function CharacterSheet({ person, hp, setHp }) {
       />
       {sheetTab === 'Abilities' ? (
         <div className="ability-grid">
-          {Object.entries({
-            STR: 12,
-            DEX: 16,
-            CON: 14,
-            INT: 10,
-            WIS: 15,
-            CHA: 8,
-          }).map(([a, v]) => (
-            <div key={a}>
-              <span>{a}</span>
-              <strong>{v}</strong>
-              <small>
-                {Math.floor((v - 10) / 2) >= 0 ? '+' : ''}
-                {Math.floor((v - 10) / 2)}
-              </small>
-            </div>
-          ))}
+          {ABILITY_LABELS.map((label) => {
+            const value = Number(abilities[label.toLowerCase()] ?? FALLBACK_ABILITIES[label.toLowerCase()]);
+            const modifier = Math.floor((value - 10) / 2);
+            return (
+              <div key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+                <small>
+                  {modifier >= 0 ? '+' : ''}
+                  {modifier}
+                </small>
+              </div>
+            );
+          })}
         </div>
+      ) : inventory ? (
+        inventory.map((group) => (
+          <details key={group.group} open={Boolean(group.open)}>
+            <summary>{group.group}</summary>
+            {(group.items ?? []).map((item) => (
+              <div className="reference-row" key={`${group.group}-${item.name}`}>
+                {item.name} <span>{item.qty}</span>
+              </div>
+            ))}
+          </details>
+        ))
       ) : (
         <>
           <details open>

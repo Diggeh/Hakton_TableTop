@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
  *
  * Layout:
  *   <appData>/hakton.db
+ *   <appData>/backups          timestamped database snapshots
  *   <appData>/uploads/maps     lossless battle maps
  *   <appData>/uploads/tokens   lossless token art
  *
@@ -394,9 +395,10 @@ export const resolveDataDir = (baseDir) => resolveAppDataDir({ baseDir });
 export function initStorage(source) {
   const dataDir = resolveAppDataDir(typeof source === 'string' ? { baseDir: source } : source);
   const uploadsDir = path.join(dataDir, 'uploads');
+  const backupsDir = path.join(dataDir, 'backups');
   const dirs = Object.fromEntries(UPLOAD_SUBDIRS.map((k) => [k, path.join(uploadsDir, k)]));
 
-  for (const dir of [dataDir, uploadsDir, ...Object.values(dirs)]) {
+  for (const dir of [dataDir, backupsDir, uploadsDir, ...Object.values(dirs)]) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   }
   fs.accessSync(uploadsDir, fs.constants.R_OK | fs.constants.W_OK);
@@ -514,6 +516,7 @@ export function initStorage(source) {
   return {
     dataDir,
     dbPath: path.join(dataDir, 'hakton.db'),
+    backupsDir,
     uploadsDir,
     dirs,
     getAssetPath,

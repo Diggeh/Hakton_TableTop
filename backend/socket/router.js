@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import { registerChatHandlers } from '../chat/handlers.js';
+import { registerAutosaveHandlers } from '../autosave/handlers.js';
+import { characterToWire, dmRecordToWire } from '../autosave/wire.js';
 import { ERROR_CODES, EVENTS, ROLES } from '../../shared/events.js';
 import { DICE_MESSAGE_TYPE, DICE_VISIBILITY } from '../../shared/dice/constants.js';
 import { validateRollSubmission } from '../../shared/dice/validate.js';
@@ -35,6 +37,7 @@ export function mapToWire(map) {
   if (!map) return null;
   return {
     id: map.id,
+    campaignId: map.campaign_id ?? map.campaignId ?? null,
     name: map.name,
     gridSize: map.grid_size ?? map.gridSize ?? 70,
     width: map.width,
@@ -42,6 +45,56 @@ export function mapToWire(map) {
     imageUrl: map.image_file
       ? `/assets/maps/${encodeURIComponent(map.image_file)}`
       : null,
+  };
+}
+
+/**
+ * Authoritative snapshot for a joining/reconnecting client.
+ *
+ * Board documents and DM records are permission-filtered here, not in the UI.
+ *
+ * @param {ReturnType<typeof import('../../database/repositories.js').createRepositories>} repos
+ * @param {{ role?: string, playerId?: string|null }} viewer
+ */
+export function buildStateSnapshot(repos, { role, playerId } = {}) {
+  const map = repos?.maps?.active?.() ?? repos?.maps?.first?.() ?? null;
+  const campaignId = map?.campaign_id ?? null;
+  const maps =
+    campaignId !== null && repos?.maps?.listByCampaign
+      ? repos.maps.listByCampaign(campaignId)
+      : map
+        ? [map]
+        : [];
+  const tokens = map && repos?.tokens ? repos.tokens.listByMap(map.id) : [];
+  const board =
+    campaignId !== null && repos?.board?.get ? repos.board.get(campaignId) : null;
+
+  const isDM = role === ROLES.DM;
+  let characters = [];
+  if (repos?.characters) {
+    characters = isDM
+      ? repos.characters.listAll?.() ?? []
+      : repos.characters.listByOwner?.(playerId) ?? [];
+  }
+  const dmRecords =
+    isDM && repos?.dmRecords?.listAll ? repos.dmRecords.listAll() : [];
+
+  return {
+    campaignId,
+    map: mapToWire(map),
+    maps: maps.map(mapToWire),
+    tokens: tokens.map(tokenToWire),
+    board: board
+      ? {
+          campaignId,
+          revision: board.revision,
+          data: board.data,
+          updatedAt: board.updatedAt,
+        }
+      : null,
+    characters: characters.map(characterToWire),
+    dmRecords: dmRecords.map(dmRecordToWire),
+    serverTime: new Date().toISOString(),
   };
 }
 
@@ -91,6 +144,16 @@ export function registerSocketRouter(io, repos, opts = {}) {
     socket.removeAllListeners(EVENTS.TOKEN_UPDATE);
     socket.removeAllListeners(EVENTS.TOKEN_DELETE);
     socket.removeAllListeners(EVENTS.DICE_ROLL);
+    socket.removeAllListeners(EVENTS.STATE_REQUEST);
+    socket.removeAllListeners(EVENTS.AUTOSAVE_COMMIT);
+
+    // Register autosave after the listener cleanup above, otherwise the cleanup
+    // would remove the handler we just attached.
+    registerAutosaveHandlers(io, socket, {
+      repos,
+      sessionManager,
+      autosave: opts.autosave,
+    });
 
     const roomForSocket = () =>
       socket.data.sessionId ? getSessionRoom(socket.data.sessionId) : null;
@@ -105,6 +168,17 @@ export function registerSocketRouter(io, repos, opts = {}) {
     const isJoined = () => Boolean(socket.data.playerId && socket.data.sessionId);
 
     const currentMap = () => repos?.maps?.first?.() ?? null;
+
+    /** Queue a server-built board snapshot for the mutated campaign. */
+    const markBoardDirty = (map, updatedBy) => {
+      const campaignId = map?.campaign_id;
+      if (campaignId === null || campaignId === undefined) return;
+      try {
+        opts.autosave?.markBoardDirty?.(campaignId, updatedBy ?? null);
+      } catch {
+        // Board checkpoints are derived state; never fail a mutation over them.
+      }
+    };
 
     socket.on(EVENTS.SESSION_JOIN, (rawPayload, maybeAck) => {
       const ack =
@@ -165,12 +239,53 @@ export function registerSocketRouter(io, repos, opts = {}) {
 
       // 3. Deliver the persisted board snapshot to the joining client.
       if (repos?.maps && repos?.tokens) {
-        const map = repos.maps.first();
-        socket.emit(EVENTS.SESSION_STATE, {
-          map: mapToWire(map),
-          tokens: map ? repos.tokens.listByMap(map.id).map(tokenToWire) : [],
-        });
+        socket.emit(
+          EVENTS.SESSION_STATE,
+          buildStateSnapshot(repos, {
+            role: participant.role,
+            playerId: participant.id,
+          }),
+        );
       }
+    });
+
+    // Reconnection resync. Cheap enough to call on focus, so it is rate-limited
+    // per socket rather than trusted to the client.
+    let stateWindowStart = 0;
+    let stateRequestCount = 0;
+    socket.on(EVENTS.STATE_REQUEST, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (response) => {
+        if (ack) ack(response);
+      };
+
+      if (!isJoined()) {
+        respond({ ok: false, reason: 'not_joined' });
+        return;
+      }
+
+      const now = Date.now();
+      if (now - stateWindowStart > 5000) {
+        stateWindowStart = now;
+        stateRequestCount = 0;
+      }
+      stateRequestCount += 1;
+      if (stateRequestCount > 5) {
+        respond({ ok: false, reason: 'rate_limited' });
+        return;
+      }
+
+      if (!repos?.maps) {
+        respond({ ok: false, reason: 'state_unavailable' });
+        return;
+      }
+
+      const state = buildStateSnapshot(repos, {
+        role: socket.data.role,
+        playerId: socket.data.playerId,
+      });
+      socket.emit(EVENTS.SESSION_STATE, state);
+      respond({ ok: true, state });
     });
 
     socket.on(EVENTS.SESSION_LEAVE, (rawPayload, maybeAck) => {
@@ -257,6 +372,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
         respond({ ok: false, reason: 'move_failed' });
         return;
       }
+      markBoardDirty(map, socket.data.playerId);
 
       const updated = tokenToWire(repos.tokens.get(id));
       broadcast(EVENTS.TOKEN_MOVED, {
@@ -319,6 +435,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
         locked: Boolean(payload.locked),
         color: normalizeColor(payload.color),
       });
+      markBoardDirty(map, socket.data.playerId);
 
       const wire = tokenToWire(token);
       broadcast(EVENTS.TOKEN_CREATED, wire);
@@ -362,6 +479,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
         respond({ ok: false, reason: 'not_found' });
         return;
       }
+      markBoardDirty(currentMap(), socket.data.playerId);
 
       const wire = tokenToWire(token);
       broadcast(EVENTS.TOKEN_UPDATED, wire);
@@ -391,6 +509,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
         respond({ ok: false, reason: 'not_found' });
         return;
       }
+      markBoardDirty(currentMap(), socket.data.playerId);
 
       broadcast(EVENTS.TOKEN_DELETED, { id: payload.id });
       respond({ ok: true, id: payload.id });

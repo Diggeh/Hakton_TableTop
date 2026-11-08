@@ -1,7 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openDatabase } from '../database/index.js';
+import { checkpoint } from '../database/index.js';
+import { openDatabaseWithRecovery } from '../database/recovery.js';
+import { createBackup, startBackupSchedule } from '../database/backup.js';
 import { createRepositories } from '../database/repositories.js';
 import { seedIfEmpty } from '../database/seed.js';
 import { initStorage } from '../storage/index.js';
@@ -23,6 +25,8 @@ let repos = null;
 let storage = null;
 let server = null;
 let mainWindow = null;
+let recoveryInfo = null;
+let stopBackups = null;
 
 // Only one Hakton instance: a second one would fight over the port and SQLite file.
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -64,6 +68,8 @@ function registerIpcHandlers() {
   ipcMain.handle('hakton:server-info', () => buildServerInfo());
 
   ipcMain.handle('hakton:server-status', () => getServerStatus());
+
+  ipcMain.handle('hakton:recovery-status', () => recoveryInfo);
 
   ipcMain.handle('hakton:server-start', async (_event, opts = {}) => {
     try {
@@ -133,11 +139,27 @@ function registerIpcHandlers() {
 }
 
 async function bootstrap() {
-  // 1. Storage & Database
+  // 1. Storage & Database (integrity check + automatic backup restore)
   storage = initStorage(app.getPath('userData'));
-  db = openDatabase(storage.dbPath);
+  const opened = openDatabaseWithRecovery({
+    filePath: storage.dbPath,
+    backupDir: storage.backupsDir,
+  });
+  db = opened.db;
+  recoveryInfo = opened.recovery;
+
+  if (recoveryInfo.recovered) {
+    console.warn(`[hakton] recovered database from ${recoveryInfo.backupUsed}`);
+  }
+  if (recoveryInfo.corruptFile) {
+    console.warn(`[hakton] corrupt database preserved at ${recoveryInfo.corruptFile}`);
+  }
+
   repos = createRepositories(db);
   await seedIfEmpty(repos, storage);
+
+  // Snapshot every five minutes so a hard crash never loses more than that.
+  stopBackups = startBackupSchedule(db, storage.backupsDir, { intervalMs: 5 * 60 * 1000 });
 
   // 2. Register IPC bridge handlers before launching renderer
   registerIpcHandlers();
@@ -196,11 +218,28 @@ app.on('before-quit', (event) => {
   if (shuttingDown) return;
   shuttingDown = true;
   event.preventDefault();
+  stopBackups?.();
+  stopBackups = null;
   Promise.resolve(stopServer())
     .catch(() => {})
     .finally(() => {
       server = null;
-      db?.close();
+      // Final snapshot + WAL checkpoint so the next launch starts clean.
+      try {
+        if (db && storage?.backupsDir) createBackup(db, storage.backupsDir);
+      } catch (error) {
+        console.warn('[hakton] shutdown backup failed:', error?.message ?? error);
+      }
+      try {
+        if (db) checkpoint(db);
+      } catch {
+        // Ignore checkpoint errors during shutdown.
+      }
+      try {
+        db?.close();
+      } catch {
+        // Ignore close errors during shutdown.
+      }
       app.exit(0);
     });
 });

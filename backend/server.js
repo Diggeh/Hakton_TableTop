@@ -15,6 +15,7 @@ import {
 } from '../shared/events.js';
 import { SessionManager } from './session/sessionManager.js';
 import { registerSocketRouter } from './socket/router.js';
+import { createAutosaveService } from './autosave/service.js';
 import { typeToStorageKind } from './assetService.js';
 
 let activeServer = null;
@@ -309,6 +310,8 @@ export function startServer({
   hostSecret = crypto.randomBytes(32).toString('hex'),
   sessionId = DEFAULT_SESSION_ID,
   sessionName = DEFAULT_SESSION_NAME,
+  autosaveDebounceMs = 500,
+  autosaveMaxMs = 5000,
 } = {}) {
   if (activeServer || startingPromise) {
     const err = new Error(
@@ -334,7 +337,22 @@ export function startServer({
     hostSecret,
     defaultSessionId: sessionId,
     defaultSessionName: sessionName,
+    persistence: repos?.sessions ?? null,
   });
+
+  // Restore identities from the previous host process before accepting players.
+  try {
+    sessionManager.hydrate();
+  } catch (error) {
+    console.warn('[hakton] could not restore session identities:', error?.message ?? error);
+  }
+
+  // Old idempotency receipts are only useful for a short replay window.
+  try {
+    repos?.autosaveReceipts?.prune?.(7);
+  } catch {
+    // Receipt pruning is housekeeping, never a startup blocker.
+  }
 
   const app = createHttpApp({
     repos,
@@ -377,7 +395,38 @@ export function startServer({
         pingInterval: 25000,
       });
 
-      registerSocketRouter(io, repos, { sessionManager, hostSecret });
+      const autosaveService = repos
+        ? createAutosaveService({
+            repos,
+            debounceMs: autosaveDebounceMs,
+            maxMs: autosaveMaxMs,
+            onSaved: (document) => {
+              try {
+                io.emit(EVENTS.AUTOSAVE_SAVED, {
+                  saveId: null,
+                  savedBy: 'server',
+                  savedAt: new Date().toISOString(),
+                  documents: [
+                    {
+                      kind: 'board',
+                      scopeId: `campaign:${document.campaignId}`,
+                      revision: document.revision,
+                      updatedAt: document.updatedAt,
+                    },
+                  ],
+                });
+              } catch {
+                // Best-effort broadcast.
+              }
+            },
+          })
+        : null;
+
+      registerSocketRouter(io, repos, {
+        sessionManager,
+        hostSecret,
+        autosave: autosaveService,
+      });
 
       const addressInfo = httpServer.address();
       const boundPort =
@@ -393,6 +442,13 @@ export function startServer({
 
         closingPromise = new Promise((done) => {
           stopPeerTimers();
+
+          // Persist any queued board blueprint before the DB handle goes away.
+          try {
+            autosaveService?.flushAll?.();
+          } catch {
+            // Shutdown must not be blocked by a failed checkpoint.
+          }
 
           try {
             io.emit?.(EVENTS.SERVER_SHUTDOWN, {
@@ -455,6 +511,7 @@ export function startServer({
         io,
         httpServer,
         sessionManager,
+        autosave: autosaveService,
         getStatus,
         close,
       };

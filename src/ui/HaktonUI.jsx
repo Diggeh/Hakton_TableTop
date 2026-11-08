@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { campaigns as initialCampaigns } from './fixtures.js';
 import { Mark, Modal } from './Primitives.jsx';
 import Tabletop from './Tabletop.jsx';
+import RecoveryBanner from './RecoveryBanner.jsx';
 import './hakton.css';
 import './prototype.css';
 export default function HaktonUI() {
@@ -18,6 +19,7 @@ export default function HaktonUI() {
   }
   return (
     <div className={`hakton-app screen-${screen}`}>
+      <RecoveryBanner />
       {screen === 'table' ? (
         <Tabletop
           campaign={campaign}

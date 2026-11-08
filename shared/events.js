@@ -53,6 +53,18 @@ export const EVENTS = Object.freeze({
   MAP_SELECTED: 'map:selected',
   MAP_UPDATE: 'map:update',
   MAP_UPDATED: 'map:updated',
+
+  // Continuous auto-save
+  AUTOSAVE_COMMIT: 'autosave:commit',
+  AUTOSAVE_SAVED: 'autosave:saved',
+  AUTOSAVE_ERROR: 'autosave:error',
+});
+
+/** Document kinds accepted by the autosave protocol. */
+export const AUTOSAVE_KINDS = Object.freeze({
+  CHARACTER: 'character',
+  DM_RECORD: 'dm-record',
+  BOARD: 'board',
 });
 
 export const CONNECTION_STATUS = Object.freeze({

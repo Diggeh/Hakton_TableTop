@@ -815,7 +815,6 @@ test('Catalog & IPC Tests: search, filter, selection, deletion, and dialog path 
 // ============================================================================
 
 test('Integration Tests: Express /assets/:id/file streaming, catalog endpoints, and Socket.io router work together', async (t) => {
-  const { PassThrough } = await import('node:stream');
   const env = createTempEnv();
   const srv = await startServer({ repos: env.repos, storage: env.storage, port: 0, host: '127.0.0.1' });
   t.after(async () => {
@@ -824,33 +823,18 @@ test('Integration Tests: Express /assets/:id/file streaming, catalog endpoints, 
   });
 
   assert.ok(srv.port > 0, 'Embedded HTTP server must bind to an ephemeral port');
-  const app = createHttpApp({ repos: env.repos, storage: env.storage });
+  const baseUrl = srv.localUrl ?? `http://127.0.0.1:${srv.port}`;
 
-  // Helper to dispatch HTTP requests in-process (works even inside network-isolated sandboxes)
+  // Real HTTP round-trip against the embedded server (works in sandboxes: loopback only).
   async function requestApp(urlPath) {
-    return new Promise((resolve, reject) => {
-      const headers = new Map();
-      const chunks = [];
-      const resStream = new PassThrough();
-      resStream.statusCode = 200;
-      resStream.headersSent = false;
-      resStream.setHeader = (k, v) => headers.set(k.toLowerCase(), String(v));
-      resStream.getHeader = (k) => headers.get(k.toLowerCase());
-
-      resStream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      resStream.on('end', () => {
-        const body = Buffer.concat(chunks);
-        resolve({
-          status: resStream.statusCode,
-          headers,
-          body,
-          json: () => JSON.parse(body.toString('utf8')),
-        });
-      });
-      resStream.on('error', reject);
-
-      app({ method: 'GET', url: urlPath }, resStream).catch(reject);
-    });
+    const response = await fetch(`${baseUrl}${urlPath}`);
+    const body = Buffer.from(await response.arrayBuffer());
+    return {
+      status: response.status,
+      headers: { get: (key) => response.headers.get(key) },
+      body,
+      json: () => JSON.parse(body.toString('utf8')),
+    };
   }
 
   const pngBytes = makePngBuffer(320, 240);

@@ -17,6 +17,78 @@ function normalizeToken(token) {
   };
 }
 
+/** Normalize a wire character (camelCase) or raw SQLite row (snake_case). */
+export function normalizeCharacter(character) {
+  if (!character?.id) return null;
+  return {
+    id: character.id,
+    ownerId: character.ownerId ?? character.owner_id ?? null,
+    name: character.name ?? 'Unnamed',
+    classLevel: character.classLevel ?? character.class_level ?? null,
+    sheetData: character.sheetData ?? character.sheet_data ?? {},
+    inventoryData: character.inventoryData ?? character.inventory_data ?? {},
+    revision: Number.isInteger(character.revision) ? character.revision : null,
+    updatedAt: character.updatedAt ?? character.updated_at ?? null,
+  };
+}
+
+/** Normalize a wire DM record or raw SQLite row. */
+export function normalizeDmRecord(record) {
+  if (!record?.id) return null;
+  return {
+    id: record.id,
+    category: record.category ?? 'session-notes',
+    title: record.title ?? 'Session notes',
+    data: record.data ?? {},
+    revision: Number.isInteger(record.revision) ? record.revision : null,
+    updatedAt: record.updatedAt ?? record.updated_at ?? null,
+  };
+}
+
+const toRecordMap = (items, normalize) =>
+  Object.fromEntries(
+    (Array.isArray(items) ? items : [])
+      .map(normalize)
+      .filter(Boolean)
+      .map((item) => [item.id, item]),
+  );
+
+/**
+ * Pure reducer for a confirmed autosave document. Used both by the local save
+ * ack and by peer broadcasts, so the merge rules live in exactly one place.
+ * @returns {object} the partial state to merge (or the original state object).
+ */
+function mergeSavedDocument(state, document) {
+  if (!document?.kind) return state;
+
+  if (document.kind === 'character') {
+    const id = document.id ?? document.scopeId;
+    const merged = normalizeCharacter({ ...(state.characters[id] ?? {}), ...document, id });
+    if (!merged) return state;
+    return { characters: { ...state.characters, [id]: merged } };
+  }
+
+  if (document.kind === 'dm-record') {
+    const id = document.id ?? document.scopeId;
+    const merged = normalizeDmRecord({ ...(state.dmRecords[id] ?? {}), ...document, id });
+    if (!merged) return state;
+    return { dmRecords: { ...state.dmRecords, [id]: merged } };
+  }
+
+  if (document.kind === 'board' && state.board) {
+    if (`campaign:${state.board.campaignId}` !== document.scopeId) return state;
+    return {
+      board: {
+        ...state.board,
+        revision: document.revision ?? state.board.revision,
+        updatedAt: document.updatedAt ?? state.board.updatedAt,
+      },
+    };
+  }
+
+  return state;
+}
+
 /**
  * Normalizes either a server `chat_messages` row (`{ id, sender_name, payload, created_at }`)
  * or a local `RollResult` into a uniform roll log entry.
@@ -65,8 +137,14 @@ export const sessionStore = createStore((set) => ({
 
   // Board state (existing)
   map: null,
+  maps: [], // all maps in the active campaign
   tokens: {}, // id -> { id, label, x, y, ownerId, locked, color }
+  board: null, // { campaignId, revision, data, updatedAt } | null
   lastMoveLatencyMs: null,
+
+  // Autosaved documents
+  characters: {}, // id -> normalized character
+  dmRecords: {}, // id -> normalized DM record
 
   // Selected catalog asset references for tabletop integration (map background & token placement)
   selectedMapAsset: null, // { id, name, url, width, height, format, mimeType } | null
@@ -157,17 +235,28 @@ export const sessionStore = createStore((set) => ({
   // Board actions (existing)
   setMap: (map) => set({ map: map ?? null }),
 
-  applySnapshot: ({ map, tokens } = {}) =>
-    set({
-      map: map ?? null,
-      tokens: Array.isArray(tokens)
-        ? Object.fromEntries(
-            tokens
-              .map(normalizeToken)
-              .filter(Boolean)
-              .map((token) => [token.id, token]),
-          )
-        : {},
+  applySnapshot: (snapshot = {}) =>
+    set((state) => {
+      const next = {
+        map: snapshot.map ?? null,
+        tokens: Array.isArray(snapshot.tokens)
+          ? Object.fromEntries(
+              snapshot.tokens
+                .map(normalizeToken)
+                .filter(Boolean)
+                .map((token) => [token.id, token]),
+            )
+          : {},
+      };
+      if (Array.isArray(snapshot.maps)) next.maps = snapshot.maps;
+      if (snapshot.board !== undefined) next.board = snapshot.board ?? null;
+      if (Array.isArray(snapshot.characters)) {
+        next.characters = toRecordMap(snapshot.characters, normalizeCharacter);
+      }
+      if (Array.isArray(snapshot.dmRecords)) {
+        next.dmRecords = toRecordMap(snapshot.dmRecords, normalizeDmRecord);
+      }
+      return next;
     }),
 
   upsertToken: (token) =>
@@ -194,6 +283,84 @@ export const sessionStore = createStore((set) => ({
 
   setMoveLatency: (lastMoveLatencyMs) =>
     set({ lastMoveLatencyMs: Number.isFinite(lastMoveLatencyMs) ? lastMoveLatencyMs : null }),
+
+  // Autosaved document actions -------------------------------------------------
+  setCharacters: (characters) =>
+    set({ characters: toRecordMap(characters, normalizeCharacter) }),
+
+  upsertCharacter: (character) =>
+    set((state) => {
+      const normalized = normalizeCharacter(character);
+      if (!normalized) return state;
+      return { characters: { ...state.characters, [normalized.id]: normalized } };
+    }),
+
+  /** Local-first edit. Nested `sheetData.hp`/`inventoryData` are merged, not replaced. */
+  patchCharacter: (id, patch = {}) =>
+    set((state) => {
+      const existing = state.characters[id];
+      if (!existing) return state;
+
+      const next = { ...existing, ...patch };
+      if (patch.sheetData) {
+        next.sheetData = { ...existing.sheetData, ...patch.sheetData };
+        if (patch.sheetData.hp) {
+          next.sheetData.hp = { ...(existing.sheetData?.hp ?? {}), ...patch.sheetData.hp };
+        }
+      }
+      if (patch.inventoryData) {
+        next.inventoryData = { ...existing.inventoryData, ...patch.inventoryData };
+      }
+      return { characters: { ...state.characters, [id]: next } };
+    }),
+
+  upsertDmRecord: (record) =>
+    set((state) => {
+      const normalized = normalizeDmRecord(record);
+      if (!normalized) return state;
+      return { dmRecords: { ...state.dmRecords, [normalized.id]: normalized } };
+    }),
+
+  patchDmRecord: (id, patch = {}) =>
+    set((state) => {
+      const existing = state.dmRecords[id];
+      if (!existing) return state;
+      return {
+        dmRecords: {
+          ...state.dmRecords,
+          [id]: { ...existing, ...patch, data: { ...existing.data, ...(patch.data ?? {}) } },
+        },
+      };
+    }),
+
+  /** Applies a confirmed autosave result (own save or a peer broadcast). */
+  applySavedDocument: (document) => set((state) => mergeSavedDocument(state, document)),
+
+  /** A revision conflict: the server copy wins and the local edit is dropped. */
+  applyConflictDocument: (document) =>
+    set((state) => {
+      if (!document?.current) return state;
+      if (document.kind === 'character') {
+        const normalized = normalizeCharacter(document.current);
+        if (!normalized) return state;
+        return { characters: { ...state.characters, [normalized.id]: normalized } };
+      }
+      if (document.kind === 'dm-record') {
+        const normalized = normalizeDmRecord(document.current);
+        if (!normalized) return state;
+        return { dmRecords: { ...state.dmRecords, [normalized.id]: normalized } };
+      }
+      return state;
+    }),
+
+  applyAutosaveSaved: (payload = {}) =>
+    set((state) => {
+      let next = state;
+      for (const document of payload.documents ?? []) {
+        next = mergeSavedDocument(next, document);
+      }
+      return next;
+    }),
 
   // Asset Catalog selection actions
   setSelectedMapAsset: (asset) =>

@@ -2,6 +2,13 @@ import { useState } from 'react';
 import { DICE_VISIBILITY } from '../../shared/dice/constants.js';
 import { rollFormula } from '../../shared/dice/roller.js';
 import { disconnect, emitDiceRoll } from '../net/socket.js';
+import { sessionStore, useSession } from '../store/sessionStore.js';
+import { autosave } from '../autosave/index.js';
+import {
+  characterDocument,
+  dmNotesRecordId,
+  dmRecordDocument,
+} from '../autosave/documents.js';
 import Board from './Board.jsx';
 import { SessionStatus, LiveRoster } from './SessionStatus.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
@@ -11,7 +18,26 @@ import ToolIcon from './ToolIcon.jsx';
 import { party } from './fixtures.js';
 import CharacterSheet from './CharacterSheet.jsx';
 import Compendium from './Compendium.jsx';
+import AutosaveStatus from './AutosaveStatus.jsx';
 import { Mark, IconButton, Modal } from './Primitives.jsx';
+
+const DEFAULT_NOTES =
+  'The keeper’s journal mentions a sealed chamber beneath the altar.\n\nThe sentinel wakes when the tide returns.';
+
+/** Fixture name -> seeded SQLite character id. */
+const DEMO_CHARACTER_IDS = { mira: 'char-mira', thorne: 'char-thorne', ilyra: 'char-ilyra' };
+
+/** Finds the stored character row backing a fixture person. */
+function characterForPerson(characters, person) {
+  if (!person?.name) return null;
+  const byId = characters[DEMO_CHARACTER_IDS[person.name.toLowerCase()]];
+  if (byId) return byId;
+  return (
+    Object.values(characters).find(
+      (candidate) => candidate.name?.toLowerCase() === person.name.toLowerCase(),
+    ) ?? null
+  );
+}
 
 export default function Tabletop({ campaign, role, name, onLeave }) {
   const [left, setLeft] = useState(true);
@@ -32,10 +58,59 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
   const [count, setCount] = useState(1);
   const [modifier, setModifier] = useState(0);
   const [visibility, setVisibility] = useState('Public');
-  const [notes, setNotes] = useState(
-    'The keeper’s journal mentions a sealed chamber beneath the altar.\n\nThe sentinel wakes when the tide returns.',
-  );
-  const [hp, setHp] = useState(28);
+  const [previewNotes, setPreviewNotes] = useState(DEFAULT_NOTES);
+
+  const characters = useSession((state) => state.characters);
+  const dmRecords = useSession((state) => state.dmRecords);
+  const currentUser = useSession((state) => state.currentUser);
+
+  const notesRecordId = dmNotesRecordId(campaign?.id ?? 'default');
+  const notesRecord = dmRecords[notesRecordId];
+  const notes = preview ? previewNotes : (notesRecord?.data?.text ?? DEFAULT_NOTES);
+
+  function handleNotesChange(value) {
+    if (preview) {
+      setPreviewNotes(value);
+      return;
+    }
+    const store = sessionStore.getState();
+    if (store.dmRecords[notesRecordId]) {
+      store.patchDmRecord(notesRecordId, { data: { text: value } });
+    } else {
+      // First keystroke creates the row; baseRevision null means "insert".
+      store.upsertDmRecord({
+        id: notesRecordId,
+        category: 'session-notes',
+        title: 'Session notes',
+        data: { text: value },
+        revision: null,
+      });
+    }
+    const updated = sessionStore.getState().dmRecords[notesRecordId];
+    if (updated) autosave.markDirty(dmRecordDocument(updated));
+  }
+
+  function canEditCharacter(character) {
+    if (!character || preview) return false;
+    if (role === 'DM') return true;
+    return Boolean(currentUser?.id && character.ownerId === currentUser.id);
+  }
+
+  function handleHpChange(person, value) {
+    if (preview) return;
+    const store = sessionStore.getState();
+    const character = characterForPerson(store.characters, person);
+    if (!character) return;
+
+    const max = Number(character.sheetData?.hp?.max ?? person.max) || 0;
+    const next = Math.min(max, Math.max(0, Number(value) || 0));
+    store.patchCharacter(character.id, {
+      sheetData: { hp: { ...(character.sheetData?.hp ?? {}), current: next } },
+    });
+
+    const updated = sessionStore.getState().characters[character.id];
+    if (updated) autosave.markDirty(characterDocument(updated));
+  }
 
   function inspect(asset, category = 'Characters') {
     setInspected({ name: asset, category });
@@ -74,6 +149,7 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
           <span>{role === 'DM' ? 'Dungeon Master' : 'Player'}</span>
         </div>
         <div className="table-header-actions">
+          {!preview && <AutosaveStatus />}
           {!preview && <SessionStatus />}
           <select
             aria-label="Board source"
@@ -239,7 +315,7 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
                 <button
                   className="primary"
                   onClick={() => {
-                    if (!preview) disconnect();
+                    if (!preview) disconnect({ forgetIdentity: true });
                     onLeave();
                   }}
                 >
@@ -251,13 +327,18 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
           )}
           {modal === 'notes' && (
             <>
-              <p className="preview-label">Not saved</p>
+              {preview ? (
+                <p className="preview-label">Not saved</p>
+              ) : (
+                <AutosaveStatus />
+              )}
               <label>
                 Session notes
                 <textarea
                   className="notes-editor"
                   value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
+                  readOnly={preview}
+                  onChange={(e) => handleNotesChange(e.target.value)}
                 />
               </label>
               <div className="form-actions">
@@ -315,7 +396,12 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
           )}
           {modal === 'inspect' &&
             (inspected.category === 'Characters' ? (
-              <CharacterSheet person={person} hp={hp} setHp={setHp} />
+              <CharacterSheet
+                person={person}
+                character={characterForPerson(characters, person)}
+                canEdit={canEditCharacter(characterForPerson(characters, person))}
+                onHpChange={(value) => handleHpChange(person, value)}
+              />
             ) : (
               <>
                 <p className="notice">Sample asset</p>
