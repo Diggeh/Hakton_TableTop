@@ -20,8 +20,11 @@ const MapStage = lazy(() => import('../canvas/MapStage.jsx'));
 export default function Board({
   preview,
   displayName,
+  hostUrl,
   scene,
   role,
+  soundboardOpen,
+  soundboardId,
   onAction,
   onAssets,
   assetsOpen,
@@ -103,11 +106,15 @@ export default function Board({
   }, []);
 
   useEffect(() => {
-    if (!preview && window.hakton)
-      connect({ displayName, role: role === 'DM' ? 'dm' : 'player' })
+    if (!preview && (window.hakton || hostUrl))
+      connect({
+        displayName,
+        role: role === 'DM' ? 'dm' : 'player',
+        url: hostUrl || undefined,
+      })
         .then(() => setError(''))
         .catch((e) => setError(e.message));
-  }, [preview, displayName, role]);
+  }, [preview, displayName, role, hostUrl]);
 
   return (
     <section className="board" aria-label="Tabletop canvas">
@@ -118,7 +125,8 @@ export default function Board({
           'dice',
           'sheet',
           'initiative',
-          ...(role === 'DM' ? ['soundboard', 'notes'] : []),
+          ...(!preview || role === 'DM' ? ['soundboard'] : []),
+          ...(role === 'DM' ? ['notes'] : []),
           'compendium',
         ].map((action) => (
           <IconButton
@@ -136,7 +144,9 @@ export default function Board({
               }[action]
             }
             disabled={action === 'initiative'}
-            onClick={() => onAction(action)}
+            aria-expanded={action === 'soundboard' ? soundboardOpen : undefined}
+            aria-controls={action === 'soundboard' ? soundboardId : undefined}
+            onClick={(event) => onAction(action, event.currentTarget)}
           >
             <ToolIcon name={action} />
           </IconButton>
@@ -226,7 +236,9 @@ export default function Board({
             <div className="board-notice" role="status">
               {error ||
                 connectionError ||
-                (window.hakton
+                (hostUrl
+                  ? `Session ${connection}. Waiting for ${hostUrl}.`
+                  : window.hakton
                   ? `Session ${connection}. Waiting for the local host.`
                   : 'The live board requires the Electron desktop app.')}
             </div>

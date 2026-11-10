@@ -3,6 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('hakton', {
+  quit: () => ipcRenderer.send('hakton:quit'),
   getServerInfo: () => ipcRenderer.invoke('hakton:server-info'),
   getServerStatus: () => ipcRenderer.invoke('hakton:server-status'),
   getRecoveryStatus: () => ipcRenderer.invoke('hakton:recovery-status'),
