@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { DICE_VISIBILITY } from '../../shared/dice/constants.js';
+import { ROLES } from '../../shared/events.js';
 import { rollFormula } from '../../shared/dice/roller.js';
 import { disconnect, emitDiceRoll } from '../net/socket.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
+import { useSoundboard } from '../audio/useSoundboard.js';
 import { autosave } from '../autosave/index.js';
 import {
   characterDocument,
@@ -19,6 +21,8 @@ import { party } from './fixtures.js';
 import CharacterSheet from './CharacterSheet.jsx';
 import Compendium from './Compendium.jsx';
 import AutosaveStatus from './AutosaveStatus.jsx';
+import Soundboard from './Soundboard.jsx';
+import { useWorkspaceLayout, Workspace, WorkspacePanel } from './Workspace.jsx';
 import { Mark, IconButton, Modal } from './Primitives.jsx';
 
 const DEFAULT_NOTES =
@@ -45,13 +49,27 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
   const [diceOpen, setDiceOpen] = useState(true);
   const [assets, setAssets] = useState(true);
   const [assetTab, setAssetTab] = useState('Scenes');
+  const hostUrl = role === 'Player' ? campaign.hostUrl : undefined;
   // In the packaged desktop app open on the live board; keep the designed
   // preview board in a plain browser (where the host server is unavailable).
   const [preview, setPreview] = useState(
-    () => typeof window === 'undefined' || !window.hakton,
+    () => !hostUrl && (typeof window === 'undefined' || !window.hakton),
   );
   const [scene, setScene] = useState(campaign.scene);
   const [modal, setModal] = useState(null);
+  const [soundboardOpen, setSoundboardOpen] = useState(false);
+  const [soundboardCollapsed, setSoundboardCollapsed] = useState(false);
+  const soundboardId = useId();
+  const soundboardContentId = useId();
+  const soundboardTrigger = useRef(null);
+  const layout = useWorkspaceLayout(role, {
+    players: left ? 0 : 42,
+    map: 0,
+    chat: chat ? 0 : 34,
+    ...(diceOpen ? { dice: 0 } : {}),
+    ...(assets && role === 'DM' ? { assets: 0 } : {}),
+    ...(soundboardOpen ? { soundboard: soundboardCollapsed ? 39 : 0 } : {}),
+  });
   const [inspected, setInspected] = useState(null);
   const [die, setDie] = useState(20);
   const [rollMode, setRollMode] = useState('Normal');
@@ -63,6 +81,7 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
   const characters = useSession((state) => state.characters);
   const dmRecords = useSession((state) => state.dmRecords);
   const currentUser = useSession((state) => state.currentUser);
+  const soundboard = useSoundboard(preview);
 
   const notesRecordId = dmNotesRecordId(campaign?.id ?? 'default');
   const notesRecord = dmRecords[notesRecordId];
@@ -132,6 +151,12 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
 
   const person = party.find((p) => p.name === inspected?.name) || party[0];
 
+  function closeSoundboard() {
+    setSoundboardOpen(false);
+    soundboardTrigger.current?.focus({ preventScroll: true });
+  }
+
+
   return (
     <div className="tabletop" data-role={role}>
       <header className="table-header">
@@ -162,15 +187,21 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
             <option value="preview">Preview board</option>
             <option value="live">Existing live board</option>
           </select>
+          <button
+            className="workspace-reset"
+            disabled={!layout.changed}
+            onClick={layout.reset}
+          >
+            Reset layout
+          </button>
           <IconButton label="Return home" onClick={() => setModal('leave')}>
             <ToolIcon name="home" />
           </IconButton>
         </div>
       </header>
-      <div
-        className={`table-workspace prototype-layout ${assets && role === 'DM' ? 'assets-open' : ''}`}
-      >
-        <aside className="player-list-window">
+      <Workspace layout={layout}>
+        <WorkspacePanel as="aside" panel="players" title="Players" className="player-list-window"
+          collapsedHeight={left ? 0 : 42}>
           <header>
             <h2>Players</h2>
             <IconButton
@@ -203,8 +234,9 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
                 ))}
               </div>
             ))}
-        </aside>
-        <aside className="dice-window" hidden={!diceOpen}>
+        </WorkspacePanel>
+        <WorkspacePanel as="aside" panel="dice" title="Dice tray" className="dice-window"
+          hidden={!diceOpen}>
           <DiceTray
             rollMode={rollMode}
             setRollMode={setRollMode}
@@ -225,8 +257,8 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
             }
             onRollFormula={handleRollFormula}
           />
-        </aside>
-        <main className="canvas-window">
+        </WorkspacePanel>
+        <WorkspacePanel as="main" panel="map" title="Map" className="canvas-window">
           {role === 'DM' && (
             <nav className="scene-bar" aria-label="Asset bars">
               {['Scenes', 'Characters', 'Maps', 'Props', 'Attachments'].map(
@@ -248,15 +280,21 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
           <Board
             preview={preview}
             displayName={name}
+            hostUrl={hostUrl}
             scene={scene}
             role={role}
-            onAction={(action) => {
+            soundboardOpen={soundboardOpen}
+            soundboardId={soundboardId}
+            onAction={(action, trigger) => {
               if (action === 'sheet') inspect('Mira');
               else if (action === 'home') setModal('leave');
               else if (action === 'players') setLeft((v) => !v);
               else if (action === 'dice') setDiceOpen((v) => !v);
               else if (action === 'chat') setChat((v) => !v);
-              else setModal(action);
+              else if (action === 'soundboard') {
+                soundboardTrigger.current = trigger;
+                setSoundboardOpen((value) => !value);
+              } else setModal(action);
             }}
             onAssets={(category) => {
               setAssetTab(category);
@@ -264,19 +302,22 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
             }}
             assetsOpen={assets}
           />
-        </main>
+        </WorkspacePanel>
         {role === 'DM' && assets && (
-          <AssetsPanel
-            role={role}
-            scene={scene}
-            category={assetTab}
-            onCategoryChange={setAssetTab}
-            onScene={setScene}
-            onInspect={inspect}
-            onClose={() => setAssets(false)}
-          />
+          <WorkspacePanel panel="assets" title="Assets" className="assets-window">
+            <AssetsPanel
+              role={role}
+              scene={scene}
+              category={assetTab}
+              onCategoryChange={setAssetTab}
+              onScene={setScene}
+              onInspect={inspect}
+              onClose={() => setAssets(false)}
+            />
+          </WorkspacePanel>
         )}
-        <div className="chat-window">
+        <WorkspacePanel as="div" panel="chat" title="Game log" className="chat-window"
+          collapsedHeight={chat ? 0 : 34}>
           <ChatPanel
             preview={preview}
             name={name}
@@ -288,8 +329,44 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
               Chat +
             </button>
           )}
-        </div>
-      </div>
+        </WorkspacePanel>
+        <WorkspacePanel
+          id={soundboardId}
+          panel="soundboard"
+          title="Soundboard"
+          aria-label="Soundboard"
+          className="workspace-soundboard"
+          collapsedHeight={soundboardCollapsed ? 39 : 0}
+          hidden={!soundboardOpen}
+          titleGrip
+          focusOnShow
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && !event.defaultPrevented) closeSoundboard();
+          }}
+        >
+          <header>
+            {layout.soundboardDocked && (
+              <IconButton label="Float soundboard" onClick={layout.undockSoundboard}>↗</IconButton>
+            )}
+            <IconButton
+              label={soundboardCollapsed ? 'Expand soundboard' : 'Collapse soundboard'}
+              aria-controls={soundboardContentId}
+              aria-expanded={!soundboardCollapsed}
+              onClick={() => setSoundboardCollapsed((value) => !value)}
+            >
+              {soundboardCollapsed ? '+' : '−'}
+            </IconButton>
+            <IconButton label="Close soundboard" onClick={closeSoundboard}>×</IconButton>
+          </header>
+          <div id={soundboardContentId} className="workspace-soundboard-body" hidden={soundboardCollapsed}>
+            <Soundboard
+              controls={soundboard}
+              canControl={preview ? role === 'DM' : currentUser?.role === ROLES.DM}
+              preview={preview}
+            />
+          </div>
+        </WorkspacePanel>
+      </Workspace>
       {modal && (
         <Modal
           title={
@@ -297,7 +374,6 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
               leave: role === 'DM' ? 'Return home?' : 'Leave the table?',
               notes: 'DM screen',
               compendium: 'Compendium',
-              soundboard: 'Soundboard',
               dice: 'Roll prepared',
               inspect: inspected?.name,
             }[modal]
@@ -349,29 +425,6 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
             </>
           )}
           {modal === 'compendium' && <Compendium />}
-          {modal === 'soundboard' && (
-            <>
-              <p className="notice">Playback unavailable</p>
-              {['Coastal wind', 'Sanctuary ambience', 'Battle drums'].map(
-                (t) => (
-                  <div className="reference-row" key={t}>
-                    <span>{t}</span>
-                    <button disabled>Play</button>
-                  </div>
-                ),
-              )}
-              <label>
-                Volume
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  defaultValue="60"
-                  disabled
-                />
-              </label>
-            </>
-          )}
           {modal === 'dice' && (
             <>
               <div className="prepared-dice">

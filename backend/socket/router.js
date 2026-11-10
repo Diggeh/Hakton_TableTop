@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { registerChatHandlers } from '../chat/handlers.js';
+import { registerSoundboard } from './soundboard.js';
 import { registerAutosaveHandlers } from '../autosave/handlers.js';
 import { characterToWire, dmRecordToWire } from '../autosave/wire.js';
 import { ERROR_CODES, EVENTS, ROLES } from '../../shared/events.js';
@@ -133,6 +134,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
   registeredServers.add(io);
 
   io.on('connection', (socket) => {
+    registerSoundboard(socket, { io, sessionManager, roomFor: getSessionRoom, library: opts.soundboard });
     registerChatHandlers(io, socket, {
       repository: repos?.chat,
       sessionManager,

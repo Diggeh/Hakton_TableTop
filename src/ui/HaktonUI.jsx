@@ -1,10 +1,23 @@
 import { useState } from 'react';
+import { DEFAULT_PORT } from '../../shared/events.js';
 import { campaigns as initialCampaigns } from './fixtures.js';
 import { Mark, Modal } from './Primitives.jsx';
 import Tabletop from './Tabletop.jsx';
 import RecoveryBanner from './RecoveryBanner.jsx';
 import './hakton.css';
 import './prototype.css';
+
+function parseHostAddress(address) {
+  if (!address) return null;
+  const hasScheme = /^https?:\/\//i.test(address);
+  const url = new URL(hasScheme ? address : `http://${address}`);
+  if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    throw new Error('Enter a host address with an optional port.');
+  }
+  if (!hasScheme && !url.port && !/:80$/.test(address)) url.port = DEFAULT_PORT;
+  return url.origin;
+}
+
 export default function HaktonUI() {
   const [screen, setScreen] = useState('home');
   const [role, setRole] = useState('DM');
@@ -52,9 +65,11 @@ export default function HaktonUI() {
                 <button onClick={() => browse('Player')}>
                   Join a session <span>→</span>
                 </button>
-                <button className="quiet" onClick={() => setModal('exit')}>
-                  Exit program
-                </button>
+                {window.hakton?.quit && (
+                  <button className="quiet" onClick={() => window.hakton.quit()}>
+                    Exit program
+                  </button>
+                )}
               </nav>
             </main>
           ) : (
@@ -133,7 +148,6 @@ export default function HaktonUI() {
               profile: 'Your profile',
               add: role === 'DM' ? 'New campaign' : 'Add a campaign',
               delete: role === 'DM' ? 'Delete campaign?' : 'Leave campaign?',
-              exit: 'Exit Hakton?',
             }[modal]
           }
           onClose={() => setModal(null)}
@@ -193,6 +207,17 @@ export default function HaktonUI() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const data = new FormData(e.currentTarget);
+                const address = e.currentTarget.elements.hostAddress;
+                let hostUrl = null;
+                if (address) {
+                  try {
+                    hostUrl = parseHostAddress(address.value.trim());
+                  } catch {
+                    address.setCustomValidity('Enter a host address with an optional port.');
+                    address.reportValidity();
+                    return;
+                  }
+                }
                 const id = crypto.randomUUID();
                 setCampaigns([
                   ...campaigns,
@@ -204,6 +229,7 @@ export default function HaktonUI() {
                     chapter: 'Chapter I',
                     scene: 'Untitled scene',
                     sessions: 0,
+                    hostUrl,
                   },
                 ]);
                 setSelected(id);
@@ -232,9 +258,10 @@ export default function HaktonUI() {
                 <label>
                   Host address
                   <input
-                    placeholder="Unavailable"
-                    title="Remote joining is unavailable"
-                    disabled
+                    name="hostAddress"
+                    placeholder="192.168.1.10:3001"
+                    maxLength={255}
+                    onChange={(e) => e.target.setCustomValidity('')}
                   />
                 </label>
               )}
@@ -263,16 +290,6 @@ export default function HaktonUI() {
                   }}
                 >
                   {role === 'DM' ? 'Delete' : 'Leave'}
-                </button>
-              </div>
-            </>
-          )}
-          {modal === 'exit' && (
-            <>
-              <p>Close the Hakton window to exit the application.</p>
-              <div className="form-actions">
-                <button className="primary" onClick={() => setModal(null)}>
-                  Return to Hakton
                 </button>
               </div>
             </>

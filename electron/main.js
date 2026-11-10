@@ -34,6 +34,7 @@ else {
   app.on('second-instance', () => {
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
   });
   app.whenReady().then(bootstrap).catch(fatal);
@@ -65,6 +66,10 @@ function buildServerInfo() {
 }
 
 function registerIpcHandlers() {
+  ipcMain.on('hakton:quit', (event) => {
+    if (mainWindow && event.senderFrame === mainWindow.webContents.mainFrame) app.quit();
+  });
+
   ipcMain.handle('hakton:server-info', () => buildServerInfo());
 
   ipcMain.handle('hakton:server-status', () => getServerStatus());
@@ -187,7 +192,6 @@ function createWindow() {
     minWidth: 960,
     minHeight: 600,
     backgroundColor: '#091540',
-    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'), // preload must be CommonJS
       contextIsolation: true,
@@ -196,7 +200,6 @@ function createWindow() {
     },
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('closed', () => (mainWindow = null));
 
   // Never navigate the app window to external content; open links in the OS browser.

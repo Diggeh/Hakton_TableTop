@@ -1,0 +1,63 @@
+.soundboard {
+  display: grid;
+  gap: 10px;
+}
+
+.soundboard .reference-row {
+  gap: 8px;
+  padding: 5px 0;
+}
+
+.soundboard .reference-row > span {
+  overflow-wrap: anywhere;
+}
+
+.soundboard-now,
+.soundboard-volume > span {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.soundboard-now,
+.soundboard-actions {
+  flex-wrap: wrap;
+}
+
+.soundboard-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.soundboard-actions button[aria-pressed='true'] {
+  border-color: #adfcf9;
+  color: #adfcf9;
+}
+
+.soundboard-import {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.soundboard-import input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.soundboard h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.soundboard-listener {
+  display: grid;
+  gap: 10px;
+}
+
+.soundboard-volume input {
+  width: 100%;
+  accent-color: #adfcf9;
+}

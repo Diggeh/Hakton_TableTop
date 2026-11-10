@@ -18,7 +18,7 @@ Use the existing `npm run dev` for Electron, or `npm run dev:renderer` for a bro
 - `Primitives.jsx`: shared buttons, keyboard-navigable tabs, native focus-trapped dialogs.
 - `hakton.css`: shared control styling. `prototype.css`: Scrying Pool colors and prototype geometry, including slate windows over midnight navy, restrained aqua state colors, and a contrasting mineral map surface, separate dice tray, canvas-edge toolbars, and desktop breakpoints. `ToolIcon.jsx` follows the supplied legend. `DiceTray.jsx` contains the independent tray presentation.
 
-Dice preparation deliberately does not generate outcomes or implement Aerown's dice engine. Audio and asset import controls remain disabled until connected. Voice has no interface or integration in this change. Campaigns/profile are in memory for this visit; tabletop preview state resets on leaving the table.
+Campaigns and profiles are in memory for this visit. Tabletop preview state resets on leaving the table.
 
 ## Verification
 
@@ -49,3 +49,13 @@ The server assigns sender identity and timestamps and saves before broadcasting.
 `npm test` covers networking and chat, including access to whispers and images with multiple clients. `npm run test:chat:storage` checks SQLite persistence and session filtering after reopening the database.
 
 Run `npm run dev`, open a sample campaign, select **Existing live board**, and wait for your live identity to appear. Use **Table → Attach image** for a public attachment. With another participant connected to the same session, select **Whispers**, choose the participant, and send text or attach an image. **Preview board** chat is local-only.
+
+## Delgado Sprint 3 soundboard
+
+Open **Music box** on the tabletop. The DM can import MP3, WAV, Ogg, and FLAC as background tracks or sound effects. Live imports are saved on the host per session. Preview imports last until leaving the preview board. The host sends cue IDs, playback state, and timestamps over Socket.IO. Clients play audio locally through HTML media elements and request imported files from the host over HTTP. The session checks authorize both controls and media requests.
+
+To join from another device, use **Join a session → Add campaign** and enter the host address shown on the DM's live board. Open the new campaign and choose **Join campaign**. The DM controls table volume and playback. Players control their own listening volume and can select **Enable audio** if their browser blocks playback.
+
+## Tabletop docking
+
+Drag a panel grip into the left, center, or right column and drop on the insertion line. Drag the divider between columns to adjust their width or the divider between stacked panels to share their height. The arrow keys on a focused grip or divider provide the same controls. The soundboard can dock or float. Choose **Float soundboard** to undock it, or hold Alt while dragging it to position it freely. Layouts are saved locally for DM and Player separately.
