@@ -215,6 +215,7 @@ export function joinSession(params = {}) {
     hostToken,
     playerId,
     reconnectToken,
+    userId,
     timeoutMs = 8000,
   } = params;
 
@@ -225,6 +226,7 @@ export function joinSession(params = {}) {
     ...(hostToken !== undefined ? { hostToken } : {}),
     ...(playerId !== undefined ? { playerId } : {}),
     ...(reconnectToken !== undefined ? { reconnectToken } : {}),
+    ...(userId !== undefined ? { userId } : {}),
   };
 
   return new Promise((resolve) => {
@@ -294,6 +296,7 @@ async function joinWithIdentity(context) {
       hostToken: context.hostToken,
       playerId: identity?.playerId,
       reconnectToken: identity?.reconnectToken,
+      userId: context.userId,
     });
 
   const identity = context.identity;
@@ -443,6 +446,7 @@ export async function connect(options) {
     hostToken,
     playerId: identity?.playerId,
     reconnectToken: identity?.reconnectToken,
+    userId: opts.userId,
     identity,
     autoJoin: opts.autoJoin !== false,
   };
@@ -700,21 +704,47 @@ export function emitTokenMove(id, x, y) {
   });
 }
 
-/** DM-only: create a persisted token. */
+/** DM-only: create a persisted token (falls back to local store when offline). */
 export function createToken(token) {
   return emitWithAck(EVENTS.TOKEN_CREATE, token).then((response) => {
     if (response?.ok && response.token) {
       sessionStore.getState().upsertToken(response.token);
+      return response;
+    }
+    if (response?.reason === 'disconnected' && token) {
+      const localToken = {
+        id:
+          token.id ||
+          (globalThis.crypto?.randomUUID?.() ?? `tok_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+        mapId: token.mapId ?? sessionStore.getState().map?.id ?? 1,
+        label: String(token.label || 'Token').trim().slice(0, 40),
+        x: Number.isFinite(token.x) ? token.x : 350,
+        y: Number.isFinite(token.y) ? token.y : 350,
+        ownerId: token.ownerId ?? null,
+        locked: Boolean(token.locked),
+        color: token.color ?? '#adfcf9',
+      };
+      sessionStore.getState().upsertToken(localToken);
+      return { ok: true, offline: true, token: localToken };
     }
     return response;
   });
 }
 
-/** DM-only: patch label/owner/locked/color. */
+/** Patch token label (DM & Players) or owner/locked/color (DM). */
 export function updateToken(id, patch) {
   return emitWithAck(EVENTS.TOKEN_UPDATE, { id, ...patch }).then((response) => {
     if (response?.ok && response.token) {
       sessionStore.getState().upsertToken(response.token);
+      return response;
+    }
+    if (response?.reason === 'disconnected' && id && patch) {
+      const existing = sessionStore.getState().tokens[id];
+      if (existing) {
+        const updated = { ...existing, ...patch };
+        sessionStore.getState().upsertToken(updated);
+        return { ok: true, offline: true, token: updated };
+      }
     }
     return response;
   });
@@ -723,7 +753,14 @@ export function updateToken(id, patch) {
 /** DM-only: remove a persisted token. */
 export function deleteToken(id) {
   return emitWithAck(EVENTS.TOKEN_DELETE, { id }).then((response) => {
-    if (response?.ok) sessionStore.getState().removeToken(id);
+    if (response?.ok) {
+      sessionStore.getState().removeToken(id);
+      return response;
+    }
+    if (response?.reason === 'disconnected' && id) {
+      sessionStore.getState().removeToken(id);
+      return { ok: true, offline: true };
+    }
     return response;
   });
 }

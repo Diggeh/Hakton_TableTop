@@ -463,7 +463,13 @@ export function registerSocketRouter(io, repos, opts = {}) {
         respond({ ok: false, reason: 'board_unavailable' });
         return;
       }
-      if (!isJoined() || !isDM()) {
+      const playerRenamingOnly =
+        !isDM() &&
+        !('ownerId' in payload) &&
+        !('locked' in payload) &&
+        typeof payload.label === 'string' &&
+        payload.label.trim().length > 0;
+      if (!isJoined() || (!isDM() && !playerRenamingOnly)) {
         respond({ ok: false, reason: 'forbidden' });
         return;
       }

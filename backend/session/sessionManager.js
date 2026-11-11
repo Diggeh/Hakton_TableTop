@@ -384,6 +384,7 @@ export class SessionManager {
       hostToken,
       playerId: requestedPlayerId,
       reconnectToken,
+      userId: rawUserId,
     } = request;
 
     if (typeof socketId !== 'string' || !socketId.trim()) {
@@ -613,18 +614,30 @@ export class SessionManager {
     }
 
     const now = new Date().toISOString();
-    const playerId = `p_${crypto.randomUUID()}`;
+    const validUserId =
+      typeof rawUserId === 'string' &&
+      rawUserId.trim().length > 0 &&
+      rawUserId.trim().length <= MAX_SESSION_ID_LENGTH &&
+      SESSION_ID_RE.test(rawUserId.trim())
+        ? rawUserId.trim()
+        : null;
+    const existingByUser = validUserId ? session.participants.get(validUserId) : null;
+    const playerId =
+      validUserId && (!existingByUser || !existingByUser.connected)
+        ? validUserId
+        : `p_${crypto.randomUUID()}`;
     const newReconnectToken = crypto.randomBytes(24).toString('hex');
 
     const participant = {
       id: playerId,
+      userId: validUserId,
       displayName,
       role: assignedRole,
       sessionId: session.id,
       socketId,
       connected: true,
       reconnectToken: newReconnectToken,
-      joinedAt: now,
+      joinedAt: existingByUser?.joinedAt ?? now,
       lastSeenAt: now,
       disconnectedAt: null,
     };

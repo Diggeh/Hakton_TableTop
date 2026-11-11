@@ -41,7 +41,14 @@ function characterForPerson(characters, person) {
   );
 }
 
-export default function Tabletop({ campaign, role, name, onLeave }) {
+export default function Tabletop({
+  campaign,
+  role,
+  name,
+  userId,
+  hostUrl: propHostUrl,
+  onLeave,
+}) {
   const [playersOpen, setPlayersOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [diceOpen, setDiceOpen] = useState(false);
@@ -50,8 +57,8 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
   const [assetManagerOpen, setAssetManagerOpen] = useState(false);
   const [assetManagerTab, setAssetManagerTab] = useState('Scenes');
 
-  const hostUrl = role === 'Player' ? campaign.hostUrl : undefined;
-  const [scene, setScene] = useState(campaign.scene);
+  const hostUrl = role === 'Player' ? (propHostUrl ?? campaign?.hostUrl) : undefined;
+  const [scene, setScene] = useState(campaign?.scene ?? 'Drowned Sanctuary');
   const [modal, setModal] = useState(null);
   const soundboardId = useId();
   const soundboardContentId = useId();
@@ -142,6 +149,7 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
       <div className="tabletop-stage">
         <Board
           displayName={name}
+          userId={userId}
           hostUrl={hostUrl}
           scene={scene}
           role={role}

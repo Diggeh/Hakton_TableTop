@@ -37,6 +37,66 @@ export const canvasStore = createStore((set, get) => {
     selectedIds: [],
     draggingIds: [],
 
+    // Fog of War & Dynamic Vision state (starts empty — never auto-placed on maps)
+    fogTool: null, // 'rect' | 'circle' | 'polygon' | 'line' | 'wall' | 'door' | 'erase' | null
+    fogShapes: [],
+    walls: [],
+
+    setFogTool: (fogTool) =>
+      set((state) => ({
+        fogTool: state.fogTool === fogTool ? null : fogTool,
+      })),
+
+    addFogShape: (shape) =>
+      set((state) => ({
+        fogShapes: [
+          ...state.fogShapes,
+          {
+            id: shape.id || `fog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            ...shape,
+          },
+        ],
+      })),
+
+    removeFogShape: (id) =>
+      set((state) => ({
+        fogShapes: state.fogShapes.filter((s) => s.id !== id),
+      })),
+
+    addWall: (wall) =>
+      set((state) => ({
+        walls: [
+          ...state.walls,
+          {
+            id: wall.id || `wall_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            isDoor: Boolean(wall.isDoor),
+            isOpen: Boolean(wall.isOpen),
+            p1: wall.p1,
+            p2: wall.p2,
+          },
+        ],
+      })),
+
+    removeWall: (id) =>
+      set((state) => ({
+        walls: state.walls.filter((w) => w.id !== id),
+      })),
+
+    toggleDoor: (id) =>
+      set((state) => ({
+        walls: state.walls.map((w) =>
+          w.id === id && w.isDoor ? { ...w, isOpen: !w.isOpen } : w,
+        ),
+      })),
+
+    clearFog: () => set({ fogShapes: [], walls: [] }),
+
+    setFogState: ({ fogShapes, walls } = {}) =>
+      set((state) => ({
+        fogShapes: Array.isArray(fogShapes) ? fogShapes : state.fogShapes,
+        walls: Array.isArray(walls) ? walls : state.walls,
+      })),
+
     setViewportSize: (viewportSize) =>
       set((state) => {
         // Preserve the map point at the centre of the view when the window resizes.

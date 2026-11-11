@@ -28,6 +28,11 @@ export default function ToolIcon({ name }) {
     trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 14h10l1-14 M9 7V4h6v3',
     lock: 'M6 11h12v10H6z M9 11V7a3 3 0 0 1 6 0v4',
     unlock: 'M6 11h12v10H6z M9 11V7a3 3 0 0 1 5-2',
+    text: 'M5 5h14v3 M12 5v14 M9 19h6',
+    fog: 'M3 15h13a3 3 0 1 0 0-6 4 4 0 0 0-7-2 3 3 0 0 0-6 2 M4 19h16',
+    wall: 'M3 6h18v12H3z M3 12h18 M9 6v6 M15 6v6 M6 12v6 M12 12v6 M18 12v6',
+    door: 'M6 3h12v18H6z M15 12h1',
+    dots: 'M12 5v.5 M12 12v.5 M12 19v.5',
   };
   return (
     <svg
