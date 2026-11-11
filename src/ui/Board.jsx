@@ -12,27 +12,31 @@ import DiceOverlay from '../dice/DiceOverlay.jsx';
 import { party } from './fixtures.js';
 import ToolIcon from './ToolIcon.jsx';
 import AddTokenDialog from './AddTokenDialog.jsx';
+import { useUploadedCategoryAssets } from './AssetsPanel.jsx';
 import { IconButton } from './Primitives.jsx';
 
 const MapStage = lazy(() => import('../canvas/MapStage.jsx'));
 
-// Keeps the existing live canvas and network store intact. Preview never seeds live state.
 export default function Board({
-  preview,
   displayName,
   hostUrl,
   scene,
   role,
-  soundboardOpen,
+  playersOpen = false,
+  diceOpen = false,
+  chatOpen = false,
+  soundboardOpen = false,
   soundboardId,
+  assetTrayCategory = null,
+  assetManagerOpen = false,
   onAction,
-  onAssets,
-  assetsOpen,
+  onToggleAssetTray,
+  onOpenAssetManager,
+  onSelectScene,
+  onInspectAsset,
 }) {
   const host = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [zoom, setZoom] = useState(100);
-  const [grid, setGrid] = useState(true);
   const [error, setError] = useState('');
   const [addTokenOpen, setAddTokenOpen] = useState(false);
 
@@ -49,6 +53,8 @@ export default function Board({
   const snapEnabled = useCanvas((s) => s.snap);
   const selectedIds = useCanvas((s) => s.selectedIds);
 
+  const trayItems = useUploadedCategoryAssets(assetTrayCategory || 'Scenes');
+
   const isDM = role === 'DM';
   const selectedTokens = selectedIds
     .map((id) => tokens[id])
@@ -56,28 +62,24 @@ export default function Board({
   const allSelectedLocked =
     selectedTokens.length > 0 && selectedTokens.every((token) => token.locked);
 
-  const zoomPercent = preview ? zoom : Math.round(liveScale * 100);
-  const gridOn = preview ? grid : gridVisible;
-  const canZoomIn = preview ? zoom < 150 : liveScale < MAX_SCALE - 0.0001;
+  const zoomPercent = Math.round(liveScale * 100);
+  const gridOn = gridVisible;
+  const canZoomIn = liveScale < MAX_SCALE - 0.0001;
 
   function handleZoomIn() {
-    if (preview) setZoom((value) => Math.min(value + 10, 150));
-    else canvasStore.getState().zoomBy(1.2);
+    canvasStore.getState().zoomBy(1.2);
   }
 
   function handleZoomOut() {
-    if (preview) setZoom((value) => Math.max(value - 10, 50));
-    else canvasStore.getState().zoomBy(1 / 1.2);
+    canvasStore.getState().zoomBy(1 / 1.2);
   }
 
   function handleResetZoom() {
-    if (preview) setZoom(100);
-    else canvasStore.getState().fit();
+    canvasStore.getState().fit();
   }
 
   function handleToggleGrid() {
-    if (preview) setGrid((value) => !value);
-    else canvasStore.getState().toggleGrid();
+    canvasStore.getState().toggleGrid();
   }
 
   async function handleDeleteSelected() {
@@ -106,7 +108,7 @@ export default function Board({
   }, []);
 
   useEffect(() => {
-    if (!preview && (window.hakton || hostUrl))
+    if (window.hakton || hostUrl)
       connect({
         displayName,
         role: role === 'DM' ? 'dm' : 'player',
@@ -114,7 +116,13 @@ export default function Board({
       })
         .then(() => setError(''))
         .catch((e) => setError(e.message));
-  }, [preview, displayName, role, hostUrl]);
+  }, [displayName, role, hostUrl]);
+
+  const activeMapStates = {
+    players: playersOpen,
+    dice: diceOpen,
+    soundboard: soundboardOpen,
+  };
 
   return (
     <section className="board" aria-label="Tabletop canvas">
@@ -125,103 +133,58 @@ export default function Board({
           'dice',
           'sheet',
           'initiative',
-          ...(!preview || role === 'DM' ? ['soundboard'] : []),
+          'soundboard',
           ...(role === 'DM' ? ['notes'] : []),
           'compendium',
-        ].map((action) => (
-          <IconButton
-            key={action}
-            label={
-              {
-                home: 'Home',
-                players: 'Players',
-                dice: 'Dice tray',
-                sheet: 'Character sheet',
-                initiative: 'Initiative tracker — unavailable',
-                notes: 'DM screen',
-                compendium: 'Compendium',
-                soundboard: 'Music box',
-              }[action]
-            }
-            disabled={action === 'initiative'}
-            aria-expanded={action === 'soundboard' ? soundboardOpen : undefined}
-            aria-controls={action === 'soundboard' ? soundboardId : undefined}
-            onClick={(event) => onAction(action, event.currentTarget)}
-          >
-            <ToolIcon name={action} />
-          </IconButton>
-        ))}
+        ].map((action) => {
+          const isToggle = Object.hasOwn(activeMapStates, action);
+          const isOpen = activeMapStates[action];
+          return (
+            <IconButton
+              key={action}
+              label={
+                {
+                  home: 'Home',
+                  players: 'Players',
+                  dice: 'Dice tray',
+                  sheet: 'Character sheet',
+                  initiative: 'Initiative tracker — unavailable',
+                  notes: 'DM screen',
+                  compendium: 'Compendium',
+                  soundboard: 'Music box',
+                }[action]
+              }
+              disabled={action === 'initiative'}
+              aria-pressed={isToggle ? isOpen : undefined}
+              aria-expanded={isToggle ? isOpen : undefined}
+              aria-controls={action === 'soundboard' ? soundboardId : undefined}
+              onClick={(event) => onAction(action, event.currentTarget)}
+            >
+              <ToolIcon name={action} />
+            </IconButton>
+          );
+        })}
       </nav>
       <div className="board-caption">
         <span className="scene-indicator" />
-        <strong>{preview ? scene : (map?.name ?? 'Waiting for map')}</strong>
-        {!preview && <span>{connection}</span>}
+        <strong>{map?.name ?? scene ?? 'Waiting for map'}</strong>
+        <span>{connection}</span>
       </div>
       <div className="board-host" ref={host}>
-        {preview ? (
-          <div
-            className={`preview-map ${grid ? 'with-grid' : ''}`}
-            style={{
-              transform: `translate(-50%, -50%) scale(${(zoom / 100) * Math.min(size.width / 880, size.height / 640, 1)})`,
-            }}
-          >
-            <div className="map-room room-a">
-              <span>VESTIBULE</span>
-              <div className="map-stairs" aria-hidden="true">
-                {[0, 1, 2, 3, 4].map((step) => (
-                  <i key={step} />
-                ))}
-              </div>
+        <Suspense
+          fallback={
+            <div className="board-notice" role="status">
+              Loading canvas…
             </div>
-            <div className="map-corridor" />
-            <div className="map-room room-b">
-              <span>SANCTUARY</span>
-              <div className="map-altar" />
-              <div className="map-pillars" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-                <i />
-              </div>
-            </div>
-            <div className="map-room room-c">
-              <span>ARCHIVE</span>
-              <div className="map-shelves" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </div>
-            </div>
-            {party.map((p, i) => (
-              <div
-                key={p.name}
-                className={`map-token token-${i}`}
-                style={{ '--token-color': p.color }}
-                title={p.name}
-              >
-                {p.initials}
-              </div>
-            ))}
-            <div className="map-token enemy-token" title="Sentinel">
-              S
-            </div>
-          </div>
-        ) : (
-          <Suspense
-            fallback={
-              <div className="board-notice" role="status">
-                Loading live canvas…
-              </div>
-            }
-          >
-            <MapStage
-              width={size.width}
-              height={size.height}
-              role={role}
-              onDeleteSelection={isDM ? handleDeleteSelected : null}
-            />
-          </Suspense>
-        )}
+          }
+        >
+          <MapStage
+            width={size.width}
+            height={size.height}
+            role={role}
+            onDeleteSelection={isDM ? handleDeleteSelected : null}
+          />
+        </Suspense>
         <DiceOverlay
           width={size.width}
           height={size.height}
@@ -231,25 +194,23 @@ export default function Board({
           }
           onRollLifecycleEnd={() => sessionStore.getState().clearActiveRoll()}
         />
-        {!preview &&
-          (error || connectionError || connection !== 'connected') && (
-            <div className="board-notice" role="status">
-              {error ||
-                connectionError ||
-                (hostUrl
-                  ? `Session ${connection}. Waiting for ${hostUrl}.`
-                  : window.hakton
+        {(error || connectionError || connection !== 'connected') && (
+          <div className="board-notice" role="status">
+            {error ||
+              connectionError ||
+              (hostUrl
+                ? `Session ${connection}. Waiting for ${hostUrl}.`
+                : window.hakton
                   ? `Session ${connection}. Waiting for the local host.`
-                  : 'The live board requires the Electron desktop app.')}
-            </div>
-          )}
+                  : 'Session disconnected. Waiting for connection.')}
+          </div>
+        )}
       </div>
       <nav className="utility-toolbar" aria-label="VTT utilities">
         <IconButton
           label="Select tokens"
           aria-pressed={true}
           title="Click to select, Shift-click for multi-select, drag to move"
-          disabled={preview}
           onClick={() => canvasStore.getState().clearSelection()}
         >
           <ToolIcon name="select" />
@@ -257,11 +218,15 @@ export default function Board({
         <IconButton
           label="Multi select — hold Shift"
           title="Hold Shift and click tokens, then drag to move the group"
-          disabled={preview}
         >
           <ToolIcon name="multi" />
         </IconButton>
-        <IconButton label="Text chat" onClick={() => onAction('chat')}>
+        <IconButton
+          label="Text chat"
+          aria-pressed={chatOpen}
+          aria-expanded={chatOpen}
+          onClick={() => onAction('chat')}
+        >
           <ToolIcon name="chat" />
         </IconButton>
         <IconButton label="Measure distance — unavailable" disabled>
@@ -280,13 +245,12 @@ export default function Board({
         </IconButton>
         <IconButton
           label="Toggle grid snapping (hold Alt to bypass)"
-          disabled={preview}
           aria-pressed={snapEnabled}
           onClick={() => canvasStore.getState().toggleSnap()}
         >
           <ToolIcon name="snap" />
         </IconButton>
-        <IconButton label="Fit map" disabled={preview} onClick={handleResetZoom}>
+        <IconButton label="Fit map" onClick={handleResetZoom}>
           <ToolIcon name="fit" />
         </IconButton>
         <IconButton
@@ -298,7 +262,7 @@ export default function Board({
         </IconButton>
         <button
           className="zoom-value"
-          title={preview ? 'Reset zoom' : 'Fit map to window'}
+          title="Fit map to window"
           onClick={handleResetZoom}
         >
           {zoomPercent}%
@@ -306,7 +270,7 @@ export default function Board({
         <IconButton label="Zoom out" onClick={handleZoomOut}>
           −
         </IconButton>
-        {!preview && isDM && (
+        {isDM && (
           <>
             <span className="toolbar-divider" />
             <IconButton
@@ -338,36 +302,93 @@ export default function Board({
         )}
       </nav>
       {role === 'DM' && (
-        <nav className="asset-launcher" aria-label="VTT assets">
-          {['Scenes', 'Characters', 'Maps', 'Props', 'Attachments'].map(
-            (category) => (
-              <IconButton
-                key={category}
-                label={`Open ${category.toLowerCase()}`}
-                aria-expanded={assetsOpen}
-                onClick={() => onAssets(category)}
-              >
-                <ToolIcon name={category} />
-              </IconButton>
-            ),
+        <div className="asset-dock-region">
+          {assetTrayCategory && (
+            <section
+              className="asset-tray-popup"
+              aria-label={`Uploaded ${assetTrayCategory.toLowerCase()}`}
+            >
+              <div className="asset-tray-items">
+                {trayItems.map((asset, i) => (
+                  <button
+                    key={asset}
+                    type="button"
+                    className={`asset-tray-item ${
+                      assetTrayCategory === 'Scenes' && scene === asset
+                        ? 'selected'
+                        : ''
+                    }`}
+                    onClick={() => {
+                      if (assetTrayCategory === 'Scenes') {
+                        onSelectScene?.(asset);
+                      } else {
+                        onInspectAsset?.(asset, assetTrayCategory);
+                      }
+                    }}
+                  >
+                    <span
+                      className={`asset-thumbnail type-${assetTrayCategory.toLowerCase()} thumbnail-${i % 3}`}
+                    >
+                      {assetTrayCategory === 'Characters' ? (
+                        party[i]?.initials || asset.slice(0, 2).toUpperCase()
+                      ) : assetTrayCategory === 'Attachments' ? (
+                        '≡'
+                      ) : (
+                        <span className="mini-plan">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      )}
+                    </span>
+                    <strong>{asset}</strong>
+                    {assetTrayCategory === 'Scenes' && scene === asset && (
+                      <small>Active</small>
+                    )}
+                  </button>
+                ))}
+                {trayItems.length === 0 && (
+                  <span className="asset-tray-empty">
+                    No uploaded {assetTrayCategory.toLowerCase()}
+                  </span>
+                )}
+              </div>
+            </section>
           )}
-          <IconButton
-            label="Asset menu"
-            aria-expanded={assetsOpen}
-            onClick={() => onAssets('Scenes')}
-          >
-            <ToolIcon name="assetMenu" />
-          </IconButton>
-        </nav>
+          <nav className="asset-launcher" aria-label="VTT assets">
+            <div className="asset-launcher-categories">
+              {['Scenes', 'Characters', 'Maps', 'Props', 'Attachments'].map(
+                (category) => (
+                  <IconButton
+                    key={category}
+                    label={`Uploaded ${category.toLowerCase()}`}
+                    aria-pressed={assetTrayCategory === category}
+                    aria-expanded={assetTrayCategory === category}
+                    onClick={() => onToggleAssetTray?.(category)}
+                  >
+                    <ToolIcon name={category} />
+                  </IconButton>
+                ),
+              )}
+            </div>
+            <IconButton
+              className="icon-button asset-import-trigger"
+              label="Import assets"
+              aria-pressed={assetManagerOpen}
+              aria-expanded={assetManagerOpen}
+              onClick={() => onOpenAssetManager?.()}
+            >
+              <ToolIcon name="assetMenu" />
+            </IconButton>
+          </nav>
+        </div>
       )}
       <span className="board-scale">
-        {preview
+        {latency == null
           ? '5 ft / square'
-          : latency == null
-            ? '5 ft / square · live canvas'
-            : `5 ft / square · sync ${Math.round(latency)} ms`}
+          : `5 ft / square · sync ${Math.round(latency)} ms`}
       </span>
-      {!preview && isDM && addTokenOpen && (
+      {isDM && addTokenOpen && (
         <AddTokenDialog
           map={map}
           participants={participants}
