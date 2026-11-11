@@ -3,9 +3,11 @@ import Konva from 'konva';
 import { Stage, Layer } from 'react-konva';
 import { useSession } from '../store/sessionStore.js';
 import { canvasStore, useCanvas } from './canvasStore.js';
+import { screenToMap } from './viewport.js';
 import MapLayer from './MapLayer.jsx';
 import GridLayer from './GridLayer.jsx';
 import TokenLayer from './TokenLayer.jsx';
+import FogLayer from './FogLayer.jsx';
 
 // Only the primary mouse button starts a token drag; middle-click always pans.
 Konva.dragButtons = [0];
@@ -34,7 +36,10 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
   const fittedForMap = useRef(null);
 
   const gridVisible = useCanvas((state) => state.gridVisible);
+  const fogTool = useCanvas((state) => state.fogTool);
   const [panMode, setPanMode] = useState(false);
+  const [draftShape, setDraftShape] = useState(null);
+  const [polygonDraft, setPolygonDraft] = useState([]);
 
   const setCursor = useCallback((cursor) => {
     const container = stageRef.current?.container();
@@ -80,13 +85,18 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
     }
   }, [width, height, map]);
 
-  // Keyboard: space pans, +/- zooms, 0 fits, Delete removes the selection.
+  // Reset draft when switching fog tools
+  useEffect(() => {
+    setDraftShape(null);
+    setPolygonDraft([]);
+  }, [fogTool]);
+
+  // Keyboard: space pans, +/- zooms, 0 fits, Enter finishes polygon, Escape clears selection/tool, Delete removes selection.
   useEffect(() => {
     const onKeyDown = (event) => {
       if (isTypingTarget(event.target)) return;
 
       if (event.code === 'Space') {
-        // Let a focused toolbar button handle its own activation.
         if (event.target?.tagName === 'BUTTON') return;
         event.preventDefault();
         if (!spaceRef.current) {
@@ -108,8 +118,20 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       } else if (event.key === '0') {
         event.preventDefault();
         canvasStore.getState().fit();
+      } else if (event.key === 'Enter' && polygonDraft.length >= 6) {
+        event.preventDefault();
+        canvasStore.getState().addFogShape({
+          type: 'polygon',
+          points: polygonDraft,
+        });
+        setPolygonDraft([]);
       } else if (event.key === 'Escape') {
         canvasStore.getState().clearSelection();
+        setDraftShape(null);
+        setPolygonDraft([]);
+        if (canvasStore.getState().fogTool) {
+          canvasStore.getState().setFogTool(null);
+        }
       } else if (
         (event.key === 'Delete' || event.key === 'Backspace') &&
         role === 'DM' &&
@@ -141,7 +163,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [onDeleteSelection, role, setCursor]);
+  }, [onDeleteSelection, polygonDraft, role, setCursor]);
 
   const handleMouseDown = (event) => {
     const stage = stageRef.current;
@@ -149,6 +171,77 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
     const native = event.evt;
     const isEmpty = event.target === stage;
     const isMiddle = native.button === 1;
+
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+
+    // DM Fog & Wall manual drawing tools
+    if (
+      role === 'DM' &&
+      fogTool &&
+      fogTool !== 'erase' &&
+      native.button === 0 &&
+      !spaceRef.current
+    ) {
+      native.preventDefault();
+      const mapPt = screenToMap(canvasStore.getState().viewport, pointer);
+
+      if (fogTool === 'polygon') {
+        if (polygonDraft.length >= 6) {
+          const firstX = polygonDraft[0];
+          const firstY = polygonDraft[1];
+          if (Math.hypot(mapPt.x - firstX, mapPt.y - firstY) < 18) {
+            canvasStore.getState().addFogShape({
+              type: 'polygon',
+              points: polygonDraft,
+            });
+            setPolygonDraft([]);
+            return;
+          }
+        }
+        setPolygonDraft((prev) => [...prev, mapPt.x, mapPt.y]);
+        return;
+      }
+
+      if (fogTool === 'rect') {
+        setDraftShape({
+          type: 'rect',
+          x: mapPt.x,
+          y: mapPt.y,
+          width: 0,
+          height: 0,
+        });
+        return;
+      }
+
+      if (fogTool === 'circle') {
+        setDraftShape({
+          type: 'circle',
+          x: mapPt.x,
+          y: mapPt.y,
+          radius: 0,
+        });
+        return;
+      }
+
+      if (fogTool === 'line') {
+        setDraftShape({
+          type: 'line',
+          points: [mapPt.x, mapPt.y],
+          strokeWidth: 44,
+        });
+        return;
+      }
+
+      if (fogTool === 'wall' || fogTool === 'door') {
+        setDraftShape({
+          type: fogTool,
+          p1: mapPt,
+          p2: mapPt,
+        });
+        return;
+      }
+    }
 
     if (!(isMiddle || spaceRef.current || (isEmpty && native.button === 0))) {
       return;
@@ -159,8 +252,6 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       canvasStore.getState().clearSelection();
     }
 
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
     panRef.current = {
       start: pointer,
       viewport: canvasStore.getState().viewport,
@@ -169,11 +260,47 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
   };
 
   const handleMouseMove = () => {
-    const pan = panRef.current;
     const stage = stageRef.current;
-    if (!pan || !stage) return;
+    if (!stage) return;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
+
+    if (draftShape) {
+      const mapPt = screenToMap(canvasStore.getState().viewport, pointer);
+      setDraftShape((prev) => {
+        if (!prev) return null;
+        if (prev.type === 'rect') {
+          return {
+            ...prev,
+            width: mapPt.x - prev.x,
+            height: mapPt.y - prev.y,
+          };
+        }
+        if (prev.type === 'circle') {
+          return {
+            ...prev,
+            radius: Math.hypot(mapPt.x - prev.x, mapPt.y - prev.y),
+          };
+        }
+        if (prev.type === 'line') {
+          return {
+            ...prev,
+            points: [...prev.points, mapPt.x, mapPt.y],
+          };
+        }
+        if (prev.type === 'wall' || prev.type === 'door') {
+          return {
+            ...prev,
+            p2: mapPt,
+          };
+        }
+        return prev;
+      });
+      return;
+    }
+
+    const pan = panRef.current;
+    if (!pan) return;
     canvasStore.getState().setViewport({
       x: pan.viewport.x + (pointer.x - pan.start.x),
       y: pan.viewport.y + (pointer.y - pan.start.y),
@@ -182,6 +309,35 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
   };
 
   const endPan = () => {
+    if (draftShape) {
+      const current = draftShape;
+      setDraftShape(null);
+      if (
+        current.type === 'rect' &&
+        Math.abs(current.width) > 8 &&
+        Math.abs(current.height) > 8
+      ) {
+        canvasStore.getState().addFogShape(current);
+      } else if (current.type === 'circle' && current.radius > 8) {
+        canvasStore.getState().addFogShape(current);
+      } else if (current.type === 'line' && current.points.length >= 4) {
+        canvasStore.getState().addFogShape(current);
+      } else if (
+        (current.type === 'wall' || current.type === 'door') &&
+        Math.hypot(
+          current.p2.x - current.p1.x,
+          current.p2.y - current.p1.y,
+        ) > 8
+      ) {
+        canvasStore.getState().addWall({
+          p1: current.p1,
+          p2: current.p2,
+          isDoor: current.type === 'door',
+          isOpen: false,
+        });
+      }
+    }
+
     if (!panRef.current) return;
     panRef.current = null;
     setCursor(spaceRef.current ? 'grab' : 'default');
@@ -201,6 +357,14 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
   };
 
   const handleDoubleClick = (event) => {
+    if (fogTool === 'polygon' && polygonDraft.length >= 6) {
+      canvasStore.getState().addFogShape({
+        type: 'polygon',
+        points: polygonDraft,
+      });
+      setPolygonDraft([]);
+      return;
+    }
     if (event.target === stageRef.current) {
       canvasStore.getState().fit();
     }
@@ -231,8 +395,16 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
           map={map}
           gridSize={gridSize}
           role={role}
-          panMode={panMode}
+          panMode={panMode || Boolean(fogTool)}
           onCursor={setCursor}
+        />
+      </Layer>
+      <Layer>
+        <FogLayer
+          map={map}
+          role={role}
+          draftShape={draftShape}
+          polygonDraft={polygonDraft}
         />
       </Layer>
     </Stage>

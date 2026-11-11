@@ -19,6 +19,7 @@ import { createSoundboardLibrary } from './socket/soundboardLibrary.js';
 import { SOUNDBOARD_EVENTS } from '../shared/soundboard.js';
 import { createAutosaveService } from './autosave/service.js';
 import { typeToStorageKind } from './assetService.js';
+import { encodeInternetCode, encodeRoomCode } from '../shared/roomCode.js';
 
 let activeServer = null;
 let startingPromise = null;
@@ -445,6 +446,9 @@ export function startServer({
       const localUrl = `http://127.0.0.1:${boundPort}`;
       const lanIps = getLocalIpAddresses();
       const lanUrls = lanIps.map((ip) => `http://${ip}:${boundPort}`);
+      const primaryIp = lanIps[0] || '127.0.0.1';
+      const roomCode = encodeRoomCode(primaryIp, boundPort);
+      const internetCode = encodeInternetCode(`${sessionId}:${primaryIp}:${boundPort}`);
 
       let closingPromise = null;
 
@@ -495,6 +499,7 @@ export function startServer({
 
       const getStatus = () => {
         const currentLanIps = getLocalIpAddresses();
+        const currentIp = currentLanIps[0] || '127.0.0.1';
         return {
           state: closingPromise ? SERVER_STATE.STOPPING : SERVER_STATE.RUNNING,
           running: !closingPromise,
@@ -503,6 +508,8 @@ export function startServer({
           localUrl,
           lanIps: currentLanIps,
           lanUrls: currentLanIps.map((ip) => `http://${ip}:${boundPort}`),
+          roomCode: encodeRoomCode(currentIp, boundPort),
+          internetCode,
           sessionId,
           activeConnections: io.engine?.clientsCount ?? 0,
           participants: sessionManager.getSanitizedParticipants(sessionId),
@@ -517,6 +524,8 @@ export function startServer({
         localUrl,
         lanIps,
         lanUrls,
+        roomCode,
+        internetCode,
         sessionId,
         app,
         io,

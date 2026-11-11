@@ -162,6 +162,7 @@ describe('database integrity check, backups, and recovery', () => {
     assert.deepEqual(recovery.pendingBefore, [
       '005_assets.sql',
       '005_autosave_recovery.sql',
+      '006_users.sql',
     ]);
     assert.ok(recovery.backedUpBeforeMigration);
     assert.ok(fs.existsSync(recovery.backedUpBeforeMigration));

@@ -27,6 +27,7 @@ let server = null;
 let mainWindow = null;
 let recoveryInfo = null;
 let stopBackups = null;
+let currentUser = null;
 
 // Only one Hakton instance: a second one would fight over the port and SQLite file.
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -61,6 +62,8 @@ function buildServerInfo() {
     sessionId: server.sessionId,
     lanIps: server.lanIps,
     lanUrls: server.lanUrls,
+    roomCode: server.roomCode,
+    internetCode: server.internetCode,
     status: server.getStatus(),
   };
 }
@@ -68,6 +71,50 @@ function buildServerInfo() {
 function registerIpcHandlers() {
   ipcMain.on('hakton:quit', (event) => {
     if (mainWindow && event.senderFrame === mainWindow.webContents.mainFrame) app.quit();
+  });
+
+  ipcMain.handle('hakton:user:has-account', () => ({
+    ok: true,
+    hasAccount: Boolean(repos?.users?.hasAny()),
+  }));
+
+  ipcMain.handle('hakton:user:get-current', () => {
+    if (!currentUser && repos?.users?.hasAny()) {
+      currentUser = repos.users.first();
+    }
+    return {
+      ok: true,
+      hasAccount: Boolean(repos?.users?.hasAny()),
+      user: currentUser,
+    };
+  });
+
+  ipcMain.handle('hakton:user:create', (_event, credentials = {}) => {
+    try {
+      const user = repos.users.create(credentials);
+      currentUser = user;
+      return { ok: true, user };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:user:login', (_event, credentials = {}) => {
+    try {
+      const user = repos.users.authenticate(credentials);
+      if (!user) {
+        return { ok: false, error: 'Invalid account name or password.' };
+      }
+      currentUser = user;
+      return { ok: true, user };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:user:logout', () => {
+    currentUser = null;
+    return { ok: true };
   });
 
   ipcMain.handle('hakton:server-info', () => buildServerInfo());

@@ -168,6 +168,8 @@ export const sessionStore = createStore((set) => ({
             sessionId: serverInfo.sessionId ?? null,
             lanIps: Array.isArray(serverInfo.lanIps) ? serverInfo.lanIps : [],
             lanUrls: Array.isArray(serverInfo.lanUrls) ? serverInfo.lanUrls : [],
+            roomCode: serverInfo.roomCode ?? serverInfo.status?.roomCode ?? null,
+            internetCode: serverInfo.internetCode ?? serverInfo.status?.internetCode ?? null,
           }
         : null,
     }),
