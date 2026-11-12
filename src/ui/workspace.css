@@ -1,0 +1,318 @@
+.customizable-workspace .player-list-window > header {
+  padding-left: 22px;
+}
+
+.customizable-workspace .player-list-window {
+  display: flex;
+  flex-direction: column;
+}
+
+.customizable-workspace .player-list-window .player-list-content {
+  min-height: 0;
+  overflow: auto;
+}
+
+.hakton-app .player-list-window > .workspace-grip {
+  top: 8px;
+  left: 6px;
+}
+
+.customizable-workspace .dice-window .dice-tray-title-row {
+  min-height: 25px;
+}
+
+.tabletop[data-role='Player'] .customizable-workspace .dice-window .dice-tray {
+  padding-top: 25px !important;
+}
+
+.customizable-workspace .dice-window > .dice-tray {
+  height: 100%;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.customizable-workspace .dice-window {
+  container-type: size;
+  overflow: visible !important;
+}
+
+.customizable-workspace .dice-window .dice-tray-shell .dice-well {
+  height: clamp(44px, 28cqh, 152px) !important;
+}
+
+.hakton-app .dice-window > .workspace-grip {
+  top: 0;
+}
+
+.hakton-app .canvas-window > .workspace-grip {
+  top: 0;
+  right: 5px;
+  left: auto;
+  background: #203741;
+}
+
+.customizable-workspace .canvas-window .scene-bar {
+  max-width: calc(100% - 36px);
+  overflow: auto;
+}
+
+.tabletop[data-role='Player'] .customizable-workspace .canvas-window {
+  padding-top: 28px;
+}
+
+.customizable-workspace .assets-window > .assets-panel {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  resize: none;
+}
+
+.customizable-workspace > .assets-window {
+  border-radius: 8px;
+  border: 1px solid #304752;
+  background: #192c37;
+}
+
+.customizable-workspace .assets-window .assets-panel > header,
+.customizable-workspace .chat-window .chat-panel > header {
+  padding-left: 29px;
+}
+
+.customizable-workspace .assets-window .tabs {
+  overflow: auto;
+}
+
+.customizable-workspace .assets-window .asset-search {
+  flex-wrap: wrap;
+}
+
+.customizable-workspace .assets-window .asset-search input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.customizable-workspace .chat-window .chat-panel {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  resize: none;
+}
+
+.customizable-workspace .chat-window .message-list {
+  min-height: 0;
+}
+
+.customizable-workspace .chat-window .chat-composer textarea {
+  height: 54px;
+}
+
+.customizable-workspace .chat-window .chat-reopen {
+  padding-left: 29px;
+}
+
+.customizable-workspace > .workspace-soundboard {
+  display: flex;
+  flex-direction: column;
+  background: #172a35;
+  border: 1px solid #567189;
+  border-radius: 5px;
+  color: #e6f0f3;
+}
+
+.customizable-workspace > .workspace-soundboard.is-floating {
+  position: absolute;
+  z-index: 25;
+  grid-area: auto;
+}
+
+.workspace-soundboard > header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 3px;
+  padding: 3px 5px;
+  border-bottom: 1px solid #304854;
+}
+
+.hakton-app .workspace-soundboard > .workspace-grip.has-title {
+  display: block;
+  top: 4px;
+  left: 8px;
+  width: calc(100% - 112px);
+  height: 32px;
+  text-align: left;
+  font-weight: 600;
+  color: #e6f0f3;
+}
+
+.hakton-app .workspace-soundboard.is-floating > .workspace-grip.has-title {
+  width: calc(100% - 86px);
+}
+
+.workspace-soundboard-body {
+  min-height: 0;
+  padding: 11px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.table-workspace.customizable-workspace {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  box-sizing: border-box;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.customizable-workspace > .workspace-panel {
+  position: relative;
+  align-self: stretch;
+  justify-self: stretch;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+}
+
+.customizable-workspace > .workspace-panel[hidden],
+.workspace-soundboard-body[hidden] {
+  display: none;
+}
+
+.customizable-workspace > .workspace-panel.is-dragging {
+  position: absolute;
+  z-index: 30;
+  inset: var(--workspace-drag-y) auto auto var(--workspace-drag-x);
+  grid-area: auto;
+  clip-path: inset(0 0 var(--workspace-drag-clip) 0 round 8px);
+  transform: scale(var(--workspace-drag-scale));
+  transform-origin: top left;
+  opacity: 0.9;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px #07101699;
+  pointer-events: none;
+}
+
+.hakton-app button.workspace-grip,
+.hakton-app button.workspace-split,
+.hakton-app button.workspace-float-resize {
+  position: absolute;
+  z-index: 7;
+  margin: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #9abac4;
+  touch-action: none;
+  user-select: none;
+}
+
+.hakton-app button.workspace-grip {
+  top: 5px;
+  left: 5px;
+  display: grid;
+  width: 22px;
+  height: 24px;
+  place-items: center;
+  cursor: grab;
+}
+
+.hakton-app button.workspace-grip:active {
+  cursor: grabbing;
+}
+
+.workspace-grip span {
+  width: 9px;
+  height: 13px;
+  background-image: radial-gradient(
+    circle,
+    currentColor 1px,
+    transparent 1.25px
+  );
+  background-size: 4px 4px;
+}
+
+.hakton-app button.workspace-split.columns {
+  top: 12px;
+  bottom: 12px;
+  width: 10px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+}
+
+.hakton-app button.workspace-split.stack,
+.hakton-app button.workspace-float-resize {
+  height: 10px;
+  cursor: row-resize;
+}
+
+.workspace-split.stack {
+  transform: translateY(-50%);
+}
+
+.hakton-app button.workspace-float-resize {
+  inset: auto 0 0;
+  width: 100%;
+  cursor: nwse-resize;
+}
+
+.workspace-split::after,
+.workspace-float-resize::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 2px;
+  border-radius: 2px;
+  background: #527181;
+  transform: translate(-50%, -50%);
+  content: '';
+}
+
+.workspace-split.columns::after {
+  width: 2px;
+  height: 32px;
+}
+.hakton-app button.workspace-split:focus-visible,
+.hakton-app button.workspace-float-resize:focus-visible {
+  outline: none;
+}
+.workspace-split:focus-visible::after,
+.workspace-float-resize:focus-visible::after {
+  box-shadow: 0 0 0 2px #adfcf94d;
+}
+.workspace-split:hover::after,
+.workspace-split:focus-visible::after,
+.workspace-float-resize:hover::after,
+.workspace-float-resize:focus-visible::after {
+  background: #adfcf9;
+}
+
+.workspace-dock-target {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  border: 1px dashed #83b9b9;
+  border-radius: 7px;
+  background: #203940;
+  color: #c5dfe0;
+  pointer-events: none;
+}
+
+.workspace-dock-target span {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #142b35;
+  font-size: 12px;
+}
+
+.workspace-soundboard.is-floating:not(.is-collapsed) {
+  padding-bottom: 10px;
+}

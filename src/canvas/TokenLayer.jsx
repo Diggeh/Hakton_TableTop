@@ -4,6 +4,7 @@ import { useSession } from '../store/sessionStore.js';
 import { canvasStore, useCanvas } from './canvasStore.js';
 import { emitTokenMove } from '../net/socket.js';
 import { clampTokenPosition, snapPoint } from './viewport.js';
+import { resolveTokenMoveWithWalls } from './fogVision.js';
 
 const DEFAULT_COLOR = '#adfcf9';
 
@@ -202,9 +203,10 @@ export default function TokenLayer({ map, gridSize, role, panMode, onCursor }) {
       const dx = lead.x - drag.leadStart.x;
       const dy = lead.y - drag.leadStart.y;
 
+      const walls = canvasStore.getState().walls;
       const moves = [];
       drag.positions.forEach((start, tokenId) => {
-        const final =
+        const candidate =
           tokenId === id
             ? lead
             : clampTokenPosition(
@@ -213,6 +215,8 @@ export default function TokenLayer({ map, gridSize, role, panMode, onCursor }) {
                 mapHeight,
                 grid,
               );
+        const resolved = resolveTokenMoveWithWalls(start, candidate, walls);
+        const final = resolved.position;
         const other = nodesRef.current.get(tokenId);
         if (other) other.position(final);
         if (final.x !== start.x || final.y !== start.y) {

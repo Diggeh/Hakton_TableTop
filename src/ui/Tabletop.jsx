@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { DICE_VISIBILITY } from '../../shared/dice/constants.js';
+import { ROLES } from '../../shared/events.js';
 import { rollFormula } from '../../shared/dice/roller.js';
 import { disconnect, emitDiceRoll } from '../net/socket.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
+import { useSoundboard } from '../audio/useSoundboard.js';
 import { autosave } from '../autosave/index.js';
 import {
   characterDocument,
@@ -14,12 +16,12 @@ import { SessionStatus, LiveRoster } from './SessionStatus.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
 import ChatPanel from './ChatPanel.jsx';
 import DiceTray, { buildTrayFormula } from './DiceTray.jsx';
-import ToolIcon from './ToolIcon.jsx';
 import { party } from './fixtures.js';
 import CharacterSheet from './CharacterSheet.jsx';
 import Compendium from './Compendium.jsx';
 import AutosaveStatus from './AutosaveStatus.jsx';
-import { Mark, IconButton, Modal } from './Primitives.jsx';
+import Soundboard from './Soundboard.jsx';
+import { IconButton, Modal } from './Primitives.jsx';
 
 const DEFAULT_NOTES =
   'The keeper’s journal mentions a sealed chamber beneath the altar.\n\nThe sentinel wakes when the tide returns.';
@@ -39,40 +41,46 @@ function characterForPerson(characters, person) {
   );
 }
 
-export default function Tabletop({ campaign, role, name, onLeave }) {
-  const [left, setLeft] = useState(true);
-  const [chat, setChat] = useState(true);
-  const [diceOpen, setDiceOpen] = useState(true);
-  const [assets, setAssets] = useState(true);
-  const [assetTab, setAssetTab] = useState('Scenes');
-  // In the packaged desktop app open on the live board; keep the designed
-  // preview board in a plain browser (where the host server is unavailable).
-  const [preview, setPreview] = useState(
-    () => typeof window === 'undefined' || !window.hakton,
-  );
-  const [scene, setScene] = useState(campaign.scene);
+export default function Tabletop({
+  campaign,
+  role,
+  name,
+  userId,
+  hostUrl: propHostUrl,
+  onLeave,
+}) {
+  const [playersOpen, setPlayersOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [diceOpen, setDiceOpen] = useState(false);
+  const [soundboardOpen, setSoundboardOpen] = useState(false);
+  const [assetTrayCategory, setAssetTrayCategory] = useState(null);
+  const [assetManagerOpen, setAssetManagerOpen] = useState(false);
+  const [assetManagerTab, setAssetManagerTab] = useState('Scenes');
+
+  const hostUrl = role === 'Player' ? (propHostUrl ?? campaign?.hostUrl) : undefined;
+  const [scene, setScene] = useState(campaign?.scene ?? 'Drowned Sanctuary');
   const [modal, setModal] = useState(null);
+  const soundboardId = useId();
+  const soundboardContentId = useId();
+  const soundboardTrigger = useRef(null);
+
   const [inspected, setInspected] = useState(null);
   const [die, setDie] = useState(20);
   const [rollMode, setRollMode] = useState('Normal');
   const [count, setCount] = useState(1);
   const [modifier, setModifier] = useState(0);
   const [visibility, setVisibility] = useState('Public');
-  const [previewNotes, setPreviewNotes] = useState(DEFAULT_NOTES);
 
   const characters = useSession((state) => state.characters);
   const dmRecords = useSession((state) => state.dmRecords);
   const currentUser = useSession((state) => state.currentUser);
+  const soundboard = useSoundboard(false);
 
   const notesRecordId = dmNotesRecordId(campaign?.id ?? 'default');
   const notesRecord = dmRecords[notesRecordId];
-  const notes = preview ? previewNotes : (notesRecord?.data?.text ?? DEFAULT_NOTES);
+  const notes = notesRecord?.data?.text ?? DEFAULT_NOTES;
 
   function handleNotesChange(value) {
-    if (preview) {
-      setPreviewNotes(value);
-      return;
-    }
     const store = sessionStore.getState();
     if (store.dmRecords[notesRecordId]) {
       store.patchDmRecord(notesRecordId, { data: { text: value } });
@@ -91,13 +99,12 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
   }
 
   function canEditCharacter(character) {
-    if (!character || preview) return false;
+    if (!character) return false;
     if (role === 'DM') return true;
     return Boolean(currentUser?.id && character.ownerId === currentUser.id);
   }
 
   function handleHpChange(person, value) {
-    if (preview) return;
     const store = sessionStore.getState();
     const character = characterForPerson(store.characters, person);
     if (!character) return;
@@ -132,164 +139,171 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
 
   const person = party.find((p) => p.name === inspected?.name) || party[0];
 
+  function closeSoundboard() {
+    setSoundboardOpen(false);
+    soundboardTrigger.current?.focus({ preventScroll: true });
+  }
+
   return (
     <div className="tabletop" data-role={role}>
-      <header className="table-header">
-        <button
-          className="brand"
-          title="Return to campaigns"
-          onClick={() => setModal('leave')}
-        >
-          <Mark />
-          <span>HAKTON</span>
-        </button>
-        <span className="header-divider" />
-        <div className="table-title">
-          <strong>{campaign.name}</strong>
-          <span>{role === 'DM' ? 'Dungeon Master' : 'Player'}</span>
-        </div>
-        <div className="table-header-actions">
-          {!preview && <AutosaveStatus />}
-          {!preview && <SessionStatus />}
-          <select
-            aria-label="Board source"
-            value={preview ? 'preview' : 'live'}
-            onChange={(e) => {
-              if (e.target.value === 'preview') disconnect();
-              setPreview(e.target.value === 'preview');
-            }}
-          >
-            <option value="preview">Preview board</option>
-            <option value="live">Existing live board</option>
-          </select>
-          <IconButton label="Return home" onClick={() => setModal('leave')}>
-            <ToolIcon name="home" />
-          </IconButton>
-        </div>
-      </header>
-      <div
-        className={`table-workspace prototype-layout ${assets && role === 'DM' ? 'assets-open' : ''}`}
-      >
-        <aside className="player-list-window">
-          <header>
-            <h2>Players</h2>
-            <IconButton
-              label={left ? 'Collapse players' : 'Expand players'}
-              onClick={() => setLeft(!left)}
-            >
-              {left ? '−' : '+'}
-            </IconButton>
-          </header>
-          {left &&
-            (!preview ? (
-              <LiveRoster />
-            ) : (
-              <div className="player-list-content">
-                <button
-                  className="player-host"
-                  onClick={() => setModal('leave')}
+      <div className="tabletop-stage">
+        <Board
+          displayName={name}
+          userId={userId}
+          hostUrl={hostUrl}
+          scene={scene}
+          role={role}
+          playersOpen={playersOpen}
+          diceOpen={diceOpen}
+          chatOpen={chatOpen}
+          soundboardOpen={soundboardOpen}
+          soundboardId={soundboardId}
+          assetTrayCategory={assetTrayCategory}
+          assetManagerOpen={assetManagerOpen}
+          onAction={(action, trigger) => {
+            if (action === 'sheet') inspect('Mira');
+            else if (action === 'home') setModal('leave');
+            else if (action === 'players') setPlayersOpen((v) => !v);
+            else if (action === 'dice') setDiceOpen((v) => !v);
+            else if (action === 'chat') setChatOpen((v) => !v);
+            else if (action === 'soundboard') {
+              soundboardTrigger.current = trigger;
+              setSoundboardOpen((value) => !value);
+            } else setModal(action);
+          }}
+          onToggleAssetTray={(category) =>
+            setAssetTrayCategory((current) =>
+              current === category ? null : category,
+            )
+          }
+          onOpenAssetManager={() => {
+            if (assetTrayCategory) setAssetManagerTab(assetTrayCategory);
+            setAssetManagerOpen((open) => !open);
+          }}
+          onSelectScene={setScene}
+          onInspectAsset={inspect}
+        />
+
+        {(playersOpen || diceOpen || soundboardOpen) && (
+          <div className="floating-stack-top-left">
+            {playersOpen && (
+              <aside
+                className="floating-popup player-list-window"
+                aria-label="Players"
+              >
+                <header>
+                  <h2>Players</h2>
+                  <IconButton
+                    label="Close players"
+                    onClick={() => setPlayersOpen(false)}
+                  >
+                    ×
+                  </IconButton>
+                </header>
+                <LiveRoster />
+                <div className="player-list-footer">
+                  <AutosaveStatus />
+                  <SessionStatus />
+                </div>
+              </aside>
+            )}
+
+            {diceOpen && (
+              <aside
+                className="floating-popup dice-window"
+                aria-label="Dice tray"
+              >
+                <DiceTray
+                  rollMode={rollMode}
+                  setRollMode={setRollMode}
+                  die={die}
+                  setDie={setDie}
+                  count={count}
+                  setCount={setCount}
+                  modifier={modifier}
+                  setModifier={setModifier}
+                  visibility={visibility}
+                  setVisibility={setVisibility}
+                  role={role}
+                  onPrepare={() =>
+                    handleRollFormula(
+                      buildTrayFormula({ die, count, modifier, rollMode }),
+                      visibility,
+                    )
+                  }
+                  onRollFormula={handleRollFormula}
+                />
+              </aside>
+            )}
+
+            {soundboardOpen && (
+              <aside
+                id={soundboardId}
+                className="floating-popup workspace-soundboard"
+                aria-label="Soundboard"
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && !event.defaultPrevented) {
+                    closeSoundboard();
+                  }
+                }}
+              >
+                <header>
+                  <h2>Soundboard</h2>
+                  <IconButton
+                    label="Close soundboard"
+                    onClick={closeSoundboard}
+                  >
+                    ×
+                  </IconButton>
+                </header>
+                <div
+                  id={soundboardContentId}
+                  className="workspace-soundboard-body"
                 >
-                  {role === 'DM' ? name : 'Dungeon Master'}
-                  <small>DM</small>
-                </button>
-                {party.map((p) => (
-                  <button
-                    key={p.name}
-                    disabled={role !== 'DM' && p.name !== 'Mira'}
-                    onClick={() => inspect(p.name)}
-                  >
-                    {p.name}
-                  </button>
-                ))}
-              </div>
-            ))}
-        </aside>
-        <aside className="dice-window" hidden={!diceOpen}>
-          <DiceTray
-            rollMode={rollMode}
-            setRollMode={setRollMode}
-            die={die}
-            setDie={setDie}
-            count={count}
-            setCount={setCount}
-            modifier={modifier}
-            setModifier={setModifier}
-            visibility={visibility}
-            setVisibility={setVisibility}
-            role={role}
-            onPrepare={() =>
-              handleRollFormula(
-                buildTrayFormula({ die, count, modifier, rollMode }),
-                visibility,
-              )
-            }
-            onRollFormula={handleRollFormula}
-          />
-        </aside>
-        <main className="canvas-window">
-          {role === 'DM' && (
-            <nav className="scene-bar" aria-label="Asset bars">
-              {['Scenes', 'Characters', 'Maps', 'Props', 'Attachments'].map(
-                (category) => (
-                  <button
-                    key={category}
-                    aria-pressed={assets && assetTab === category}
-                    onClick={() => {
-                      setAssetTab(category);
-                      setAssets(true);
-                    }}
-                  >
-                    {category}
-                  </button>
-                ),
-              )}
-            </nav>
-          )}
-          <Board
-            preview={preview}
-            displayName={name}
-            scene={scene}
-            role={role}
-            onAction={(action) => {
-              if (action === 'sheet') inspect('Mira');
-              else if (action === 'home') setModal('leave');
-              else if (action === 'players') setLeft((v) => !v);
-              else if (action === 'dice') setDiceOpen((v) => !v);
-              else if (action === 'chat') setChat((v) => !v);
-              else setModal(action);
-            }}
-            onAssets={(category) => {
-              setAssetTab(category);
-              setAssets((a) => category !== assetTab || !a);
-            }}
-            assetsOpen={assets}
-          />
-        </main>
-        {role === 'DM' && assets && (
+                  <Soundboard
+                    controls={soundboard}
+                    canControl={currentUser?.role === ROLES.DM}
+                    preview={false}
+                  />
+                </div>
+              </aside>
+            )}
+          </div>
+        )}
+
+        {chatOpen && (
+          <div className="floating-stack-right">
+            <div className="floating-popup chat-window">
+              <ChatPanel
+                preview={false}
+                name={name}
+                hidden={!chatOpen}
+                onClose={() => setChatOpen(false)}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {role === 'DM' && assetManagerOpen && (
+        <Modal
+          title="Asset Manager"
+          className="asset-manager-modal"
+          onClose={() => setAssetManagerOpen(false)}
+        >
           <AssetsPanel
             role={role}
             scene={scene}
-            category={assetTab}
-            onCategoryChange={setAssetTab}
+            category={assetManagerTab}
+            onCategoryChange={setAssetManagerTab}
             onScene={setScene}
             onInspect={inspect}
-            onClose={() => setAssets(false)}
+            onClose={() => setAssetManagerOpen(false)}
+            inModal
           />
-        )}
-        <div className="chat-window">
-          <ChatPanel
-            preview={preview}
-            name={name}
-            hidden={!chat}
-            onClose={() => setChat(false)}
-          />
-          {!chat && (
-            <button className="chat-reopen" onClick={() => setChat(true)}>
-              Chat +
-            </button>
-          )}
-        </div>
-      </div>
+        </Modal>
+      )}
+
       {modal && (
         <Modal
           title={
@@ -297,7 +311,6 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
               leave: role === 'DM' ? 'Return home?' : 'Leave the table?',
               notes: 'DM screen',
               compendium: 'Compendium',
-              soundboard: 'Soundboard',
               dice: 'Roll prepared',
               inspect: inspected?.name,
             }[modal]
@@ -315,7 +328,7 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
                 <button
                   className="primary"
                   onClick={() => {
-                    if (!preview) disconnect({ forgetIdentity: true });
+                    disconnect({ forgetIdentity: true });
                     onLeave();
                   }}
                 >
@@ -327,17 +340,12 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
           )}
           {modal === 'notes' && (
             <>
-              {preview ? (
-                <p className="preview-label">Not saved</p>
-              ) : (
-                <AutosaveStatus />
-              )}
+              <AutosaveStatus />
               <label>
                 Session notes
                 <textarea
                   className="notes-editor"
                   value={notes}
-                  readOnly={preview}
                   onChange={(e) => handleNotesChange(e.target.value)}
                 />
               </label>
@@ -349,29 +357,6 @@ export default function Tabletop({ campaign, role, name, onLeave }) {
             </>
           )}
           {modal === 'compendium' && <Compendium />}
-          {modal === 'soundboard' && (
-            <>
-              <p className="notice">Playback unavailable</p>
-              {['Coastal wind', 'Sanctuary ambience', 'Battle drums'].map(
-                (t) => (
-                  <div className="reference-row" key={t}>
-                    <span>{t}</span>
-                    <button disabled>Play</button>
-                  </div>
-                ),
-              )}
-              <label>
-                Volume
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  defaultValue="60"
-                  disabled
-                />
-              </label>
-            </>
-          )}
           {modal === 'dice' && (
             <>
               <div className="prepared-dice">

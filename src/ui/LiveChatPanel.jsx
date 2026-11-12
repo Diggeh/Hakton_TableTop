@@ -240,7 +240,7 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
           <p className="chat-status" role="status">
             {connection === 'connecting' || connection === 'reconnecting'
               ? 'Connecting…'
-              : 'Join a live session to chat.'}
+              : 'Join a session to chat.'}
           </p>
         )}
         {error && (

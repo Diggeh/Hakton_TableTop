@@ -6,6 +6,7 @@ import { createAssetModel } from './models/assets.js';
 import { createBoardModel } from './models/board.js';
 import { createSessionModel } from './models/sessions.js';
 import { createAutosaveReceiptModel } from './models/autosaveReceipts.js';
+import { createUserModel } from './models/users.js';
 
 /**
  * Repository layer: the ONLY place SQL lives. The backend consumes these
@@ -75,6 +76,7 @@ export function createRepositories(db) {
     board: createBoardModel(db),
     sessions: createSessionModel(db),
     autosaveReceipts: createAutosaveReceiptModel(db),
+    users: createUserModel(db),
     maps,
     tokens: {
       listByMap: (mapId) => stmts.tokensByMap.all(mapId),

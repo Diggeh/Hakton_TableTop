@@ -23,7 +23,7 @@ export function IconButton({ label, children, ...props }) {
     </button>
   );
 }
-export function Modal({ title, children, onClose }) {
+export function Modal({ title, children, onClose, className = '' }) {
   const ref = useRef(null);
   const titleId = useId();
   useEffect(() => {
@@ -38,6 +38,7 @@ export function Modal({ title, children, onClose }) {
   return (
     <dialog
       ref={ref}
+      className={className || undefined}
       aria-labelledby={titleId}
       onCancel={onClose}
       onClick={(e) => {

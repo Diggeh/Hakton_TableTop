@@ -1,11 +1,13 @@
 import crypto from 'node:crypto';
 import { registerChatHandlers } from '../chat/handlers.js';
+import { registerSoundboard } from './soundboard.js';
 import { registerAutosaveHandlers } from '../autosave/handlers.js';
 import { characterToWire, dmRecordToWire } from '../autosave/wire.js';
 import { ERROR_CODES, EVENTS, ROLES } from '../../shared/events.js';
 import { DICE_MESSAGE_TYPE, DICE_VISIBILITY } from '../../shared/dice/constants.js';
 import { validateRollSubmission } from '../../shared/dice/validate.js';
 import { SessionManager, sanitizeParticipant } from '../session/sessionManager.js';
+import { announceVoicePeerLeft, registerVoiceHandlers } from '../voice/handlers.js';
 
 const registeredServers = new WeakSet();
 
@@ -132,6 +134,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
   registeredServers.add(io);
 
   io.on('connection', (socket) => {
+    registerSoundboard(socket, { io, sessionManager, roomFor: getSessionRoom, library: opts.soundboard });
     registerChatHandlers(io, socket, {
       repository: repos?.chat,
       sessionManager,
@@ -154,6 +157,9 @@ export function registerSocketRouter(io, repos, opts = {}) {
       sessionManager,
       autosave: opts.autosave,
     });
+
+    // P2P voice mesh signaling: Peer ID phone book only, audio never routes through the host.
+    registerVoiceHandlers(io, socket, { sessionManager, roomFor: getSessionRoom });
 
     const roomForSocket = () =>
       socket.data.sessionId ? getSessionRoom(socket.data.sessionId) : null;
@@ -305,6 +311,11 @@ export function registerSocketRouter(io, repos, opts = {}) {
         socket.data.role = null;
 
         socket.to(room).emit(EVENTS.SESSION_PARTICIPANT_LEFT, leaveResult.participant);
+        announceVoicePeerLeft(
+          io,
+          { sessionManager, roomFor: getSessionRoom },
+          leaveResult,
+        );
         io.to(room).emit(EVENTS.SESSION_PARTICIPANTS_UPDATE, leaveResult.participants);
       }
 
@@ -452,7 +463,13 @@ export function registerSocketRouter(io, repos, opts = {}) {
         respond({ ok: false, reason: 'board_unavailable' });
         return;
       }
-      if (!isJoined() || !isDM()) {
+      const playerRenamingOnly =
+        !isDM() &&
+        !('ownerId' in payload) &&
+        !('locked' in payload) &&
+        typeof payload.label === 'string' &&
+        payload.label.trim().length > 0;
+      if (!isJoined() || (!isDM() && !playerRenamingOnly)) {
         respond({ ok: false, reason: 'forbidden' });
         return;
       }
@@ -623,6 +640,11 @@ export function registerSocketRouter(io, repos, opts = {}) {
         reason,
       });
       io.to(room).emit(EVENTS.SESSION_PARTICIPANTS_UPDATE, disconnectResult.participants);
+      announceVoicePeerLeft(
+        io,
+        { sessionManager, roomFor: getSessionRoom },
+        disconnectResult,
+      );
     });
   });
 

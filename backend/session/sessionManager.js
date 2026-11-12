@@ -4,12 +4,44 @@ import {
   DEFAULT_SESSION_NAME,
   ERROR_CODES,
   MAX_DISPLAY_NAME_LENGTH,
+  MAX_PEER_ID_LENGTH,
   MAX_SESSION_ID_LENGTH,
+  MAX_VOICE_PEERS,
   ROLES,
 } from '../../shared/events.js';
 
 const CONTROL_CHARS_RE = /[\x00-\x1F\x7F]/;
 const SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
+/** PeerJS ids are opaque to the host; restrict to a safe, log-friendly alphabet. */
+const PEER_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * Validates a PeerJS peer identifier submitted for the voice mesh.
+ * @param {unknown} rawPeerId
+ * @returns {{ ok: true, value: string } | { ok: false, code: string, error: string }}
+ */
+export function validatePeerId(rawPeerId) {
+  if (typeof rawPeerId !== 'string') {
+    return {
+      ok: false,
+      code: ERROR_CODES.INVALID_PEER_ID,
+      error: 'Peer ID must be a string.',
+    };
+  }
+  const trimmed = rawPeerId.trim();
+  if (
+    trimmed.length === 0 ||
+    trimmed.length > MAX_PEER_ID_LENGTH ||
+    !PEER_ID_RE.test(trimmed)
+  ) {
+    return {
+      ok: false,
+      code: ERROR_CODES.INVALID_PEER_ID,
+      error: `Peer ID must be 1-${MAX_PEER_ID_LENGTH} alphanumeric, hyphen, or underscore characters.`,
+    };
+  }
+  return { ok: true, value: trimmed };
+}
 
 /**
  * Constant-time string comparison to prevent timing side-channel leaks
@@ -98,6 +130,14 @@ export function validateSessionId(rawSessionId) {
  * @param {object} participant
  */
 export function sanitizeParticipant(participant) {
+  return {
+    ...sanitizeParticipantBase(participant),
+    // PeerJS ids are public by design (they are only useful to dial a mic), unlike reconnectToken.
+    peerId: participant.peerId ?? null,
+  };
+}
+
+function sanitizeParticipantBase(participant) {
   return {
     id: participant.id,
     displayName: participant.displayName,
@@ -344,6 +384,7 @@ export class SessionManager {
       hostToken,
       playerId: requestedPlayerId,
       reconnectToken,
+      userId: rawUserId,
     } = request;
 
     if (typeof socketId !== 'string' || !socketId.trim()) {
@@ -573,18 +614,30 @@ export class SessionManager {
     }
 
     const now = new Date().toISOString();
-    const playerId = `p_${crypto.randomUUID()}`;
+    const validUserId =
+      typeof rawUserId === 'string' &&
+      rawUserId.trim().length > 0 &&
+      rawUserId.trim().length <= MAX_SESSION_ID_LENGTH &&
+      SESSION_ID_RE.test(rawUserId.trim())
+        ? rawUserId.trim()
+        : null;
+    const existingByUser = validUserId ? session.participants.get(validUserId) : null;
+    const playerId =
+      validUserId && (!existingByUser || !existingByUser.connected)
+        ? validUserId
+        : `p_${crypto.randomUUID()}`;
     const newReconnectToken = crypto.randomBytes(24).toString('hex');
 
     const participant = {
       id: playerId,
+      userId: validUserId,
       displayName,
       role: assignedRole,
       sessionId: session.id,
       socketId,
       connected: true,
       reconnectToken: newReconnectToken,
-      joinedAt: now,
+      joinedAt: existingByUser?.joinedAt ?? now,
       lastSeenAt: now,
       disconnectedAt: null,
     };
@@ -652,8 +705,11 @@ export class SessionManager {
     if (!participant) return null;
 
     // Only mark disconnected if this socket is still the active socket for the player
+    let previousPeerId = null;
     if (participant.socketId === socketId) {
       const now = new Date().toISOString();
+      previousPeerId = participant.peerId ?? null;
+      participant.peerId = null;
       participant.connected = false;
       participant.socketId = null;
       participant.disconnectedAt = now;
@@ -667,6 +723,7 @@ export class SessionManager {
 
     return {
       session,
+      previousPeerId,
       participant: sanitizeParticipant(participant),
       participants: this.getSanitizedParticipants(session.id),
     };
@@ -688,6 +745,7 @@ export class SessionManager {
     const participant = session.participants.get(ref.playerId);
     if (!participant) return null;
 
+    const previousPeerId = participant.peerId ?? null;
     session.participants.delete(ref.playerId);
     if (session.hostPlayerId === ref.playerId) {
       session.hostPlayerId = null;
@@ -701,11 +759,119 @@ export class SessionManager {
 
     return {
       session,
+      previousPeerId,
       participant: {
         ...sanitizeParticipant(participant),
         connected: false,
       },
       participants: this.getSanitizedParticipants(session.id),
+    };
+  }
+
+  /**
+   * Resolves the live, connected participant bound to a socket (voice mesh helper).
+   * @param {string} socketId
+   */
+  getActiveParticipant(socketId) {
+    const ref = this.socketIndex.get(socketId);
+    if (!ref) return null;
+    const session = this.sessions.get(ref.sessionId);
+    const participant = session?.participants.get(ref.playerId);
+    if (!session || !participant) return null;
+    if (!participant.connected || participant.socketId !== socketId) return null;
+    return { session, participant };
+  }
+
+  /**
+   * Public voice roster for a session: every connected participant that has registered a PeerJS id.
+   * @param {string} sessionId
+   * @returns {Array<{ peerId: string, playerId: string, displayName: string, role: string }>}
+   */
+  getVoicePeers(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return [];
+    return Array.from(session.participants.values())
+      .filter((p) => p.connected && typeof p.peerId === 'string' && p.peerId)
+      .map((p) => ({
+        peerId: p.peerId,
+        playerId: p.id,
+        displayName: p.displayName,
+        role: p.role,
+      }));
+  }
+
+  /**
+   * Binds a PeerJS id to the socket's participant and enforces the voice mesh cap.
+   * Re-registering the same id is idempotent (`changed: false`); a new id replaces the old one.
+   *
+   * @param {{ socketId: string, peerId: unknown }} request
+   */
+  registerVoicePeer({ socketId, peerId } = {}) {
+    const active = this.getActiveParticipant(socketId);
+    if (!active) {
+      return {
+        success: false,
+        code: ERROR_CODES.NOT_JOINED,
+        error: 'Join a session before joining voice.',
+      };
+    }
+    const { session, participant } = active;
+
+    const check = validatePeerId(peerId);
+    if (!check.ok) {
+      return { success: false, code: check.code, error: check.error };
+    }
+    const nextPeerId = check.value;
+
+    let occupiedSlots = 0;
+    for (const other of session.participants.values()) {
+      if (other.id === participant.id || !other.connected || !other.peerId) continue;
+      if (other.peerId === nextPeerId) {
+        return {
+          success: false,
+          code: ERROR_CODES.DUPLICATE_PEER_ID,
+          error: 'Peer ID is already registered by another participant.',
+        };
+      }
+      occupiedSlots += 1;
+    }
+    if (occupiedSlots >= MAX_VOICE_PEERS) {
+      return {
+        success: false,
+        code: ERROR_CODES.VOICE_MESH_FULL,
+        error: `Voice mesh is at maximum capacity (${MAX_VOICE_PEERS} peers).`,
+      };
+    }
+
+    const previousPeerId = participant.peerId ?? null;
+    participant.peerId = nextPeerId;
+
+    return {
+      success: true,
+      changed: previousPeerId !== nextPeerId,
+      previousPeerId,
+      session,
+      participant: sanitizeParticipant(participant),
+      peers: this.getVoicePeers(session.id),
+    };
+  }
+
+  /**
+   * Releases the socket participant's voice slot without leaving the session.
+   * @param {string} socketId
+   * @returns {null | { session: object, participant: object, previousPeerId: string, peers: object[] }}
+   */
+  unregisterVoicePeer(socketId) {
+    const active = this.getActiveParticipant(socketId);
+    if (!active?.participant.peerId) return null;
+    const { session, participant } = active;
+    const previousPeerId = participant.peerId;
+    participant.peerId = null;
+    return {
+      session,
+      participant: sanitizeParticipant(participant),
+      previousPeerId,
+      peers: this.getVoicePeers(session.id),
     };
   }
 
