@@ -1,5 +1,8 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { io as createClient } from 'socket.io-client';
 import { startServer, stopServer } from '../../backend/server.js';
 import {
@@ -15,6 +18,7 @@ import {
   getSocket,
 } from '../../src/net/socket.js';
 import { sessionStore } from '../../src/store/sessionStore.js';
+import { AUDIO_PATH, SOUNDBOARD_EVENTS } from '../../shared/soundboard.js';
 
 /**
  * Helper to wait for a socket event once with timeout.
@@ -99,6 +103,124 @@ describe('Socket.IO Networking Bus Integration (Router, Client & Store)', () => 
     }
     clients = [];
     await stopServer();
+  });
+
+  it('syncs soundboard cues within the session and restores only the active loop', { timeout: 8000 }, async () => {
+    server.sessionManager.createSession({ id: 'other-table' });
+    const host = connectRawClient();
+    const player = connectRawClient();
+    const outsider = connectRawClient();
+    await Promise.all([host, player, outsider].map((socket) => waitForEvent(socket, 'connect')));
+    const request = (socket) => emitWithAck(socket, SOUNDBOARD_EVENTS.REQUEST, {});
+    const command = (socket, action, cueId, value) =>
+      emitWithAck(socket, SOUNDBOARD_EVENTS.COMMAND, { action, cueId, value });
+    assert.equal((await request(player)).ok, false);
+    for (const [socket, data] of [
+      [host, { displayName: 'Host', role: ROLES.DM, hostToken: server.hostSecret }],
+      [player, { displayName: 'Player' }],
+      [outsider, { displayName: 'Outsider', sessionId: 'other-table' }],
+    ]) {
+      const joined = await emitWithAck(socket, EVENTS.SESSION_JOIN, { sessionId: DEFAULT_SESSION_ID, ...data });
+      assert.equal(joined.success, true);
+    }
+    const outsiderUpdates = [];
+    outsider.on(SOUNDBOARD_EVENTS.UPDATE, (update) => outsiderUpdates.push(update));
+    assert.equal((await command(player, 'play', 'coastal-wind')).ok, false);
+    assert.equal((await command(host, 'play', 'bell')).ok, false);
+    const hostLoop = waitForEvent(host, SOUNDBOARD_EVENTS.UPDATE);
+    const playerLoop = waitForEvent(player, SOUNDBOARD_EVENTS.UPDATE);
+    assert.equal((await command(host, 'play', 'coastal-wind')).ok, true);
+    const loop = await playerLoop;
+    assert.deepEqual(await hostLoop, loop);
+    assert.equal(loop.state.track.cueId, 'coastal-wind');
+    const effect = waitForEvent(player, SOUNDBOARD_EVENTS.UPDATE);
+    assert.equal((await command(host, 'trigger', 'bell')).ok, true);
+    assert.equal((await effect).cueId, 'bell');
+    assert.equal((await request(outsider)).state.track, null);
+    assert.deepEqual(outsiderUpdates, []);
+
+    const lateJoiner = connectRawClient();
+    await waitForEvent(lateJoiner, 'connect');
+    assert.equal((await emitWithAck(lateJoiner, EVENTS.SESSION_JOIN, {
+      sessionId: DEFAULT_SESSION_ID, displayName: 'Late joiner',
+    })).success, true);
+    assert.deepEqual((await request(lateJoiner)).state, loop.state);
+    assert.equal((await command(host, 'pause')).ok, true);
+    const paused = (await request(lateJoiner)).state.track;
+    assert.equal(paused.playing, false);
+    assert.equal((await command(host, 'loop', undefined, false)).ok, true);
+    assert.equal((await command(host, 'resume')).ok, true);
+    assert.equal((await command(host, 'volume', undefined, 25)).ok, true);
+    const resumed = (await request(player)).state;
+    assert.equal(resumed.track.playing, true);
+    assert.equal(resumed.track.loop, false);
+    assert.equal(resumed.track.positionMs, paused.positionMs);
+    assert.equal(resumed.volume, 25);
+    const stopped = waitForEvent(lateJoiner, SOUNDBOARD_EVENTS.UPDATE);
+    assert.equal((await command(host, 'stop')).ok, true);
+    assert.equal((await stopped).action, 'stop');
+    assert.equal((await request(player)).state.track, null);
+  });
+
+  it('stores custom audio, authorizes delivery by session, and persists the catalog across host restarts', { timeout: 10000 }, async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'hakton-audio-'));
+    async function restart() {
+      await stopServer();
+      server = await startServer({ port: 0, host: '127.0.0.1', storage: { dataDir } });
+    }
+    async function joinAudio(name, sessionId = DEFAULT_SESSION_ID, host = false) {
+      const socket = connectRawClient();
+      await waitForEvent(socket, 'connect');
+      const joined = await emitWithAck(socket, EVENTS.SESSION_JOIN, {
+        displayName: name, sessionId, ...(host ? { role: ROLES.DM, hostToken: server.hostSecret } : {}),
+      });
+      assert.equal(joined.success, true);
+      const status = await emitWithAck(socket, SOUNDBOARD_EVENTS.REQUEST, {});
+      return { socket, ...status };
+    }
+    try {
+      await restart();
+      server.sessionManager.createSession({ id: 'other-table' });
+      const host = await joinAudio('Host', DEFAULT_SESSION_ID, true);
+      const player = await joinAudio('Player');
+      const outsider = await joinAudio('Outsider', 'other-table');
+      const wav = Buffer.alloc(44 + 16000);
+      wav.write('RIFF', 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8);
+      wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+      wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28);
+      wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(16000, 40);
+      const upload = (access, body) => fetch(server.localUrl + AUDIO_PATH + '?name=Chime&kind=effect&seconds=1', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + access, 'Content-Type': 'application/octet-stream' },
+        body,
+      });
+      assert.equal((await upload(player.access, wav)).status, 403);
+      assert.equal((await upload(host.access, Buffer.alloc(48))).status, 400);
+      const catalog = waitForEvent(player.socket, SOUNDBOARD_EVENTS.CATALOG);
+      assert.equal((await upload(host.access, wav)).status, 201);
+      const [cue] = (await catalog).cues;
+      assert.equal(cue.name, 'Chime');
+      const cueUrl = () => server.localUrl + AUDIO_PATH + '/' + cue.id;
+      assert.equal((await fetch(cueUrl())).status, 404);
+      assert.equal((await fetch(cueUrl() + '?access=' + outsider.access)).status, 404);
+      const file = await fetch(cueUrl() + '?access=' + player.access, { headers: { Range: 'bytes=0-43' } });
+      assert.equal(file.status, 206);
+      assert.equal(file.headers.get('content-type'), 'audio/wav');
+      assert.deepEqual(Buffer.from(await file.arrayBuffer()), wav.subarray(0, 44));
+      const triggered = waitForEvent(player.socket, SOUNDBOARD_EVENTS.UPDATE);
+      assert.equal((await emitWithAck(host.socket, SOUNDBOARD_EVENTS.COMMAND, { action: 'trigger', cueId: cue.id })).ok, true);
+      assert.equal((await triggered).cueId, cue.id);
+
+      await restart();
+      const newHost = await joinAudio('Host', DEFAULT_SESSION_ID, true);
+      assert.deepEqual(newHost.cues, [cue]);
+      assert.equal((await fetch(cueUrl() + '?access=' + player.access)).status, 404);
+      assert.equal((await emitWithAck(newHost.socket, SOUNDBOARD_EVENTS.REMOVE, cue.id)).ok, true);
+      assert.equal((await fetch(cueUrl() + '?access=' + newHost.access)).status, 404);
+    } finally {
+      await stopServer();
+      await rm(dataDir, { recursive: true, force: true });
+    }
   });
 
   it('allows DM and multiple players to join, delivers authoritative Welcome Packet, and broadcasts roster updates', async () => {

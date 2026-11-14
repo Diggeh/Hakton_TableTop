@@ -26,6 +26,11 @@ function safeTokenEquals(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+/** Reconnect tokens are only ever persisted as a SHA-256 digest. */
+function hashReconnectToken(token) {
+  return crypto.createHash('sha256').update(String(token), 'utf8').digest('hex');
+}
+
 /**
  * Validates and normalizes a player display name.
  * @param {unknown} rawName
@@ -110,15 +115,23 @@ export function sanitizeParticipant(participant) {
  */
 export class SessionManager {
   /**
-   * @param {{ hostSecret?: string, defaultSessionId?: string, defaultSessionName?: string }} [opts]
+   * @param {{
+   *   hostSecret?: string,
+   *   defaultSessionId?: string,
+   *   defaultSessionName?: string,
+   *   persistence?: ReturnType<typeof import('../../database/models/sessions.js').createSessionModel>,
+   * }} [opts]
    */
   constructor({
     hostSecret = crypto.randomBytes(32).toString('hex'),
     defaultSessionId = DEFAULT_SESSION_ID,
     defaultSessionName = DEFAULT_SESSION_NAME,
+    persistence = null,
   } = {}) {
     this.hostSecret = hostSecret;
     this.defaultSessionId = defaultSessionId;
+    /** Optional durable identity store (database/models/sessions.js). */
+    this.persistence = persistence;
     /** @type {Map<string, { id: string, name: string, createdAt: string, hostPlayerId: string | null, participants: Map<string, object> }>} */
     this.sessions = new Map();
     /** @type {Map<string, { sessionId: string, playerId: string }>} */
@@ -150,7 +163,117 @@ export class SessionManager {
       participants: new Map(),
     };
     this.sessions.set(sessionId, session);
+    this.persistSession(session);
     return session;
+  }
+
+  /** Writes a session row. Best-effort: identity persistence must never break a join. */
+  persistSession(session) {
+    try {
+      this.persistence?.upsertSession?.({
+        id: session.id,
+        name: session.name,
+        hostPlayerId: session.hostPlayerId ?? null,
+      });
+    } catch {
+      // Identity persistence is best-effort; the in-memory registry stays authoritative.
+    }
+  }
+
+  /**
+   * Writes a participant row with a hashed reconnect token.
+   * @param {object} participant
+   */
+  persistParticipant(participant) {
+    const persistence = this.persistence;
+    if (!persistence?.upsertParticipant) return;
+
+    const hash =
+      participant.reconnectToken != null
+        ? hashReconnectToken(participant.reconnectToken)
+        : participant.reconnectTokenHash;
+    if (!hash) return;
+    participant.reconnectTokenHash = hash;
+
+    try {
+      persistence.upsertParticipant({
+        id: participant.id,
+        sessionId: participant.sessionId,
+        displayName: participant.displayName,
+        role: participant.role,
+        reconnectTokenHash: hash,
+        connected: Boolean(participant.connected),
+        joinedAt: participant.joinedAt,
+        lastSeenAt: participant.lastSeenAt,
+        leftAt: null,
+      });
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  /** Verifies a presented reconnect token against the raw token or its stored hash. */
+  verifyReconnectToken(participant, presentedToken) {
+    if (typeof presentedToken !== 'string' || presentedToken.length === 0) return false;
+    if (typeof participant?.reconnectToken === 'string' && participant.reconnectToken) {
+      return safeTokenEquals(presentedToken, participant.reconnectToken);
+    }
+    if (typeof participant?.reconnectTokenHash === 'string' && participant.reconnectTokenHash) {
+      return safeTokenEquals(hashReconnectToken(presentedToken), participant.reconnectTokenHash);
+    }
+    return false;
+  }
+
+  /**
+   * Loads persisted sessions and participants into memory. Everyone starts
+   * disconnected: the rows describe identities, not live sockets.
+   *
+   * @returns {{ sessions: number, participants: number }}
+   */
+  hydrate() {
+    const persistence = this.persistence;
+    if (!persistence?.listSessions) return { sessions: 0, participants: 0 };
+
+    let sessions = 0;
+    let participants = 0;
+
+    for (const stored of persistence.listSessions()) {
+      let session = this.sessions.get(stored.id);
+      if (!session) {
+        session = {
+          id: stored.id,
+          name: stored.name,
+          createdAt: stored.createdAt ?? new Date().toISOString(),
+          hostPlayerId: stored.hostPlayerId ?? null,
+          participants: new Map(),
+        };
+        this.sessions.set(stored.id, session);
+        sessions += 1;
+      } else if (stored.hostPlayerId && !session.hostPlayerId) {
+        session.hostPlayerId = stored.hostPlayerId;
+      }
+
+      for (const row of persistence.listParticipants(stored.id)) {
+        if (row.leftAt) continue;
+        if (session.participants.has(row.id)) continue;
+        session.participants.set(row.id, {
+          id: row.id,
+          displayName: row.displayName,
+          role: row.role,
+          sessionId: stored.id,
+          socketId: null,
+          connected: false,
+          reconnectToken: undefined,
+          reconnectTokenHash: row.reconnectTokenHash,
+          joinedAt: row.joinedAt,
+          lastSeenAt: row.lastSeenAt,
+          disconnectedAt: null,
+        });
+        participants += 1;
+      }
+    }
+
+    return { sessions, participants };
   }
 
   /**
@@ -314,7 +437,7 @@ export class SessionManager {
         };
       }
 
-      if (!safeTokenEquals(reconnectToken, targetParticipant.reconnectToken)) {
+      if (!this.verifyReconnectToken(targetParticipant, reconnectToken)) {
         return {
           success: false,
           code: ERROR_CODES.UNAUTHORIZED_IDENTITY,
@@ -369,7 +492,11 @@ export class SessionManager {
       targetParticipant.connected = true;
       targetParticipant.disconnectedAt = null;
       targetParticipant.lastSeenAt = now;
+      // Keep the raw token in memory so welcome packets can echo it back; only
+      // its hash ever reaches SQLite.
+      targetParticipant.reconnectToken = reconnectToken;
       this.socketIndex.set(socketId, { sessionId: session.id, playerId: targetParticipant.id });
+      this.persistParticipant(targetParticipant);
 
       return {
         success: true,
@@ -419,6 +546,8 @@ export class SessionManager {
         existingDm.disconnectedAt = null;
         existingDm.lastSeenAt = now;
         this.socketIndex.set(socketId, { sessionId: session.id, playerId: existingDm.id });
+        this.persistParticipant(existingDm);
+        this.persistSession(session);
 
         return {
           success: true,
@@ -465,6 +594,8 @@ export class SessionManager {
       session.hostPlayerId = playerId;
     }
     this.socketIndex.set(socketId, { sessionId: session.id, playerId });
+    this.persistParticipant(participant);
+    if (assignedRole === ROLES.DM) this.persistSession(session);
 
     return {
       success: true,
@@ -527,6 +658,11 @@ export class SessionManager {
       participant.socketId = null;
       participant.disconnectedAt = now;
       participant.lastSeenAt = now;
+      try {
+        this.persistence?.setConnected?.(participant.id, false, now);
+      } catch {
+        // Best-effort.
+      }
     }
 
     return {
@@ -555,6 +691,12 @@ export class SessionManager {
     session.participants.delete(ref.playerId);
     if (session.hostPlayerId === ref.playerId) {
       session.hostPlayerId = null;
+      this.persistSession(session);
+    }
+    try {
+      this.persistence?.markLeft?.(ref.playerId, new Date().toISOString());
+    } catch {
+      // Best-effort.
     }
 
     return {
@@ -568,9 +710,16 @@ export class SessionManager {
   }
 
   /**
-   * Clears all sessions and active socket mappings (used during host server shutdown).
+   * Clears in-memory sessions and socket mappings (used during host shutdown).
+   * Persisted identities are retained and marked disconnected so the next host
+   * process can restore them.
    */
   clear() {
+    try {
+      this.persistence?.markAllDisconnected?.(new Date().toISOString());
+    } catch {
+      // Best-effort.
+    }
     this.socketIndex.clear();
     this.sessions.clear();
   }
