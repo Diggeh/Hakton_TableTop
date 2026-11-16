@@ -723,6 +723,11 @@ export function createToken(token) {
         ownerId: token.ownerId ?? null,
         locked: Boolean(token.locked),
         color: token.color ?? '#adfcf9',
+        isMap: Boolean(token.isMap),
+        imageUrl: token.imageUrl || null,
+        width: token.width || null,
+        height: token.height || null,
+        light: token.light || null,
       };
       sessionStore.getState().upsertToken(localToken);
       return { ok: true, offline: true, token: localToken };

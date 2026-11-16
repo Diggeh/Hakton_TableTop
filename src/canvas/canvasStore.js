@@ -41,11 +41,20 @@ export const canvasStore = createStore((set, get) => {
     fogTool: null, // 'rect' | 'circle' | 'polygon' | 'line' | 'wall' | 'door' | 'erase' | null
     fogShapes: [],
     walls: [],
+    playerVisionPreview: false,
 
     setFogTool: (fogTool) =>
       set((state) => ({
         fogTool: state.fogTool === fogTool ? null : fogTool,
       })),
+
+    togglePlayerVisionPreview: () =>
+      set((state) => ({
+        playerVisionPreview: !state.playerVisionPreview,
+      })),
+
+    setPlayerVisionPreview: (playerVisionPreview) =>
+      set({ playerVisionPreview: Boolean(playerVisionPreview) }),
 
     addFogShape: (shape) =>
       set((state) => ({

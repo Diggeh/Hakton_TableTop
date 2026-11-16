@@ -33,6 +33,17 @@ export default function ToolIcon({ name }) {
     wall: 'M3 6h18v12H3z M3 12h18 M9 6v6 M15 6v6 M6 12v6 M12 12v6 M18 12v6',
     door: 'M6 3h12v18H6z M15 12h1',
     dots: 'M12 5v.5 M12 12v.5 M12 19v.5',
+    light: 'M9 18h6 M10 21h4 M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z',
+    torch: 'M12 2c1 2 3 3 3 5a3 3 0 0 1-6 0c0-2 2-3 3-5z M9 10l2 12h2l2-12',
+    cone: 'M12 3L4 21h16L12 3z',
+    brush: 'M18 2l4 4-10 10H8v-4L18 2z M3 21c2-3 4-3 5-3s2 1 2 3H3z',
+    polygon: 'M12 3l8 6-3 11H7L4 9z',
+    rect: 'M4 5h16v14H4z',
+    circle: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z',
+    eraser: 'M19 14l-7 7-9-9 7-7 9 9z M14 4l6 6',
+    preview:
+      'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6',
+    close: 'M18 6L6 18 M6 6l12 12',
   };
   return (
     <svg

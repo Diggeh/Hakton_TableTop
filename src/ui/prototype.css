@@ -277,9 +277,13 @@
   border: 1px solid #526b6a;
   min-height: 0;
 }
-.board-host {
+.board-host,
+.board-viewport {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 .board-caption {
   background: transparent;
@@ -1852,7 +1856,8 @@
 .chat-file small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* --- Live canvas / token dialog ------------------------------------------ */
-.board-host .konvajs-content {
+.board-host .konvajs-content,
+.board-viewport .konvajs-content {
   touch-action: none;
   user-select: none;
 }
@@ -2607,6 +2612,39 @@
 }
 
 /* Campaign Details Edit Button & Modal Form */
+.campaign-title-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hakton-app button.campaign-edit-inline {
+  position: static;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(14, 30, 39, 0.75);
+  border: 1px solid #355463;
+  color: #adfcf9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 120ms ease;
+}
+
+.hakton-app button.campaign-edit-inline:hover {
+  border-color: #82cec0;
+  background: rgba(24, 52, 65, 0.95);
+  color: #ffffff;
+}
+
+.hakton-app button.campaign-edit-inline svg {
+  width: 15px;
+  height: 15px;
+}
+
 .hakton-app button.campaign-edit-button {
   position: absolute;
   top: 22px;
@@ -2760,6 +2798,155 @@
   background: rgba(24, 42, 52, 0.9);
   border: 1px solid #3c5d6d;
   color: #b7d2db;
+}
+
+/* Active light button in token popup bar */
+.hakton-app .token-popup-bar .icon-button.active-light-btn {
+  background: rgba(255, 215, 120, 0.28);
+  border-color: #ffd57a;
+  color: #ffe699;
+}
+
+.hakton-app .token-popup-bar .icon-button.active-light-btn svg {
+  stroke: #ffd57a;
+  fill: rgba(255, 215, 120, 0.35);
+}
+
+/* Light Settings Popover Menu */
+.token-light-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 250px;
+  background: rgba(11, 23, 31, 0.96);
+  border: 1px solid rgba(116, 198, 184, 0.5);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 30;
+  pointer-events: auto;
+}
+
+.token-light-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(76, 124, 142, 0.35);
+  padding-bottom: 8px;
+}
+
+.token-light-header strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #edfaf7;
+  letter-spacing: 0.02em;
+}
+
+.close-menu-btn {
+  background: transparent;
+  border: 0;
+  color: #9cb5be;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.close-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.token-light-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.token-light-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #b7d2db;
+}
+
+.token-light-value {
+  font-weight: 600;
+  color: #ffd57a;
+}
+
+.token-light-label {
+  font-size: 12px;
+  color: #b7d2db;
+}
+
+.token-light-section input[type="range"] {
+  width: 100%;
+  accent-color: #ffd57a;
+  cursor: pointer;
+}
+
+.token-light-mode-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.hakton-app .mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(18, 36, 47, 0.85);
+  border: 1px solid #2e4d5c;
+  border-radius: 6px;
+  color: #b7d2db;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hakton-app .mode-btn:hover {
+  border-color: #55879a;
+  background: rgba(25, 49, 64, 0.95);
+  color: #ffffff;
+}
+
+.hakton-app .mode-btn.active {
+  background: rgba(255, 215, 120, 0.2);
+  border-color: #ffd57a;
+  color: #ffe699;
+}
+
+.token-light-footer {
+  padding-top: 4px;
+  border-top: 1px solid rgba(76, 124, 142, 0.3);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hakton-app .remove-light-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(180, 50, 50, 0.25);
+  border: 1px solid #d9534f;
+  color: #fca5a5;
+  cursor: pointer;
+}
+
+.hakton-app .remove-light-btn:hover {
+  background: rgba(180, 50, 50, 0.45);
+  color: #ffffff;
 }
 
 /* Asset Manager 3-Dot Menu & Submodals */
@@ -2952,7 +3139,88 @@
   color: #b8d5de;
 }
 
-/* DM Fog of War Toolbar Popup */
+/* DM Fog of War Top Toolbar Bar */
+.fog-top-bar {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  padding: 5px 10px;
+  border-radius: 12px;
+  background: rgba(9, 21, 29, 0.94);
+  border: 1px solid rgba(114, 189, 179, 0.45);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.fog-bar-section {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fog-top-bar-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(114, 189, 179, 0.25);
+  margin: 0 3px;
+}
+
+.hakton-app .fog-top-bar button {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  border: 1px solid #2f5262;
+  background: rgba(17, 38, 49, 0.88);
+  color: #d7efec;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 120ms ease;
+}
+
+.hakton-app .fog-top-bar button:hover {
+  border-color: #7bcab9;
+  background: rgba(28, 56, 70, 0.95);
+  color: #ffffff;
+}
+
+.hakton-app .fog-top-bar button.active,
+.hakton-app .fog-top-bar button[aria-pressed="true"] {
+  background: #276961;
+  border-color: #93f0e2;
+  color: #ffffff;
+}
+
+.hakton-app .fog-top-bar button.danger-btn:hover {
+  border-color: rgba(235, 105, 105, 0.85);
+  background: rgba(80, 24, 24, 0.85);
+  color: #ffadad;
+}
+
+.fog-preview-pill {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffad54;
+  background: rgba(240, 168, 84, 0.15);
+  border: 1px solid rgba(240, 168, 84, 0.4);
+  border-radius: 999px;
+  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Fallback legacy popup for backward compatibility */
 .fog-toolbar-popup {
   position: absolute;
   left: 84px;

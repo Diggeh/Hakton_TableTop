@@ -18,6 +18,33 @@ export function distanceToSegment(p, a, b) {
 }
 
 /**
+ * Projects point `p` onto segment `a -> b` and returns the snapped point,
+ * the parameter `t` along the segment [0, 1], and the distance.
+ */
+export function projectPointOnSegment(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) {
+    return {
+      x: a.x,
+      y: a.y,
+      t: 0,
+      distance: Math.hypot(p.x - a.x, p.y - a.y),
+    };
+  }
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq));
+  const projX = a.x + t * dx;
+  const projY = a.y + t * dy;
+  return {
+    x: projX,
+    y: projY,
+    t,
+    distance: Math.hypot(p.x - projX, p.y - projY),
+  };
+}
+
+/**
  * Checks if finite line segment `a1 -> a2` intersects finite line segment `b1 -> b2`.
  * @returns {{ intersects: boolean, point?: { x: number, y: number }, t?: number, u?: number }}
  */
@@ -88,34 +115,224 @@ export function isBlockingWall(wall) {
 }
 
 /**
+ * Generates perimeter wall segments from placed fog shapes (rectangles, polygons, circles, and lines).
+ * This makes the boundaries of any created fog shape an automatic barrier and door-mountable surface.
+ */
+export function getFogShapeWalls(fogShapes = []) {
+  if (!Array.isArray(fogShapes) || fogShapes.length === 0) return [];
+  const walls = [];
+
+  for (const shape of fogShapes) {
+    if (!shape) continue;
+
+    if (shape.type === 'rect') {
+      const rx = Math.min(shape.x, shape.x + shape.width);
+      const ry = Math.min(shape.y, shape.y + shape.height);
+      const rw = Math.abs(shape.width);
+      const rh = Math.abs(shape.height);
+      if (rw > 4 && rh > 4) {
+        const p1 = { x: rx, y: ry };
+        const p2 = { x: rx + rw, y: ry };
+        const p3 = { x: rx + rw, y: ry + rh };
+        const p4 = { x: rx, y: ry + rh };
+        walls.push(
+          { id: `${shape.id}_w0`, p1, p2, isDoor: false, isOpen: false, isAutoWall: true, shapeId: shape.id },
+          { id: `${shape.id}_w1`, p1: p2, p2: p3, isDoor: false, isOpen: false, isAutoWall: true, shapeId: shape.id },
+          { id: `${shape.id}_w2`, p1: p3, p2: p4, isDoor: false, isOpen: false, isAutoWall: true, shapeId: shape.id },
+          { id: `${shape.id}_w3`, p1: p4, p2: p1, isDoor: false, isOpen: false, isAutoWall: true, shapeId: shape.id },
+        );
+      }
+    } else if (shape.type === 'polygon' && Array.isArray(shape.points) && shape.points.length >= 6) {
+      const pts = shape.points;
+      const count = Math.floor(pts.length / 2);
+      for (let i = 0; i < count; i++) {
+        const nextIdx = (i + 1) % count;
+        const p1 = { x: pts[i * 2], y: pts[i * 2 + 1] };
+        const p2 = { x: pts[nextIdx * 2], y: pts[nextIdx * 2 + 1] };
+        if (Math.hypot(p2.x - p1.x, p2.y - p1.y) > 2) {
+          walls.push({
+            id: `${shape.id}_w${i}`,
+            p1,
+            p2,
+            isDoor: false,
+            isOpen: false,
+            isAutoWall: true,
+            shapeId: shape.id,
+          });
+        }
+      }
+    } else if (shape.type === 'circle' && shape.radius > 4) {
+      // Approximate circle perimeter with 16 polygonal segments for smooth barrier collision
+      const segs = 16;
+      const step = (Math.PI * 2) / segs;
+      for (let i = 0; i < segs; i++) {
+        const a1 = i * step;
+        const a2 = (i + 1) * step;
+        const p1 = {
+          x: shape.x + Math.cos(a1) * shape.radius,
+          y: shape.y + Math.sin(a1) * shape.radius,
+        };
+        const p2 = {
+          x: shape.x + Math.cos(a2) * shape.radius,
+          y: shape.y + Math.sin(a2) * shape.radius,
+        };
+        walls.push({
+          id: `${shape.id}_w${i}`,
+          p1,
+          p2,
+          isDoor: false,
+          isOpen: false,
+          isAutoWall: true,
+          shapeId: shape.id,
+        });
+      }
+    }
+  }
+
+  return walls;
+}
+
+/**
+ * Combines explicit walls and doors with auto-generated perimeter walls from fog shapes.
+ * If an open door exists on an edge, that door's open passage is honored.
+ */
+export function getAllCollisionWalls(explicitWalls = [], fogShapes = []) {
+  const autoWalls = getFogShapeWalls(fogShapes);
+  return [...explicitWalls, ...autoWalls];
+}
+
+/**
+ * Finds the nearest wall segment to a given point within `maxDistance`.
+ * Used for mounting doors directly onto walls.
+ */
+export function findNearestWallSegment(point, allWalls = [], maxDistance = 28) {
+  let closest = null;
+  let minD = maxDistance;
+
+  for (const wall of allWalls) {
+    if (!wall || !wall.p1 || !wall.p2) continue;
+    const proj = projectPointOnSegment(point, wall.p1, wall.p2);
+    if (proj.distance < minD) {
+      minD = proj.distance;
+      const angle = Math.atan2(wall.p2.y - wall.p1.y, wall.p2.x - wall.p1.x);
+      closest = {
+        wall,
+        point: { x: proj.x, y: proj.y },
+        t: proj.t,
+        distance: proj.distance,
+        angle,
+      };
+    }
+  }
+
+  return closest;
+}
+
+/**
+ * Detects whether a freehand brush stroke forms an enclosed contour, either because
+ * its end is close to its beginning or because it self-intersects.
+ * Returns `{ isClosed: boolean, points?: number[] }`.
+ */
+export function detectClosedLoop(rawPoints, snapDist = 40) {
+  if (!Array.isArray(rawPoints) || rawPoints.length < 6) {
+    return { isClosed: false };
+  }
+
+  const count = Math.floor(rawPoints.length / 2);
+  const first = { x: rawPoints[0], y: rawPoints[1] };
+  const last = { x: rawPoints[(count - 1) * 2], y: rawPoints[(count - 1) * 2 + 1] };
+
+  // 1. Direct start-to-end loop closure
+  if (Math.hypot(last.x - first.x, last.y - first.y) <= snapDist && count >= 3) {
+    return {
+      isClosed: true,
+      points: [...rawPoints],
+    };
+  }
+
+  // 2. Check for self-intersection with earlier segments
+  if (count >= 5) {
+    const lastSegA = { x: rawPoints[(count - 2) * 2], y: rawPoints[(count - 2) * 2 + 1] };
+    const lastSegB = last;
+
+    for (let i = 0; i < count - 3; i++) {
+      const segA = { x: rawPoints[i * 2], y: rawPoints[i * 2 + 1] };
+      const segB = { x: rawPoints[(i + 1) * 2], y: rawPoints[(i + 1) * 2 + 1] };
+      const hit = segmentsIntersect(lastSegA, lastSegB, segA, segB);
+      if (hit.intersects && hit.point) {
+        // Extract the loop from intersection point through subsequent vertices back to intersection
+        const loop = [hit.point.x, hit.point.y];
+        for (let j = i + 1; j < count - 1; j++) {
+          loop.push(rawPoints[j * 2], rawPoints[j * 2 + 1]);
+        }
+        loop.push(hit.point.x, hit.point.y);
+        return {
+          isClosed: true,
+          points: loop,
+        };
+      }
+    }
+  }
+
+  return { isClosed: false };
+}
+
+/**
  * Prevents token movement from passing through any active wall or closed door.
- * If the path `startPos -> targetPos` crosses a blocking wall, returns `{ blocked: true, position: startPos }`.
+ * Instead of resetting all the way back to startPos, it treats the barrier as a solid
+ * physical obstruction and halts the token right at the collision boundary.
  *
  * @param {{ x: number, y: number }} startPos
  * @param {{ x: number, y: number }} targetPos
  * @param {Array<{ id?: string, p1: { x: number, y: number }, p2: { x: number, y: number }, isDoor?: boolean, isOpen?: boolean }>} walls
+ * @param {number|{ buffer?: number }} [options] Buffer distance in pixels from the wall surface.
  */
-export function resolveTokenMoveWithWalls(startPos, targetPos, walls = []) {
+export function resolveTokenMoveWithWalls(startPos, targetPos, walls = [], options = {}) {
+  const buffer = typeof options === 'number' ? options : (options.buffer ?? 4);
+
   if (!Array.isArray(walls) || walls.length === 0) {
     return { blocked: false, position: targetPos };
   }
-  if (
-    Math.abs(startPos.x - targetPos.x) < 0.01 &&
-    Math.abs(startPos.y - targetPos.y) < 0.01
-  ) {
+  const dx = targetPos.x - startPos.x;
+  const dy = targetPos.y - startPos.y;
+  const totalDist = Math.hypot(dx, dy);
+
+  if (totalDist < 0.01) {
     return { blocked: false, position: targetPos };
   }
+
+  let earliestHit = null;
 
   for (const wall of walls) {
     if (!isBlockingWall(wall)) continue;
     const hit = segmentsIntersect(startPos, targetPos, wall.p1, wall.p2);
-    if (hit.intersects) {
-      return {
-        blocked: true,
-        wallId: wall.id ?? null,
-        position: { x: startPos.x, y: startPos.y },
-      };
+    if (hit.intersects && hit.t !== undefined) {
+      if (!earliestHit || hit.t < earliestHit.t) {
+        earliestHit = {
+          wall,
+          t: hit.t,
+          point: hit.point,
+        };
+      }
     }
+  }
+
+  if (earliestHit && earliestHit.point) {
+    const ux = dx / totalDist;
+    const uy = dy / totalDist;
+    const hitDist = totalDist * earliestHit.t;
+    // Halt right in front of the wall by the buffer amount
+    const stopDist = Math.max(0, hitDist - buffer);
+    const stoppedPos = {
+      x: startPos.x + ux * stopDist,
+      y: startPos.y + uy * stopDist,
+    };
+
+    return {
+      blocked: true,
+      wallId: earliestHit.wall.id ?? null,
+      position: stoppedPos,
+    };
   }
 
   return { blocked: false, position: targetPos };
@@ -126,15 +343,44 @@ export function resolveTokenMoveWithWalls(startPos, targetPos, walls = []) {
  * Open doors are ignored so vision extends through open doorways.
  *
  * @param {{ x: number, y: number }} origin
- * @param {Array<{ p1: { x: number, y: number }, p2: { x: number, y: number }, isDoor?: boolean, isOpen?: boolean }>} walls
- * @param {{ x?: number, y?: number, width: number, height: number }} bounds
- * @returns {Array<{ x: number, y: number }>}
+ * @param {Array<object>} walls
+ * @param {{ x?: number, y?: number, width?: number, height?: number }} bounds
+ * @param {{ maxDistance?: number, arc?: { angle?: number, rotation?: number } }} [options]
  */
-export function computeVisibilityPolygon(origin, walls = [], bounds = { width: 1400, height: 980 }) {
+export function computeVisibilityPolygon(
+  origin,
+  walls = [],
+  boundsOrOptions = { width: 1400, height: 980 },
+  maybeOptions = {},
+) {
+  let bounds;
+  let options;
+  if (
+    boundsOrOptions &&
+    (boundsOrOptions.maxDistance !== undefined ||
+      boundsOrOptions.arc !== undefined)
+  ) {
+    options = boundsOrOptions;
+    bounds = { x: 0, y: 0, width: 1400, height: 980 };
+  } else {
+    bounds = boundsOrOptions || { width: 1400, height: 980 };
+    options = maybeOptions || {};
+  }
+
   const minX = bounds.x ?? 0;
   const minY = bounds.y ?? 0;
   const maxX = minX + (bounds.width || 1400);
   const maxY = minY + (bounds.height || 980);
+
+  const maxDist = Number.isFinite(options.maxDistance) && options.maxDistance > 0
+    ? options.maxDistance
+    : Math.hypot(maxX - minX, maxY - minY);
+
+  const hasArc = Boolean(options.arc && Number.isFinite(options.arc.angle) && options.arc.angle < 360);
+  const arcAngle = hasArc ? (options.arc.angle * Math.PI) / 180 : Math.PI * 2;
+  const arcRot = hasArc ? ((options.arc.rotation || 0) * Math.PI) / 180 : 0;
+  const minArc = arcRot - arcAngle / 2;
+  const maxArc = arcRot + arcAngle / 2;
 
   const segments = [
     { p1: { x: minX, y: minY }, p2: { x: maxX, y: minY } },
@@ -149,38 +395,78 @@ export function computeVisibilityPolygon(origin, walls = [], bounds = { width: 1
     }
   }
 
-  const angles = [];
+  function inArc(angle) {
+    if (!hasArc) return true;
+    let diff = angle - arcRot;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    return Math.abs(diff) <= arcAngle / 2 + 1e-4;
+  }
+
+  const rawAngles = [];
+
+  // Radial samples for smooth circular perimeter
+  const radialSteps = hasArc ? Math.max(8, Math.round((arcAngle / (Math.PI * 2)) * 32)) : 32;
+  const startRadial = hasArc ? minArc : -Math.PI;
+  const stepSize = arcAngle / radialSteps;
+  for (let i = 0; i <= radialSteps; i++) {
+    rawAngles.push(startRadial + i * stepSize);
+  }
+
+  // Wall vertex ray angles
   for (const seg of segments) {
     for (const pt of [seg.p1, seg.p2]) {
       const angle = Math.atan2(pt.y - origin.y, pt.x - origin.x);
-      angles.push(angle - EPSILON, angle, angle + EPSILON);
+      for (const offset of [-EPSILON, 0, EPSILON]) {
+        const a = angle + offset;
+        if (inArc(a)) rawAngles.push(a);
+      }
     }
+  }
+
+  if (hasArc) {
+    rawAngles.push(minArc, maxArc);
   }
 
   const intersects = [];
-  for (const angle of angles) {
+  for (const angle of rawAngles) {
     const dx = Math.cos(angle);
     const dy = Math.sin(angle);
 
-    let closest = null;
+    let closestParam = maxDist;
+    let hitX = origin.x + dx * maxDist;
+    let hitY = origin.y + dy * maxDist;
+
     for (const seg of segments) {
       const hit = intersectRaySegment(origin, dx, dy, seg.p1, seg.p2);
       if (!hit) continue;
-      if (!closest || hit.param < closest.param) {
-        closest = hit;
+      if (hit.param >= 0 && hit.param < closestParam) {
+        closestParam = hit.param;
+        hitX = hit.x;
+        hitY = hit.y;
       }
     }
-    if (closest) {
-      intersects.push({
-        x: closest.x,
-        y: closest.y,
-        angle,
-      });
-    }
+
+    // Normalizing angle for sorting relative to arcRot
+    let sortAngle = angle - arcRot;
+    while (sortAngle > Math.PI) sortAngle -= Math.PI * 2;
+    while (sortAngle < -Math.PI) sortAngle += Math.PI * 2;
+
+    intersects.push({
+      x: hitX,
+      y: hitY,
+      sortAngle,
+    });
   }
 
-  intersects.sort((a, b) => a.angle - b.angle);
-  return intersects.map(({ x, y }) => ({ x, y }));
+  intersects.sort((a, b) => a.sortAngle - b.sortAngle);
+
+  const poly = intersects.map(({ x, y }) => ({ x, y }));
+  if (hasArc) {
+    // For directional cone, apex is the token origin
+    return [{ x: origin.x, y: origin.y }, ...poly];
+  }
+  return poly;
 }
 
 /**
@@ -232,4 +518,15 @@ export function isPointInFogShape(point, shape) {
   }
 
   return false;
+}
+
+/**
+ * Returns true if a given point lies inside any active fog shape.
+ *
+ * @param {{ x: number, y: number }} point
+ * @param {Array<object>} fogShapes
+ */
+export function isPointInAnyFog(point, fogShapes = []) {
+  if (!point || !Array.isArray(fogShapes) || fogShapes.length === 0) return false;
+  return fogShapes.some((shape) => isPointInFogShape(point, shape));
 }

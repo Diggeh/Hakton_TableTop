@@ -31,6 +31,15 @@ export function tokenToWire(token) {
     ownerId: token.owner_id ?? token.ownerId ?? null,
     locked: Boolean(token.locked),
     color: token.color ?? null,
+    isMap: Boolean(token.is_map ?? token.isMap),
+    imageUrl: token.image_url ?? token.imageUrl ?? null,
+    width: token.width ?? null,
+    height: token.height ?? null,
+    light: token.light
+      ? typeof token.light === 'string'
+        ? JSON.parse(token.light)
+        : token.light
+      : null,
   };
 }
 
@@ -463,13 +472,14 @@ export function registerSocketRouter(io, repos, opts = {}) {
         respond({ ok: false, reason: 'board_unavailable' });
         return;
       }
-      const playerRenamingOnly =
+      const playerAllowed =
         !isDM() &&
-        !('ownerId' in payload) &&
         !('locked' in payload) &&
-        typeof payload.label === 'string' &&
-        payload.label.trim().length > 0;
-      if (!isJoined() || (!isDM() && !playerRenamingOnly)) {
+        (
+          (typeof payload.label === 'string' && payload.label.trim().length > 0) ||
+          'light' in payload
+        );
+      if (!isJoined() || (!isDM() && !playerAllowed)) {
         respond({ ok: false, reason: 'forbidden' });
         return;
       }
@@ -490,6 +500,11 @@ export function registerSocketRouter(io, repos, opts = {}) {
       }
       if ('locked' in payload) patch.locked = Boolean(payload.locked);
       if ('color' in payload) patch.color = normalizeColor(payload.color);
+      if ('light' in payload) patch.light = payload.light;
+      if ('isMap' in payload) patch.isMap = payload.isMap;
+      if ('imageUrl' in payload) patch.imageUrl = payload.imageUrl;
+      if ('width' in payload) patch.width = payload.width;
+      if ('height' in payload) patch.height = payload.height;
 
       const token = repos.tokens.update(payload.id, patch);
       if (!token) {
