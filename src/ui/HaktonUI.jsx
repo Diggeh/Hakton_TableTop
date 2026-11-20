@@ -509,13 +509,35 @@ export default function HaktonUI() {
       {modal && (
         <Modal
           title={
-            {
-              campaign: campaign?.name,
-              'edit-campaign': 'Edit Campaign Details',
-              profile: 'Account Profile',
-              add: 'New campaign',
-              delete: 'Delete campaign?',
-            }[modal]
+            modal === 'campaign' && campaign ? (
+              <span className="campaign-title-header">
+                <span>{campaign.name}</span>
+                <IconButton
+                  className="icon-button campaign-edit-inline"
+                  label="Edit campaign details"
+                  title="Edit campaign details"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditDraft({
+                      name: campaign.name || '',
+                      description: campaign.description || '',
+                      coverPhoto: campaign.coverPhoto || '',
+                      sessions: Number(campaign.sessions) || 0,
+                    });
+                    setModal('edit-campaign');
+                  }}
+                >
+                  <ToolIcon name="draw" />
+                </IconButton>
+              </span>
+            ) : (
+              {
+                'edit-campaign': 'Edit Campaign Details',
+                profile: 'Account Profile',
+                add: 'New campaign',
+                delete: 'Delete campaign?',
+              }[modal]
+            )
           }
           onClose={() => setModal(null)}
         >
@@ -535,22 +557,6 @@ export default function HaktonUI() {
               >
                 <span>{campaign.scene}</span>
                 {!campaign.coverPhoto && <Mark />}
-                <IconButton
-                  className="icon-button campaign-edit-button"
-                  label="Edit campaign details"
-                  title="Edit campaign details"
-                  onClick={() => {
-                    setEditDraft({
-                      name: campaign.name || '',
-                      description: campaign.description || '',
-                      coverPhoto: campaign.coverPhoto || '',
-                      sessions: Number(campaign.sessions) || 0,
-                    });
-                    setModal('edit-campaign');
-                  }}
-                >
-                  <ToolIcon name="draw" />
-                </IconButton>
               </div>
               <div className="campaign-info-body">
                 <div className="campaign-info-header-row">

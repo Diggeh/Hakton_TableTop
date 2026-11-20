@@ -274,6 +274,8 @@ export const assetStore = createStore((set, get) => ({
     }
   },
 
+  uploadFiles: async (opts) => get().uploadFileList(opts),
+
   /**
    * Uploads browser `File` / `Blob` objects or raw byte payloads (e.g. from drag-and-drop or `<input type="file">`).
    */
@@ -295,6 +297,38 @@ export const assetStore = createStore((set, get) => ({
 
     set({ uploading: true, error: null, feedback: null });
     try {
+      if (!globalThis?.window?.hakton?.assets) {
+        // Fallback for browser / preview mode without electron preload bridge
+        const localUploaded = list.map((file, idx) => {
+          const url =
+            typeof URL !== 'undefined' && URL.createObjectURL && file instanceof Blob
+              ? URL.createObjectURL(file)
+              : null;
+          const cleanName = (file.name || 'imported_asset').replace(/\.[^.]+$/, '');
+          return {
+            id: `local_asset_${Date.now()}_${idx}`,
+            name: cleanName,
+            originalName: file.name,
+            type: type || 'map',
+            category: (category || 'maps').toLowerCase(),
+            url,
+            width: 1400,
+            height: 980,
+            mimeType: file.type || 'image/png',
+            createdAt: new Date().toISOString(),
+          };
+        });
+        set((state) => ({
+          uploading: false,
+          assets: [...localUploaded, ...state.assets],
+          feedback: {
+            kind: 'success',
+            message: `Imported ${localUploaded.length} asset(s).`,
+          },
+        }));
+        return { ok: true, uploaded: localUploaded, failed: [] };
+      }
+
       const serialized = await Promise.all(
         list.map(async (file) => {
           if (typeof file?.arrayBuffer === 'function') {
@@ -345,6 +379,8 @@ export const assetStore = createStore((set, get) => ({
       return { ok: false, uploaded: [], failed: [], error: errObj };
     }
   },
+
+  uploadFiles: async (opts) => get().uploadFileList(opts),
 
   /**
    * Selects an asset for tabletop use (active battle map or token placement) by stable ID

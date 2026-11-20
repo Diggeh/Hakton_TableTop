@@ -6,6 +6,7 @@ import {
   updateToken,
 } from '../net/socket.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
+import { assetStore } from '../store/assetStore.js';
 import { canvasStore, useCanvas } from '../canvas/canvasStore.js';
 import {
   MAX_SCALE,
@@ -51,6 +52,7 @@ export default function Board({
   const [fogMenuOpen, setFogMenuOpen] = useState(false);
   const [renamingTokenId, setRenamingTokenId] = useState(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [lightMenuOpen, setLightMenuOpen] = useState(false);
 
   const connection = useSession((s) => s.connection);
   const connectionError = useSession((s) => s.connectionError);
@@ -66,10 +68,16 @@ export default function Board({
   const snapEnabled = useCanvas((s) => s.snap);
   const selectedIds = useCanvas((s) => s.selectedIds);
   const fogTool = useCanvas((s) => s.fogTool);
+  const playerVisionPreview = useCanvas((s) => s.playerVisionPreview);
 
   const trayItems = useUploadedCategoryAssets(assetTrayCategory || 'Scenes');
 
-  const isDM = role === 'DM';
+  const currentUser = useSession((s) => s.currentUser);
+  const isDM =
+    role === 'DM' ||
+    role === 'dm' ||
+    currentUser?.role === 'dm' ||
+    currentUser?.isHost;
   const selectedTokens = selectedIds
     .map((id) => tokens[id])
     .filter(Boolean);
@@ -78,12 +86,50 @@ export default function Board({
   const allSelectedLocked =
     selectedTokens.length > 0 && selectedTokens.every((token) => token.locked);
 
-  // Close inline rename when token selection changes
+  // Close inline rename & light popover when token selection changes
   useEffect(() => {
     if (!singleSelectedToken || singleSelectedToken.id !== renamingTokenId) {
       setRenamingTokenId(null);
     }
+    if (!singleSelectedToken) {
+      setLightMenuOpen(false);
+    }
   }, [singleSelectedToken, renamingTokenId]);
+
+  function handleToggleLight(token) {
+    if (!token) return;
+    const hasLight = Boolean(token.light?.enabled);
+    const updatedLight = {
+      enabled: !hasLight,
+      type: token.light?.type || 'torch',
+      range: Number(token.light?.range) || 30,
+      angle: Number(token.light?.angle) || 90,
+      rotation: Number(token.light?.rotation) || 0,
+    };
+    const updatedToken = { ...token, light: updatedLight };
+    sessionStore.getState().upsertToken(updatedToken);
+    updateToken(token.id, { light: updatedLight });
+    if (!hasLight) {
+      setLightMenuOpen(true);
+    } else {
+      setLightMenuOpen(false);
+    }
+  }
+
+  function handleUpdateLight(token, updates) {
+    if (!token) return;
+    const currentLight = token.light || {
+      enabled: true,
+      type: 'torch',
+      range: 30,
+      angle: 90,
+      rotation: 0,
+    };
+    const updatedLight = { ...currentLight, ...updates };
+    const updatedToken = { ...token, light: updatedLight };
+    sessionStore.getState().upsertToken(updatedToken);
+    updateToken(token.id, { light: updatedLight });
+  }
 
   const zoomPercent = Math.round(liveScale * 100);
   const gridOn = gridVisible;
@@ -128,15 +174,69 @@ export default function Board({
     setRenamingTokenId(null);
   }
 
+  function handleSelectScene(newSceneName) {
+    if (!newSceneName) return;
+    const currentSceneName = scene || map?.name || 'Active Scene';
+    sessionStore.getState().saveSceneSnapshot(currentSceneName);
+
+    const key = String(newSceneName).trim().toLowerCase();
+    const saved = sessionStore.getState().sceneAssets?.[key];
+
+    if (saved?.map) {
+      sessionStore.getState().setMap(saved.map);
+      sessionStore.getState().setSelectedMapAsset(saved.selectedMapAsset || null);
+    } else {
+      const storeAssets = assetStore.getState().assets;
+      const matchingAsset = storeAssets.find(
+        (a) =>
+          a.name.toLowerCase() === newSceneName.toLowerCase() &&
+          ((a.category || '').toLowerCase() === 'scenes' || a.type === 'map'),
+      );
+      const currentMap = sessionStore.getState().map || {
+        id: 1,
+        width: 1400,
+        height: 980,
+        gridSize: 70,
+      };
+      const updatedMap = {
+        ...currentMap,
+        name: newSceneName,
+        imageUrl:
+          matchingAsset?.url ||
+          (matchingAsset?.id ? `/assets/${matchingAsset.id}/file` : null) ||
+          null,
+        width: matchingAsset?.width || currentMap.width || 1400,
+        height: matchingAsset?.height || currentMap.height || 980,
+      };
+      sessionStore.getState().setMap(updatedMap);
+      if (matchingAsset) {
+        sessionStore.getState().setSelectedMapAsset(matchingAsset);
+      } else {
+        sessionStore.getState().setSelectedMapAsset(null);
+      }
+    }
+    sessionStore.getState().loadSceneAssets(newSceneName);
+    onSelectScene?.(newSceneName);
+  }
+
+  function handleCanvasDragEnter(e) {
+    if (!isDM) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+  }
+
   function handleCanvasDragOver(e) {
     if (!isDM) return;
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'copy';
   }
 
   async function handleCanvasDrop(e) {
     if (!isDM) return;
     e.preventDefault();
+    e.stopPropagation();
     const raw =
       e.dataTransfer.getData('application/x-hakton-asset') ||
       e.dataTransfer.getData('text/plain');
@@ -151,19 +251,12 @@ export default function Board({
     if (!payload?.name) return;
 
     const category = payload.category || assetTrayCategory || 'Characters';
-    if (category === 'Scenes' || category === 'Maps') {
-      onSelectScene?.(payload.name);
-      const currentMap = sessionStore.getState().map;
-      if (currentMap) {
-        sessionStore.getState().setMap({
-          ...currentMap,
-          name: payload.name,
-        });
-      }
+    if (category === 'Scenes') {
+      handleSelectScene(payload.name);
       return;
     }
 
-    // Spawn a new token instance at the dropped canvas coordinates (unlimited duplicates allowed)
+    // Spawn a new token / entity instance on the canvas for Characters, Maps, Props, Attachments
     const rect = host.current?.getBoundingClientRect();
     const screenPt = rect
       ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
@@ -174,15 +267,70 @@ export default function Board({
     const mapHeight = map?.height || 980;
     const snapped = snapEnabled ? snapPoint(mapPt, grid) : mapPt;
     const finalPos = clampTokenPosition(snapped, mapWidth, mapHeight, grid);
-    const color =
-      TOKEN_PALETTE[Object.keys(tokens).length % TOKEN_PALETTE.length];
 
-    await createToken({
+    // Determine category-specific color & style
+    let tokenColor;
+    if (category === 'Characters') {
+      const partyMatch = party.find(
+        (p) => p.name.toLowerCase() === payload.name.toLowerCase(),
+      );
+      tokenColor = partyMatch?.color || '#adfcf9';
+    } else if (category === 'Maps') {
+      tokenColor = '#8fd2c5';
+    } else if (category === 'Props') {
+      tokenColor = '#f0a854';
+    } else if (category === 'Attachments') {
+      tokenColor = '#db9685';
+    } else {
+      tokenColor =
+        TOKEN_PALETTE[Object.keys(tokens).length % TOKEN_PALETTE.length];
+    }
+
+    const isMapAsset = category === 'Maps' || payload.category === 'Maps';
+    const matchingAsset = isMapAsset
+      ? assetStore
+          .getState()
+          .assets.find(
+            (a) =>
+              (a.category === 'Maps' || a.category === 'maps') &&
+              a.name.toLowerCase() === payload.name.toLowerCase(),
+          ) ||
+        assetStore
+          .getState()
+          .assets.find(
+            (a) => a.name.toLowerCase() === payload.name.toLowerCase(),
+          )
+      : null;
+
+    const tokenPayload = {
       label: payload.name,
       x: finalPos.x,
       y: finalPos.y,
-      color,
-    });
+      color: tokenColor,
+      isMap: isMapAsset,
+      imageUrl: matchingAsset?.url || null,
+      width: matchingAsset?.width || (isMapAsset ? 800 : undefined),
+      height: matchingAsset?.height || (isMapAsset ? 600 : undefined),
+    };
+
+    const res = await createToken(tokenPayload);
+    // Guarantee optimistic local visibility on canvas if server ack is delayed or offline
+    if (!res?.ok || !res?.token) {
+      const localToken = {
+        id: `tok_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        mapId: map?.id ?? 1,
+        label: payload.name,
+        x: finalPos.x,
+        y: finalPos.y,
+        color: tokenColor,
+        locked: false,
+        isMap: isMapAsset,
+        imageUrl: matchingAsset?.url || null,
+        width: matchingAsset?.width || (isMapAsset ? 800 : undefined),
+        height: matchingAsset?.height || (isMapAsset ? 600 : undefined),
+      };
+      sessionStore.getState().upsertToken(localToken);
+    }
   }
 
   useEffect(() => {
@@ -265,9 +413,19 @@ export default function Board({
           );
         })}
       </nav>
+      <div className="board-caption" role="status">
+        <span className="scene-indicator" />
+        <strong>{scene || map?.name || 'Active Scene'}</strong>
+        {map?.width && map?.height ? (
+          <span>
+            {map.width} × {map.height}
+          </span>
+        ) : null}
+      </div>
       <div
         ref={host}
         className="board-viewport"
+        onDragEnter={handleCanvasDragEnter}
         onDragOver={handleCanvasDragOver}
         onDrop={handleCanvasDrop}
       >
@@ -295,7 +453,7 @@ export default function Board({
           onRollLifecycleEnd={() => sessionStore.getState().clearActiveRoll()}
         />
 
-        {/* Single-Clicked Token Property Popup Bar (Rename for DM & Players) */}
+        {/* Single-Clicked Token Property Popup Bar (Rename & Light Controls) */}
         {singleSelectedToken && tokenScreenPos && (
           <div
             className="token-popup-bar"
@@ -326,16 +484,184 @@ export default function Board({
                 </button>
               </form>
             ) : (
-              <IconButton
-                label="Edit token name"
-                title={`Rename ${singleSelectedToken.label}`}
-                onClick={() => {
-                  setRenameDraft(singleSelectedToken.label || '');
-                  setRenamingTokenId(singleSelectedToken.id);
-                }}
+              <>
+                <IconButton
+                  label="Edit token name"
+                  title={`Rename ${singleSelectedToken.label}`}
+                  onClick={() => {
+                    setRenameDraft(singleSelectedToken.label || '');
+                    setRenamingTokenId(singleSelectedToken.id);
+                  }}
+                >
+                  <ToolIcon name="text" />
+                </IconButton>
+
+                {/* Lightbulb button to toggle light on token (Cancels Fog of War) */}
+                <IconButton
+                  label={
+                    singleSelectedToken.light?.enabled
+                      ? 'Turn off light'
+                      : 'Give light property'
+                  }
+                  title={
+                    singleSelectedToken.light?.enabled
+                      ? 'Turn off token light'
+                      : 'Give token light (Cancels out Fog of War)'
+                  }
+                  aria-pressed={Boolean(singleSelectedToken.light?.enabled)}
+                  className={
+                    singleSelectedToken.light?.enabled ? 'active-light-btn' : ''
+                  }
+                  onClick={() => handleToggleLight(singleSelectedToken)}
+                >
+                  <ToolIcon name="light" />
+                </IconButton>
+
+                {/* Triple-dot menu button to configure activated light properties */}
+                {singleSelectedToken.light?.enabled && (
+                  <IconButton
+                    label="Light properties menu"
+                    title="Configure Light & Vision Properties"
+                    aria-pressed={lightMenuOpen}
+                    aria-expanded={lightMenuOpen}
+                    onClick={() => setLightMenuOpen((v) => !v)}
+                  >
+                    <ToolIcon name="dots" />
+                  </IconButton>
+                )}
+              </>
+            )}
+
+            {/* Light Settings Popover Menu */}
+            {lightMenuOpen && singleSelectedToken.light?.enabled && (
+              <div
+                className="token-light-menu"
+                role="dialog"
+                aria-label="Light Settings"
+                onClick={(e) => e.stopPropagation()}
               >
-                <ToolIcon name="text" />
-              </IconButton>
+                <div className="token-light-header">
+                  <strong>Light & Vision</strong>
+                  <button
+                    type="button"
+                    className="close-menu-btn"
+                    onClick={() => setLightMenuOpen(false)}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="token-light-section">
+                  <div className="token-light-row">
+                    <label htmlFor="light-range-input">Range</label>
+                    <span className="token-light-value">
+                      {singleSelectedToken.light?.range || 30} ft
+                    </span>
+                  </div>
+                  <input
+                    id="light-range-input"
+                    type="range"
+                    min="5"
+                    max="120"
+                    step="5"
+                    value={singleSelectedToken.light?.range || 30}
+                    onChange={(e) =>
+                      handleUpdateLight(singleSelectedToken, {
+                        range: Number(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="token-light-section">
+                  <span className="token-light-label">Mode</span>
+                  <div className="token-light-mode-group">
+                    <button
+                      type="button"
+                      className={`mode-btn ${
+                        singleSelectedToken.light?.type !== 'vision' ? 'active' : ''
+                      }`}
+                      onClick={() =>
+                        handleUpdateLight(singleSelectedToken, { type: 'torch' })
+                      }
+                      title="Torch / Lantern (360° Made Light)"
+                    >
+                      <ToolIcon name="torch" />
+                      <span>Torch (360°)</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`mode-btn ${
+                        singleSelectedToken.light?.type === 'vision' ? 'active' : ''
+                      }`}
+                      onClick={() =>
+                        handleUpdateLight(singleSelectedToken, { type: 'vision' })
+                      }
+                      title="Line of Sight (Directional Vision Cone)"
+                    >
+                      <ToolIcon name="cone" />
+                      <span>Line of Sight</span>
+                    </button>
+                  </div>
+                </div>
+
+                {singleSelectedToken.light?.type === 'vision' && (
+                  <>
+                    <div className="token-light-section">
+                      <div className="token-light-row">
+                        <label htmlFor="light-rotation-input">Direction</label>
+                        <span className="token-light-value">
+                          {singleSelectedToken.light?.rotation || 0}°
+                        </span>
+                      </div>
+                      <input
+                        id="light-rotation-input"
+                        type="range"
+                        min="0"
+                        max="360"
+                        step="5"
+                        value={singleSelectedToken.light?.rotation || 0}
+                        onChange={(e) =>
+                          handleUpdateLight(singleSelectedToken, {
+                            rotation: Number(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="token-light-section">
+                      <div className="token-light-row">
+                        <label htmlFor="light-angle-input">Cone Angle</label>
+                        <span className="token-light-value">
+                          {singleSelectedToken.light?.angle || 90}°
+                        </span>
+                      </div>
+                      <input
+                        id="light-angle-input"
+                        type="range"
+                        min="30"
+                        max="180"
+                        step="15"
+                        value={singleSelectedToken.light?.angle || 90}
+                        onChange={(e) =>
+                          handleUpdateLight(singleSelectedToken, {
+                            angle: Number(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="token-light-footer">
+                  <button
+                    type="button"
+                    className="danger-btn remove-light-btn"
+                    onClick={() => handleToggleLight(singleSelectedToken)}
+                  >
+                    Remove Light
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -353,82 +679,111 @@ export default function Board({
         )}
       </div>
 
-      {/* DM Fog of War & Walls Floating Sub-Toolbar */}
+      {/* DM Fog of War & Walls Top Horizontal Bar */}
       {isDM && fogMenuOpen && (
-        <aside className="fog-toolbar-popup" aria-label="Fog of War tools">
-          <header>
-            <strong>Fog of War & Vision</strong>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Close Fog of War tools"
-              onClick={() => {
-                setFogMenuOpen(false);
-                canvasStore.getState().setFogTool(null);
-              }}
+        <div className="fog-top-bar" role="toolbar" aria-label="Fog of War tools">
+          <div className="fog-bar-section" title="Fog Creation Tools">
+            <IconButton
+              label="Line Brush (Auto-fills enclosed shape)"
+              title="Line Brush (Auto-fills enclosed shapes)"
+              aria-pressed={fogTool === 'line'}
+              onClick={() => canvasStore.getState().setFogTool('line')}
             >
-              ×
-            </button>
-          </header>
-          <div className="fog-tool-group">
-            <span>Fog Shapes</span>
-            <div className="fog-tool-buttons">
-              {[
-                { id: 'rect', label: 'Square / Rect' },
-                { id: 'circle', label: 'Circle' },
-                { id: 'polygon', label: 'Polygon' },
-                { id: 'line', label: 'Line Brush' },
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  aria-pressed={fogTool === t.id}
-                  onClick={() => canvasStore.getState().setFogTool(t.id)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+              <ToolIcon name="brush" />
+            </IconButton>
+            <IconButton
+              label="Custom Polygon"
+              title="Custom Polygon (Click points, click hovering handle on start to fill)"
+              aria-pressed={fogTool === 'polygon'}
+              onClick={() => canvasStore.getState().setFogTool('polygon')}
+            >
+              <ToolIcon name="polygon" />
+            </IconButton>
+            <IconButton
+              label="Rectangle Fog"
+              title="Rectangle Fog"
+              aria-pressed={fogTool === 'rect'}
+              onClick={() => canvasStore.getState().setFogTool('rect')}
+            >
+              <ToolIcon name="rect" />
+            </IconButton>
+            <IconButton
+              label="Circle Fog"
+              title="Circle Fog"
+              aria-pressed={fogTool === 'circle'}
+              onClick={() => canvasStore.getState().setFogTool('circle')}
+            >
+              <ToolIcon name="circle" />
+            </IconButton>
           </div>
-          <div className="fog-tool-group">
-            <span>Barriers (Line of Sight)</span>
-            <div className="fog-tool-buttons">
-              <button
-                type="button"
-                aria-pressed={fogTool === 'wall'}
-                onClick={() => canvasStore.getState().setFogTool('wall')}
-              >
-                Wall
-              </button>
-              <button
-                type="button"
-                aria-pressed={fogTool === 'door'}
-                onClick={() => canvasStore.getState().setFogTool('door')}
-              >
-                Door
-              </button>
-            </div>
+
+          <span className="fog-top-bar-divider" />
+
+          <div className="fog-bar-section" title="Barriers & Doors">
+            <IconButton
+              label="Mount Door on Wall"
+              title="Mount Door (Click on any fog shape wall edge to mount a door)"
+              aria-pressed={fogTool === 'door'}
+              onClick={() => canvasStore.getState().setFogTool('door')}
+            >
+              <ToolIcon name="door" />
+            </IconButton>
           </div>
-          <div className="fog-tool-group">
-            <span>Manage</span>
-            <div className="fog-tool-buttons">
-              <button
-                type="button"
-                aria-pressed={fogTool === 'erase'}
-                onClick={() => canvasStore.getState().setFogTool('erase')}
-              >
-                Delete Fog / Wall
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => canvasStore.getState().clearFog()}
-              >
-                Clear All
-              </button>
-            </div>
+
+          <span className="fog-top-bar-divider" />
+
+          <div className="fog-bar-section" title="Manage Fog">
+            <IconButton
+              label="Erase Fog or Door"
+              title="Erase Fog or Door (Click any placed fog shape or door to remove it)"
+              aria-pressed={fogTool === 'erase'}
+              onClick={() => canvasStore.getState().setFogTool('erase')}
+            >
+              <ToolIcon name="eraser" />
+            </IconButton>
+            <IconButton
+              className="danger-btn"
+              label="Clear All Fog & Doors"
+              title="Clear All Fog & Doors"
+              onClick={() => canvasStore.getState().clearFog()}
+            >
+              <ToolIcon name="trash" />
+            </IconButton>
           </div>
-        </aside>
+
+          <span className="fog-top-bar-divider" />
+
+          <div className="fog-bar-section" title="Player Vision Preview">
+            <IconButton
+              label="Toggle Player Vision Preview"
+              title={
+                playerVisionPreview
+                  ? 'Exit Player Vision Preview'
+                  : 'Preview Player Vision (Pitch-Black Fog)'
+              }
+              aria-pressed={playerVisionPreview}
+              onClick={() => canvasStore.getState().togglePlayerVisionPreview()}
+            >
+              <ToolIcon name="preview" />
+            </IconButton>
+            {playerVisionPreview && (
+              <span className="fog-preview-pill">Player View</span>
+            )}
+          </div>
+
+          <span className="fog-top-bar-divider" />
+
+          <IconButton
+            label="Close Fog Tools"
+            title="Close Fog of War bar"
+            onClick={() => {
+              setFogMenuOpen(false);
+              canvasStore.getState().setFogTool(null);
+            }}
+          >
+            <ToolIcon name="close" />
+          </IconButton>
+        </div>
       )}
 
       <nav className="utility-toolbar" aria-label="VTT utilities">
@@ -555,13 +910,12 @@ export default function Board({
                     type="button"
                     draggable
                     onDragStart={(e) => {
-                      e.dataTransfer.setData(
-                        'application/x-hakton-asset',
-                        JSON.stringify({
-                          name: asset,
-                          category: assetTrayCategory,
-                        }),
-                      );
+                      const payload = JSON.stringify({
+                        name: asset,
+                        category: assetTrayCategory,
+                      });
+                      e.dataTransfer.setData('application/x-hakton-asset', payload);
+                      e.dataTransfer.setData('text/plain', payload);
                       e.dataTransfer.effectAllowed = 'copy';
                     }}
                     className={`asset-tray-item ${
@@ -575,7 +929,7 @@ export default function Board({
                         assetTrayCategory === 'Scenes' ||
                         assetTrayCategory === 'Maps'
                       ) {
-                        onSelectScene?.(asset);
+                        handleSelectScene(asset);
                       } else {
                         onInspectAsset?.(asset, assetTrayCategory);
                       }

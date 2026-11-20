@@ -219,12 +219,8 @@ export default function AssetsPanel({
   }
 
   async function finalizeImport(targetCategory, files, names, alignment) {
-    if (
-      typeof window !== 'undefined' &&
-      window.hakton?.assets &&
-      files?.length
-    ) {
-      await assetStore.getState().uploadFiles({
+    if (files?.length) {
+      await assetStore.getState().uploadFileList({
         type:
           targetCategory === 'Scenes' || targetCategory === 'Maps'
             ? 'map'
@@ -353,10 +349,9 @@ export default function AssetsPanel({
               tabIndex={0}
               draggable={role === 'DM'}
               onDragStart={(e) => {
-                e.dataTransfer.setData(
-                  'application/x-hakton-asset',
-                  JSON.stringify({ name: asset, category: activeTab }),
-                );
+                const payload = JSON.stringify({ name: asset, category: activeTab });
+                e.dataTransfer.setData('application/x-hakton-asset', payload);
+                e.dataTransfer.setData('text/plain', payload);
                 e.dataTransfer.effectAllowed = 'copy';
               }}
               onClick={() => setSelected(asset)}

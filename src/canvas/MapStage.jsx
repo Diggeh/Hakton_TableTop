@@ -4,6 +4,12 @@ import { Stage, Layer } from 'react-konva';
 import { useSession } from '../store/sessionStore.js';
 import { canvasStore, useCanvas } from './canvasStore.js';
 import { screenToMap } from './viewport.js';
+import {
+  detectClosedLoop,
+  findNearestWallSegment,
+  getAllCollisionWalls,
+  projectPointOnSegment,
+} from './fogVision.js';
 import MapLayer from './MapLayer.jsx';
 import GridLayer from './GridLayer.jsx';
 import TokenLayer from './TokenLayer.jsx';
@@ -30,16 +36,30 @@ function isTypingTarget(target) {
  */
 export default function MapStage({ width, height, role, onDeleteSelection }) {
   const map = useSession((state) => state.map);
+  const currentUser = useSession((state) => state.currentUser);
   const stageRef = useRef(null);
   const panRef = useRef(null);
   const spaceRef = useRef(false);
   const fittedForMap = useRef(null);
+
+  const isDM = role === 'DM' || role === 'dm' || currentUser?.role === 'dm' || currentUser?.role === 'DM';
 
   const gridVisible = useCanvas((state) => state.gridVisible);
   const fogTool = useCanvas((state) => state.fogTool);
   const [panMode, setPanMode] = useState(false);
   const [draftShape, setDraftShape] = useState(null);
   const [polygonDraft, setPolygonDraft] = useState([]);
+  const [mouseMapPos, setMouseMapPos] = useState(null);
+
+  const handleFinishPolygon = useCallback(() => {
+    if (polygonDraft.length >= 6) {
+      canvasStore.getState().addFogShape({
+        type: 'polygon',
+        points: polygonDraft,
+      });
+      setPolygonDraft([]);
+    }
+  }, [polygonDraft]);
 
   const setCursor = useCallback((cursor) => {
     const container = stageRef.current?.container();
@@ -120,11 +140,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
         canvasStore.getState().fit();
       } else if (event.key === 'Enter' && polygonDraft.length >= 6) {
         event.preventDefault();
-        canvasStore.getState().addFogShape({
-          type: 'polygon',
-          points: polygonDraft,
-        });
-        setPolygonDraft([]);
+        handleFinishPolygon();
       } else if (event.key === 'Escape') {
         canvasStore.getState().clearSelection();
         setDraftShape(null);
@@ -177,7 +193,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
 
     // DM Fog & Wall manual drawing tools
     if (
-      role === 'DM' &&
+      isDM &&
       fogTool &&
       fogTool !== 'erase' &&
       native.button === 0 &&
@@ -190,16 +206,46 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
         if (polygonDraft.length >= 6) {
           const firstX = polygonDraft[0];
           const firstY = polygonDraft[1];
-          if (Math.hypot(mapPt.x - firstX, mapPt.y - firstY) < 18) {
-            canvasStore.getState().addFogShape({
-              type: 'polygon',
-              points: polygonDraft,
-            });
-            setPolygonDraft([]);
+          if (Math.hypot(mapPt.x - firstX, mapPt.y - firstY) < 22) {
+            handleFinishPolygon();
+            return;
+          }
+        }
+        // Ensure side length is not too small (minimum 12px)
+        if (polygonDraft.length >= 2) {
+          const prevX = polygonDraft[polygonDraft.length - 2];
+          const prevY = polygonDraft[polygonDraft.length - 1];
+          if (Math.hypot(mapPt.x - prevX, mapPt.y - prevY) < 12) {
             return;
           }
         }
         setPolygonDraft((prev) => [...prev, mapPt.x, mapPt.y]);
+        return;
+      }
+
+      if (fogTool === 'door') {
+        const store = canvasStore.getState();
+        const allWalls = getAllCollisionWalls(store.walls, store.fogShapes);
+        const nearest = findNearestWallSegment(mapPt, allWalls, 48);
+        if (nearest) {
+          const p1 = { x: Math.round(nearest.point.x), y: Math.round(nearest.point.y) };
+          setDraftShape({
+            type: 'door',
+            p1,
+            p2: p1,
+            anchorWall: nearest.wall,
+          });
+        } else {
+          const snap = store.snap;
+          const grid = map?.gridSize || 70;
+          const startPt = snap ? snapPoint(mapPt, grid) : { x: Math.round(mapPt.x), y: Math.round(mapPt.y) };
+          setDraftShape({
+            type: 'door',
+            p1: startPt,
+            p2: startPt,
+            anchorWall: null,
+          });
+        }
         return;
       }
 
@@ -233,9 +279,9 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
         return;
       }
 
-      if (fogTool === 'wall' || fogTool === 'door') {
+      if (fogTool === 'wall') {
         setDraftShape({
-          type: fogTool,
+          type: 'wall',
           p1: mapPt,
           p2: mapPt,
         });
@@ -265,8 +311,10 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
 
+    const mapPt = screenToMap(canvasStore.getState().viewport, pointer);
+    setMouseMapPos(mapPt);
+
     if (draftShape) {
-      const mapPt = screenToMap(canvasStore.getState().viewport, pointer);
       setDraftShape((prev) => {
         if (!prev) return null;
         if (prev.type === 'rect') {
@@ -288,10 +336,26 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
             points: [...prev.points, mapPt.x, mapPt.y],
           };
         }
-        if (prev.type === 'wall' || prev.type === 'door') {
+        if (prev.type === 'wall') {
           return {
             ...prev,
             p2: mapPt,
+          };
+        }
+        if (prev.type === 'door') {
+          if (prev.anchorWall) {
+            const proj = projectPointOnSegment(mapPt, prev.anchorWall.p1, prev.anchorWall.p2);
+            return {
+              ...prev,
+              p2: { x: Math.round(proj.x), y: Math.round(proj.y) },
+            };
+          }
+          const snap = canvasStore.getState().snap;
+          const grid = map?.gridSize || 70;
+          const endPt = snap ? snapPoint(mapPt, grid) : { x: Math.round(mapPt.x), y: Math.round(mapPt.y) };
+          return {
+            ...prev,
+            p2: endPt,
           };
         }
         return prev;
@@ -321,9 +385,17 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       } else if (current.type === 'circle' && current.radius > 8) {
         canvasStore.getState().addFogShape(current);
       } else if (current.type === 'line' && current.points.length >= 4) {
-        canvasStore.getState().addFogShape(current);
+        const loop = detectClosedLoop(current.points, 45);
+        if (loop.isClosed && Array.isArray(loop.points) && loop.points.length >= 6) {
+          canvasStore.getState().addFogShape({
+            type: 'polygon',
+            points: loop.points,
+          });
+        } else {
+          canvasStore.getState().addFogShape(current);
+        }
       } else if (
-        (current.type === 'wall' || current.type === 'door') &&
+        current.type === 'wall' &&
         Math.hypot(
           current.p2.x - current.p1.x,
           current.p2.y - current.p1.y,
@@ -332,9 +404,36 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
         canvasStore.getState().addWall({
           p1: current.p1,
           p2: current.p2,
-          isDoor: current.type === 'door',
+          isDoor: false,
           isOpen: false,
         });
+      } else if (current.type === 'door') {
+        const dist = Math.hypot(
+          current.p2.x - current.p1.x,
+          current.p2.y - current.p1.y,
+        );
+        if (dist >= 14) {
+          canvasStore.getState().addWall({
+            p1: current.p1,
+            p2: current.p2,
+            isDoor: true,
+            isOpen: false,
+            wallId: current.anchorWall?.id ?? null,
+          });
+        } else if (current.anchorWall) {
+          const wall = current.anchorWall;
+          const wallLen = Math.hypot(wall.p2.x - wall.p1.x, wall.p2.y - wall.p1.y);
+          const ux = (wall.p2.x - wall.p1.x) / (wallLen || 1);
+          const uy = (wall.p2.y - wall.p1.y) / (wallLen || 1);
+          const half = Math.min(28, wallLen / 2);
+          canvasStore.getState().addWall({
+            p1: { x: Math.round(current.p1.x - ux * half), y: Math.round(current.p1.y - uy * half) },
+            p2: { x: Math.round(current.p1.x + ux * half), y: Math.round(current.p1.y + uy * half) },
+            isDoor: true,
+            isOpen: false,
+            wallId: current.anchorWall.id,
+          });
+        }
       }
     }
 
@@ -405,6 +504,8 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
           role={role}
           draftShape={draftShape}
           polygonDraft={polygonDraft}
+          mouseMapPos={mouseMapPos}
+          onFinishPolygon={handleFinishPolygon}
         />
       </Layer>
     </Stage>
