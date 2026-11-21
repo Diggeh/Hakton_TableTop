@@ -74,24 +74,61 @@ export default function FogLayer({
   const walls = useCanvas((s) => s.walls);
   const fogTool = useCanvas((s) => s.fogTool);
   const playerVisionPreview = useCanvas((s) => s.playerVisionPreview);
+  const draggingPositions = useCanvas((s) => s.draggingPositions);
   const tokens = useSession((s) => s.tokens);
 
   const isDM = role === 'DM' || role === 'dm';
   const isEffectiveDM = isDM && !playerVisionPreview;
 
-  // Compute all walls (including auto-perimeter walls from fog shapes)
+  // Compute all walls (including auto-perimeter walls carved at open doors)
   const allWalls = getAllCollisionWalls(walls, fogShapes);
+  const solidWallsForDoorSnap = allWalls.filter((w) => !w.isDoor);
 
-  // Door ghost preview snapped to wall
+  // Door ghost preview snapped to nearest solid wall or fog edge
   const doorGhost =
     isEffectiveDM && fogTool === 'door' && mouseMapPos
-      ? findNearestWallSegment(mouseMapPos, allWalls, 28)
+      ? findNearestWallSegment(mouseMapPos, solidWallsForDoorSnap, 28)
       : null;
 
   // Active tokens with Light / Vision enabled
   const lightTokens = Object.values(tokens || {}).filter(
     (t) => t?.light?.enabled,
   );
+
+  const mapBounds = {
+    x: 0,
+    y: 0,
+    width: Math.max(map?.width || 2100, 1400),
+    height: Math.max(map?.height || 1400, 980),
+  };
+
+  const lightPolygons = lightTokens
+    .map((token) => {
+      const live = draggingPositions?.[token.id];
+      const origin = live
+        ? { x: live.x, y: live.y }
+        : { x: token.x, y: token.y };
+      const rangeFt = Number(token.light?.range) || 30;
+      const maxDistance = (rangeFt / 5) * (map?.gridSize || 70);
+      const arc =
+        token.light?.type === 'vision'
+          ? {
+              angle: Number(token.light.angle) || 90,
+              rotation: Number(token.light.rotation) || 0,
+            }
+          : null;
+      const poly = computeVisibilityPolygon(origin, allWalls, mapBounds, {
+        maxDistance,
+        arc,
+      });
+      if (!poly || poly.length < 3) return null;
+      return {
+        token,
+        origin,
+        flatPoints: poly.flatMap((p) => [p.x, p.y]),
+      };
+    })
+    .filter(Boolean);
 
   return (
     <Group>
@@ -114,78 +151,40 @@ export default function FogLayer({
         )}
 
         {/* Light Cutouts (destination-out cancels fog where tokens emit light) */}
-        {lightTokens.map((token) => {
-          const origin = { x: token.x, y: token.y };
-          const rangeFt = Number(token.light?.range) || 30;
-          const maxDistance = (rangeFt / 5) * (map?.gridSize || 70);
-          const arc =
-            token.light?.type === 'vision'
-              ? {
-                  angle: Number(token.light.angle) || 90,
-                  rotation: Number(token.light.rotation) || 0,
-                }
-              : null;
-          const poly = computeVisibilityPolygon(origin, allWalls, {
-            maxDistance,
-            arc,
-          });
-          if (!poly || poly.length < 3) return null;
-          const flatPoints = poly.flatMap((p) => [p.x, p.y]);
-
-          return (
-            <Line
-              key={`light-cutout-${token.id}`}
-              points={flatPoints}
-              closed
-              fill="#000000"
-              globalCompositeOperation="destination-out"
-              listening={false}
-            />
-          );
-        })}
+        {lightPolygons.map(({ token, flatPoints }) => (
+          <Line
+            key={`light-cutout-${token.id}`}
+            points={flatPoints}
+            closed
+            fill="#000000"
+            globalCompositeOperation="destination-out"
+            listening={false}
+          />
+        ))}
       </Group>
 
       {/* Light aura / directional boundaries for visual feedback */}
-      {lightTokens.map((token) => {
-        const origin = { x: token.x, y: token.y };
-        const rangeFt = Number(token.light?.range) || 30;
-        const maxDistance = (rangeFt / 5) * (map?.gridSize || 70);
-        const arc =
-          token.light?.type === 'vision'
-            ? {
-                angle: Number(token.light.angle) || 90,
-                rotation: Number(token.light.rotation) || 0,
-              }
-            : null;
-        const poly = computeVisibilityPolygon(origin, allWalls, {
-          maxDistance,
-          arc,
-        });
-        if (!poly || poly.length < 3) return null;
-        const flatPoints = poly.flatMap((p) => [p.x, p.y]);
-
-        return (
-          <Group key={`light-aura-${token.id}`} listening={false}>
-            {isEffectiveDM && (
-              <Line
-                points={flatPoints}
-                closed
-                stroke="rgba(255, 215, 120, 0.45)"
-                strokeWidth={1.5}
-                dash={[5, 4]}
-              />
-            )}
-            <Circle
-              x={token.x}
-              y={token.y}
-              radius={Math.max(6, (map?.gridSize || 70) * 0.18)}
-              fill="rgba(255, 230, 150, 0.25)"
-              stroke="#ffd57a"
+      {lightPolygons.map(({ token, origin, flatPoints }) => (
+        <Group key={`light-aura-${token.id}`} listening={false}>
+          {isEffectiveDM && (
+            <Line
+              points={flatPoints}
+              closed
+              stroke="rgba(255, 215, 120, 0.45)"
               strokeWidth={1.5}
+              dash={[5, 4]}
             />
-          </Group>
-        );
-      })}
+          )}
+          <Circle
+            x={origin.x}
+            y={origin.y}
+            radius={Math.max(6, (map?.gridSize || 70) * 0.18)}
+            fill="rgba(255, 230, 150, 0.25)"
+            stroke="#ffd57a"
+            strokeWidth={1.5}
+          />
+        </Group>
+      ))}
 
       {/* Walls & Interactive Doors */}
       {walls.map((wall) => {
@@ -207,6 +206,16 @@ export default function FogLayer({
           <Group
             key={wall.id}
             listening={isEffectiveDM || isDoor}
+            onMouseDown={(e) => {
+              if (isDoor && fogTool !== 'erase') {
+                e.cancelBubble = true;
+              }
+            }}
+            onTouchStart={(e) => {
+              if (isDoor && fogTool !== 'erase') {
+                e.cancelBubble = true;
+              }
+            }}
             onClick={(e) => {
               e.cancelBubble = true;
               if (isEffectiveDM && fogTool === 'erase') {

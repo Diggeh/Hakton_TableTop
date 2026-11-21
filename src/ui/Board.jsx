@@ -3,6 +3,7 @@ import {
   connect,
   createToken,
   deleteToken,
+  resolveAssetUrl,
   updateToken,
 } from '../net/socket.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
@@ -19,7 +20,7 @@ import DiceOverlay from '../dice/DiceOverlay.jsx';
 import { party } from './fixtures.js';
 import ToolIcon from './ToolIcon.jsx';
 import AddTokenDialog from './AddTokenDialog.jsx';
-import { useUploadedCategoryAssets } from './AssetsPanel.jsx';
+import { useUploadedCategoryAssetEntries } from './AssetsPanel.jsx';
 import { IconButton } from './Primitives.jsx';
 
 const MapStage = lazy(() => import('../canvas/MapStage.jsx'));
@@ -70,7 +71,8 @@ export default function Board({
   const fogTool = useCanvas((s) => s.fogTool);
   const playerVisionPreview = useCanvas((s) => s.playerVisionPreview);
 
-  const trayItems = useUploadedCategoryAssets(assetTrayCategory || 'Scenes');
+  const trayEntries = useUploadedCategoryAssetEntries(assetTrayCategory || 'Scenes');
+  const lightSyncTimersRef = useRef(new Map());
 
   const currentUser = useSession((s) => s.currentUser);
   const isDM =
@@ -83,21 +85,34 @@ export default function Board({
     .filter(Boolean);
   const singleSelectedToken =
     selectedTokens.length === 1 ? selectedTokens[0] : null;
+  const selectedTokenId = singleSelectedToken?.id ?? null;
   const allSelectedLocked =
     selectedTokens.length > 0 && selectedTokens.every((token) => token.locked);
 
-  // Close inline rename & light popover when token selection changes
+  // Clean up pending debounced light sync timers on unmount
   useEffect(() => {
-    if (!singleSelectedToken || singleSelectedToken.id !== renamingTokenId) {
-      setRenamingTokenId(null);
-    }
-    if (!singleSelectedToken) {
-      setLightMenuOpen(false);
-    }
-  }, [singleSelectedToken, renamingTokenId]);
+    const timers = lightSyncTimersRef.current;
+    return () => {
+      for (const timer of timers.values()) {
+        clearTimeout(timer);
+      }
+      timers.clear();
+    };
+  }, []);
+
+  // Close inline rename & light popover ONLY when switching or clearing selected token ID
+  useEffect(() => {
+    setRenamingTokenId(null);
+    setLightMenuOpen(false);
+  }, [selectedTokenId]);
 
   function handleToggleLight(token) {
     if (!token) return;
+    const timers = lightSyncTimersRef.current;
+    if (timers.has(token.id)) {
+      clearTimeout(timers.get(token.id));
+      timers.delete(token.id);
+    }
     const hasLight = Boolean(token.light?.enabled);
     const updatedLight = {
       enabled: !hasLight,
@@ -116,7 +131,7 @@ export default function Board({
     }
   }
 
-  function handleUpdateLight(token, updates) {
+  function handleUpdateLight(token, updates, { immediate = false } = {}) {
     if (!token) return;
     const currentLight = token.light || {
       enabled: true,
@@ -128,7 +143,22 @@ export default function Board({
     const updatedLight = { ...currentLight, ...updates };
     const updatedToken = { ...token, light: updatedLight };
     sessionStore.getState().upsertToken(updatedToken);
-    updateToken(token.id, { light: updatedLight });
+
+    const timers = lightSyncTimersRef.current;
+    if (timers.has(token.id)) {
+      clearTimeout(timers.get(token.id));
+      timers.delete(token.id);
+    }
+    if (immediate) {
+      updateToken(token.id, { light: updatedLight });
+    } else {
+      const timer = setTimeout(() => {
+        timers.delete(token.id);
+        const latest = sessionStore.getState().tokens[token.id];
+        updateToken(token.id, { light: latest?.light || updatedLight });
+      }, 100);
+      timers.set(token.id, timer);
+    }
   }
 
   const zoomPercent = Math.round(liveScale * 100);
@@ -178,44 +208,53 @@ export default function Board({
     if (!newSceneName) return;
     const currentSceneName = scene || map?.name || 'Active Scene';
     sessionStore.getState().saveSceneSnapshot(currentSceneName);
+    sessionStore.getState().loadSceneAssets(newSceneName);
 
     const key = String(newSceneName).trim().toLowerCase();
     const saved = sessionStore.getState().sceneAssets?.[key];
 
-    if (saved?.map) {
-      sessionStore.getState().setMap(saved.map);
-      sessionStore.getState().setSelectedMapAsset(saved.selectedMapAsset || null);
-    } else {
+    if (!saved?.map || !saved.map.imageUrl) {
       const storeAssets = assetStore.getState().assets;
       const matchingAsset = storeAssets.find(
         (a) =>
           a.name.toLowerCase() === newSceneName.toLowerCase() &&
-          ((a.category || '').toLowerCase() === 'scenes' || a.type === 'map'),
+          ((a.category || '').toLowerCase() === 'scenes' ||
+            (a.category || '').toLowerCase() === 'maps' ||
+            a.type === 'map'),
       );
-      const currentMap = sessionStore.getState().map || {
-        id: 1,
-        width: 1400,
-        height: 980,
-        gridSize: 70,
-      };
-      const updatedMap = {
-        ...currentMap,
-        name: newSceneName,
-        imageUrl:
-          matchingAsset?.url ||
-          (matchingAsset?.id ? `/assets/${matchingAsset.id}/file` : null) ||
-          null,
-        width: matchingAsset?.width || currentMap.width || 1400,
-        height: matchingAsset?.height || currentMap.height || 980,
-      };
-      sessionStore.getState().setMap(updatedMap);
-      if (matchingAsset) {
-        sessionStore.getState().setSelectedMapAsset(matchingAsset);
+      const resolvedUrl =
+        matchingAsset?.url ||
+        (matchingAsset?.id
+          ? `/assets/${encodeURIComponent(matchingAsset.id)}/file`
+          : null);
+
+      if (saved?.map) {
+        if (resolvedUrl) {
+          sessionStore.getState().setMap({
+            ...saved.map,
+            imageUrl: resolvedUrl,
+            width: matchingAsset.width || saved.map.width || 1400,
+            height: matchingAsset.height || saved.map.height || 980,
+          });
+          sessionStore.getState().setSelectedMapAsset(matchingAsset);
+        }
       } else {
-        sessionStore.getState().setSelectedMapAsset(null);
+        const currentMap = sessionStore.getState().map || {
+          id: 1,
+          width: 1400,
+          height: 980,
+          gridSize: 70,
+        };
+        sessionStore.getState().setMap({
+          ...currentMap,
+          name: newSceneName,
+          imageUrl: resolvedUrl || null,
+          width: matchingAsset?.width || currentMap.width || 1400,
+          height: matchingAsset?.height || currentMap.height || 980,
+        });
+        sessionStore.getState().setSelectedMapAsset(matchingAsset || null);
       }
     }
-    sessionStore.getState().loadSceneAssets(newSceneName);
     onSelectScene?.(newSceneName);
   }
 
@@ -265,7 +304,10 @@ export default function Board({
     const grid = map?.gridSize || 70;
     const mapWidth = map?.width || 1400;
     const mapHeight = map?.height || 980;
-    const snapped = snapEnabled ? snapPoint(mapPt, grid) : mapPt;
+    const isMapAsset =
+      category.toLowerCase() === 'maps' ||
+      String(payload.category || '').toLowerCase() === 'maps';
+    const snapped = isMapAsset ? mapPt : snapEnabled ? snapPoint(mapPt, grid) : mapPt;
     const finalPos = clampTokenPosition(snapped, mapWidth, mapHeight, grid);
 
     // Determine category-specific color & style
@@ -275,7 +317,7 @@ export default function Board({
         (p) => p.name.toLowerCase() === payload.name.toLowerCase(),
       );
       tokenColor = partyMatch?.color || '#adfcf9';
-    } else if (category === 'Maps') {
+    } else if (isMapAsset) {
       tokenColor = '#8fd2c5';
     } else if (category === 'Props') {
       tokenColor = '#f0a854';
@@ -286,21 +328,45 @@ export default function Board({
         TOKEN_PALETTE[Object.keys(tokens).length % TOKEN_PALETTE.length];
     }
 
-    const isMapAsset = category === 'Maps' || payload.category === 'Maps';
+    const storeAssets = assetStore.getState().assets;
     const matchingAsset = isMapAsset
-      ? assetStore
-          .getState()
-          .assets.find(
-            (a) =>
-              (a.category === 'Maps' || a.category === 'maps') &&
-              a.name.toLowerCase() === payload.name.toLowerCase(),
-          ) ||
-        assetStore
-          .getState()
-          .assets.find(
-            (a) => a.name.toLowerCase() === payload.name.toLowerCase(),
-          )
+      ? (payload.id ? storeAssets.find((a) => a.id === payload.id) : null) ||
+        storeAssets.find(
+          (a) =>
+            (a.category || '').toLowerCase() === 'maps' &&
+            a.name.toLowerCase() === payload.name.toLowerCase(),
+        ) ||
+        storeAssets.find(
+          (a) => a.name.toLowerCase() === payload.name.toLowerCase(),
+        )
       : null;
+
+    const imageUrl = isMapAsset
+      ? payload.url ||
+        matchingAsset?.url ||
+        (matchingAsset?.id
+          ? `/assets/${encodeURIComponent(matchingAsset.id)}/file`
+          : null) ||
+        null
+      : null;
+
+    let placedW;
+    let placedH;
+    if (isMapAsset) {
+      placedW = Number(payload.width || matchingAsset?.width) || 800;
+      placedH = Number(payload.height || matchingAsset?.height) || 600;
+      const alignScale =
+        Number(payload.metadata?.scale || matchingAsset?.metadata?.scale) || 100;
+      placedW = Math.round(placedW * (alignScale / 100));
+      placedH = Math.round(placedH * (alignScale / 100));
+      const maxW = mapWidth * 0.9;
+      const maxH = mapHeight * 0.9;
+      if (placedW > maxW || placedH > maxH) {
+        const ratio = Math.min(maxW / placedW, maxH / placedH);
+        placedW = Math.round(placedW * ratio);
+        placedH = Math.round(placedH * ratio);
+      }
+    }
 
     const tokenPayload = {
       label: payload.name,
@@ -308,9 +374,9 @@ export default function Board({
       y: finalPos.y,
       color: tokenColor,
       isMap: isMapAsset,
-      imageUrl: matchingAsset?.url || null,
-      width: matchingAsset?.width || (isMapAsset ? 800 : undefined),
-      height: matchingAsset?.height || (isMapAsset ? 600 : undefined),
+      imageUrl,
+      width: placedW,
+      height: placedH,
     };
 
     const res = await createToken(tokenPayload);
@@ -325,9 +391,9 @@ export default function Board({
         color: tokenColor,
         locked: false,
         isMap: isMapAsset,
-        imageUrl: matchingAsset?.url || null,
-        width: matchingAsset?.width || (isMapAsset ? 800 : undefined),
-        height: matchingAsset?.height || (isMapAsset ? 600 : undefined),
+        imageUrl,
+        width: placedW ?? null,
+        height: placedH ?? null,
       };
       sessionStore.getState().upsertToken(localToken);
     }
@@ -371,6 +437,15 @@ export default function Board({
       })
     : null;
   const tokenRadiusPx = Math.max(8, grid / 2 - 4) * viewport.scale;
+  const popupLeft = tokenScreenPos
+    ? Math.max(80, Math.min(size.width - 80, tokenScreenPos.x))
+    : 0;
+  const popupTop = tokenScreenPos
+    ? singleSelectedToken?.isMap
+      ? Math.max(64, Math.min(size.height - 64, tokenScreenPos.y))
+      : Math.max(54, Math.min(size.height - 54, tokenScreenPos.y + tokenRadiusPx + 10))
+    : 0;
+  const lightMenuOpenBelow = popupTop < 280;
 
   return (
     <section className="board" aria-label="Tabletop canvas">
@@ -458,11 +533,12 @@ export default function Board({
           <div
             className="token-popup-bar"
             style={{
-              left: `${Math.max(80, Math.min(size.width - 80, tokenScreenPos.x))}px`,
-              top: `${Math.min(size.height - 54, tokenScreenPos.y + tokenRadiusPx + 10)}px`,
+              left: `${popupLeft}px`,
+              top: `${popupTop}px`,
             }}
             role="toolbar"
             aria-label={`Token properties for ${singleSelectedToken.label}`}
+            onMouseDown={(e) => e.stopPropagation()}
           >
             {renamingTokenId === singleSelectedToken.id ? (
               <form className="token-rename-form" onSubmit={handleRenameSubmit}>
@@ -496,48 +572,55 @@ export default function Board({
                   <ToolIcon name="text" />
                 </IconButton>
 
-                {/* Lightbulb button to toggle light on token (Cancels Fog of War) */}
-                <IconButton
-                  label={
-                    singleSelectedToken.light?.enabled
-                      ? 'Turn off light'
-                      : 'Give light property'
-                  }
-                  title={
-                    singleSelectedToken.light?.enabled
-                      ? 'Turn off token light'
-                      : 'Give token light (Cancels out Fog of War)'
-                  }
-                  aria-pressed={Boolean(singleSelectedToken.light?.enabled)}
-                  className={
-                    singleSelectedToken.light?.enabled ? 'active-light-btn' : ''
-                  }
-                  onClick={() => handleToggleLight(singleSelectedToken)}
-                >
-                  <ToolIcon name="light" />
-                </IconButton>
+                {!singleSelectedToken.isMap && (
+                  <>
+                    {/* Lightbulb button to toggle light on token (Cancels Fog of War) */}
+                    <IconButton
+                      label={
+                        singleSelectedToken.light?.enabled
+                          ? 'Turn off light'
+                          : 'Give light property'
+                      }
+                      title={
+                        singleSelectedToken.light?.enabled
+                          ? 'Turn off token light'
+                          : 'Give token light (Cancels out Fog of War)'
+                      }
+                      aria-pressed={Boolean(singleSelectedToken.light?.enabled)}
+                      className={
+                        singleSelectedToken.light?.enabled ? 'active-light-btn' : ''
+                      }
+                      onClick={() => handleToggleLight(singleSelectedToken)}
+                    >
+                      <ToolIcon name="light" />
+                    </IconButton>
 
-                {/* Triple-dot menu button to configure activated light properties */}
-                {singleSelectedToken.light?.enabled && (
-                  <IconButton
-                    label="Light properties menu"
-                    title="Configure Light & Vision Properties"
-                    aria-pressed={lightMenuOpen}
-                    aria-expanded={lightMenuOpen}
-                    onClick={() => setLightMenuOpen((v) => !v)}
-                  >
-                    <ToolIcon name="dots" />
-                  </IconButton>
+                    {/* Triple-dot menu button to configure activated light properties */}
+                    {singleSelectedToken.light?.enabled && (
+                      <IconButton
+                        label="Light properties menu"
+                        title="Configure Light & Vision Properties"
+                        aria-pressed={lightMenuOpen}
+                        aria-expanded={lightMenuOpen}
+                        onClick={() => setLightMenuOpen((v) => !v)}
+                      >
+                        <ToolIcon name="dots" />
+                      </IconButton>
+                    )}
+                  </>
                 )}
               </>
             )}
 
             {/* Light Settings Popover Menu */}
-            {lightMenuOpen && singleSelectedToken.light?.enabled && (
+            {!singleSelectedToken.isMap &&
+              lightMenuOpen &&
+              singleSelectedToken.light?.enabled && (
               <div
-                className="token-light-menu"
+                className={`token-light-menu${lightMenuOpenBelow ? ' open-below' : ''}`}
                 role="dialog"
                 aria-label="Light Settings"
+                onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="token-light-header">
@@ -582,7 +665,11 @@ export default function Board({
                         singleSelectedToken.light?.type !== 'vision' ? 'active' : ''
                       }`}
                       onClick={() =>
-                        handleUpdateLight(singleSelectedToken, { type: 'torch' })
+                        handleUpdateLight(
+                          singleSelectedToken,
+                          { type: 'torch' },
+                          { immediate: true },
+                        )
                       }
                       title="Torch / Lantern (360° Made Light)"
                     >
@@ -595,7 +682,11 @@ export default function Board({
                         singleSelectedToken.light?.type === 'vision' ? 'active' : ''
                       }`}
                       onClick={() =>
-                        handleUpdateLight(singleSelectedToken, { type: 'vision' })
+                        handleUpdateLight(
+                          singleSelectedToken,
+                          { type: 'vision' },
+                          { immediate: true },
+                        )
                       }
                       title="Line of Sight (Directional Vision Cone)"
                     >
@@ -904,59 +995,74 @@ export default function Board({
               aria-label={`Uploaded ${assetTrayCategory.toLowerCase()}`}
             >
               <div className="asset-tray-items">
-                {trayItems.map((asset, i) => (
-                  <button
-                    key={asset}
-                    type="button"
-                    draggable
-                    onDragStart={(e) => {
-                      const payload = JSON.stringify({
-                        name: asset,
-                        category: assetTrayCategory,
-                      });
-                      e.dataTransfer.setData('application/x-hakton-asset', payload);
-                      e.dataTransfer.setData('text/plain', payload);
-                      e.dataTransfer.effectAllowed = 'copy';
-                    }}
-                    className={`asset-tray-item ${
-                      assetTrayCategory === 'Scenes' && scene === asset
-                        ? 'selected'
-                        : ''
-                    }`}
-                    title={`Drag "${asset}" onto the canvas or click to select`}
-                    onClick={() => {
-                      if (
-                        assetTrayCategory === 'Scenes' ||
-                        assetTrayCategory === 'Maps'
-                      ) {
-                        handleSelectScene(asset);
-                      } else {
-                        onInspectAsset?.(asset, assetTrayCategory);
-                      }
-                    }}
-                  >
-                    <span
-                      className={`asset-thumbnail type-${assetTrayCategory.toLowerCase()} thumbnail-${i % 3}`}
+                {trayEntries.map((entry, i) => {
+                  const asset = entry.name;
+                  return (
+                    <button
+                      key={entry.id || asset}
+                      type="button"
+                      draggable
+                      onDragStart={(e) => {
+                        const payload = JSON.stringify({
+                          id: entry.id,
+                          name: asset,
+                          category: assetTrayCategory,
+                          url: entry.url,
+                          width: entry.width,
+                          height: entry.height,
+                          metadata: entry.metadata,
+                        });
+                        e.dataTransfer.setData('application/x-hakton-asset', payload);
+                        e.dataTransfer.setData('text/plain', payload);
+                        e.dataTransfer.effectAllowed = 'copy';
+                      }}
+                      className={`asset-tray-item ${
+                        assetTrayCategory === 'Scenes' && scene === asset
+                          ? 'selected'
+                          : ''
+                      }`}
+                      title={`Drag "${asset}" onto the canvas or click to select`}
+                      onClick={() => {
+                        if (
+                          assetTrayCategory === 'Scenes' ||
+                          assetTrayCategory === 'Maps'
+                        ) {
+                          handleSelectScene(asset);
+                        } else {
+                          onInspectAsset?.(asset, assetTrayCategory);
+                        }
+                      }}
                     >
-                      {assetTrayCategory === 'Characters' ? (
-                        party[i]?.initials || asset.slice(0, 2).toUpperCase()
-                      ) : assetTrayCategory === 'Attachments' ? (
-                        '≡'
-                      ) : (
-                        <span className="mini-plan">
-                          <i />
-                          <i />
-                          <i />
-                        </span>
+                      <span
+                        className={`asset-thumbnail type-${assetTrayCategory.toLowerCase()} thumbnail-${i % 3}`}
+                      >
+                        {entry.url ? (
+                          <img
+                            className="asset-thumbnail-img"
+                            src={resolveAssetUrl(entry.url)}
+                            alt={asset}
+                            draggable={false}
+                          />
+                        ) : assetTrayCategory === 'Characters' ? (
+                          party[i]?.initials || asset.slice(0, 2).toUpperCase()
+                        ) : assetTrayCategory === 'Attachments' ? (
+                          '≡'
+                        ) : (
+                          <span className="mini-plan">
+                            <i />
+                            <i />
+                            <i />
+                          </span>
+                        )}
+                      </span>
+                      <strong>{asset}</strong>
+                      {assetTrayCategory === 'Scenes' && scene === asset && (
+                        <small>Active</small>
                       )}
-                    </span>
-                    <strong>{asset}</strong>
-                    {assetTrayCategory === 'Scenes' && scene === asset && (
-                      <small>Active</small>
-                    )}
-                  </button>
-                ))}
-                {trayItems.length === 0 && (
+                    </button>
+                  );
+                })}
+                {trayEntries.length === 0 && (
                   <span className="asset-tray-empty">
                     No uploaded {assetTrayCategory.toLowerCase()}
                   </span>

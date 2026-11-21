@@ -64,4 +64,62 @@ describe('token persistence', () => {
     assert.equal(token.locked, 1);
     db.close();
   });
+
+  it('persists map placement graphics and token light properties across reopen', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hakton-token-extras-'));
+    const file = path.join(dir, 'hakton.db');
+
+    try {
+      let db = openDatabase(file);
+      let repos = createRepositories(db);
+      const map = repos.maps.createWithCampaign('Campaign', 'Map');
+
+      repos.tokens.create({
+        id: 'tok-map',
+        mapId: map.id,
+        label: 'Cave Level',
+        x: 700,
+        y: 500,
+        isMap: true,
+        imageUrl: '/assets/map-1/file',
+        width: 1200,
+        height: 800,
+      });
+
+      repos.tokens.create({
+        id: 'tok-hero',
+        mapId: map.id,
+        label: 'Mira',
+        x: 105,
+        y: 105,
+      });
+
+      repos.tokens.update('tok-hero', {
+        light: { enabled: true, type: 'vision', range: 45, angle: 90, rotation: 30 },
+      });
+      db.close();
+
+      db = openDatabase(file);
+      repos = createRepositories(db);
+      const storedMap = repos.tokens.get('tok-map');
+      const storedHero = repos.tokens.get('tok-hero');
+
+      assert.equal(storedMap.is_map, 1);
+      assert.equal(storedMap.image_url, '/assets/map-1/file');
+      assert.equal(storedMap.width, 1200);
+      assert.equal(storedMap.height, 800);
+
+      const parsedLight = JSON.parse(storedHero.light);
+      assert.deepEqual(parsedLight, {
+        enabled: true,
+        type: 'vision',
+        range: 45,
+        angle: 90,
+        rotation: 30,
+      });
+      db.close();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

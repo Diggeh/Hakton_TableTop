@@ -13,7 +13,13 @@ import { createUserModel } from './models/users.js';
  * plain-object methods and never touches the better-sqlite3 handle.
  */
 export function createRepositories(db) {
-  const tokenColumns = 'id, map_id, label, x, y, owner_id, locked, color';
+  const tokenColumns =
+    'id, map_id, label, x, y, owner_id, locked, color, is_map, image_url, width, height, light';
+
+  const serializeLight = (light) => {
+    if (!light || typeof light !== 'object') return null;
+    return JSON.stringify(light);
+  };
 
   const stmts = {
     insertCampaign: db.prepare('INSERT INTO campaigns (name) VALUES (?)'),
@@ -34,8 +40,8 @@ export function createRepositories(db) {
     ),
     tokenById: db.prepare(`SELECT ${tokenColumns} FROM tokens WHERE id = ?`),
     insertToken: db.prepare(`
-      INSERT INTO tokens (id, map_id, label, x, y, owner_id, locked, color)
-      VALUES (@id, @mapId, @label, @x, @y, @ownerId, @locked, @color)`),
+      INSERT INTO tokens (id, map_id, label, x, y, owner_id, locked, color, is_map, image_url, width, height, light)
+      VALUES (@id, @mapId, @label, @x, @y, @ownerId, @locked, @color, @isMap, @imageUrl, @width, @height, @light)`),
     upsertToken: db.prepare(`
       INSERT INTO tokens (id, map_id, label, x, y) VALUES (@id, @mapId, @label, @x, @y)
       ON CONFLICT(id) DO UPDATE SET x = excluded.x, y = excluded.y`),
@@ -91,6 +97,11 @@ export function createRepositories(db) {
         ownerId = null,
         locked = false,
         color = null,
+        isMap = false,
+        imageUrl = null,
+        width = null,
+        height = null,
+        light = null,
       }) => {
         stmts.insertToken.run({
           id,
@@ -101,6 +112,11 @@ export function createRepositories(db) {
           ownerId,
           locked: locked ? 1 : 0,
           color,
+          isMap: isMap ? 1 : 0,
+          imageUrl: typeof imageUrl === 'string' && imageUrl ? imageUrl : null,
+          width: Number.isFinite(Number(width)) && Number(width) > 0 ? Number(width) : null,
+          height: Number.isFinite(Number(height)) && Number(height) > 0 ? Number(height) : null,
+          light: serializeLight(light),
         });
         return stmts.tokenById.get(id);
       },
@@ -110,6 +126,11 @@ export function createRepositories(db) {
           ownerId: 'owner_id',
           locked: 'locked',
           color: 'color',
+          isMap: 'is_map',
+          imageUrl: 'image_url',
+          width: 'width',
+          height: 'height',
+          light: 'light',
         };
         const fields = Object.keys(columns).filter((key) => key in patch);
         if (fields.length === 0) return stmts.tokenById.get(id) ?? null;
@@ -117,8 +138,16 @@ export function createRepositories(db) {
         const params = { id };
         for (const field of fields) {
           const value = patch[field];
-          params[field] =
-            field === 'locked' ? (value ? 1 : 0) : value === undefined ? null : value;
+          if (field === 'locked' || field === 'isMap') {
+            params[field] = value ? 1 : 0;
+          } else if (field === 'width' || field === 'height') {
+            params[field] =
+              Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null;
+          } else if (field === 'light') {
+            params[field] = serializeLight(value);
+          } else {
+            params[field] = value === undefined ? null : value;
+          }
         }
         const assignments = fields
           .map((field) => `${columns[field]} = @${field}`)

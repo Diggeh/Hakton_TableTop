@@ -36,6 +36,7 @@ export const canvasStore = createStore((set, get) => {
     snap: true,
     selectedIds: [],
     draggingIds: [],
+    draggingPositions: {},
 
     // Fog of War & Dynamic Vision state (starts empty — never auto-placed on maps)
     fogTool: null, // 'rect' | 'circle' | 'polygon' | 'line' | 'wall' | 'door' | 'erase' | null
@@ -80,6 +81,7 @@ export const canvasStore = createStore((set, get) => {
             id: wall.id || `wall_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             isDoor: Boolean(wall.isDoor),
             isOpen: Boolean(wall.isOpen),
+            wallId: wall.wallId ?? null,
             p1: wall.p1,
             p2: wall.p2,
           },
@@ -189,6 +191,13 @@ export const canvasStore = createStore((set, get) => {
 
     setDraggingIds: (ids) =>
       set({ draggingIds: Array.isArray(ids) ? ids : [] }),
+
+    setDraggingPosition: (id, pos) =>
+      set((state) => ({
+        draggingPositions: { ...state.draggingPositions, [id]: pos },
+      })),
+
+    clearDraggingPositions: () => set({ draggingPositions: {} }),
   };
 });
 

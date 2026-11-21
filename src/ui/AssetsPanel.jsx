@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { assetStore, useAssets } from '../store/assetStore.js';
+import { resolveAssetUrl } from '../net/socket.js';
 import { assets as fixtureAssets, party } from './fixtures.js';
 import ToolIcon from './ToolIcon.jsx';
 import { IconButton, Tabs } from './Primitives.jsx';
@@ -112,7 +113,7 @@ export function deleteCatalogAsset(category, assetName) {
   notifyPreviewListeners();
 }
 
-export function useUploadedCategoryAssets(category) {
+export function useUploadedCategoryAssetEntries(category) {
   const storeAssets = useAssets((s) => s.assets);
   const localPreview = useSyncExternalStore(
     subscribePreviewAssets,
@@ -121,23 +122,59 @@ export function useUploadedCategoryAssets(category) {
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.hakton?.assets) {
-      void assetStore.getState().loadAssets();
+      void assetStore.getState().loadAssets({ type: 'all', category: 'all' });
     }
   }, []);
 
   const catKey = category || 'Scenes';
   const lowerCategory = catKey.toLowerCase();
-  const fromStore = storeAssets
-    .filter((a) => (a.category || '').toLowerCase() === lowerCategory)
-    .map((a) => a.name);
+  const categoryStoreAssets = storeAssets.filter(
+    (a) => (a.category || '').toLowerCase() === lowerCategory,
+  );
   const base = fixtureAssets[catKey] || [];
   const extra = localPreview.imported[catKey] || [];
 
-  const merged = Array.from(new Set([...base, ...fromStore, ...extra]))
-    .map((name) => localPreview.renamed[name] || name)
-    .filter((name) => !localPreview.deleted.has(name));
+  const byKey = new Map();
 
-  return Array.from(new Set(merged));
+  for (const a of categoryStoreAssets) {
+    const renamed = localPreview.renamed[a.name] || a.name;
+    if (localPreview.deleted.has(a.name) || localPreview.deleted.has(renamed)) continue;
+    const key = renamed.toLowerCase();
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        id: a.id || null,
+        name: renamed,
+        category: catKey,
+        url: a.url || (a.id ? `/assets/${encodeURIComponent(a.id)}/file` : null),
+        width: a.width || null,
+        height: a.height || null,
+        metadata: a.metadata || null,
+      });
+    }
+  }
+
+  for (const rawName of [...base, ...extra]) {
+    const renamed = localPreview.renamed[rawName] || rawName;
+    if (localPreview.deleted.has(rawName) || localPreview.deleted.has(renamed)) continue;
+    const key = renamed.toLowerCase();
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        id: null,
+        name: renamed,
+        category: catKey,
+        url: null,
+        width: null,
+        height: null,
+        metadata: null,
+      });
+    }
+  }
+
+  return Array.from(byKey.values());
+}
+
+export function useUploadedCategoryAssets(category) {
+  return useUploadedCategoryAssetEntries(category).map((entry) => entry.name);
 }
 
 export default function AssetsPanel({
@@ -173,12 +210,12 @@ export default function AssetsPanel({
   const categories =
     role === 'DM' ? Object.keys(fixtureAssets) : ['Characters', 'Attachments'];
   const activeTab = categories.includes(tab) ? tab : 'Characters';
-  const categoryItems = useUploadedCategoryAssets(activeTab);
+  const categoryEntries = useUploadedCategoryAssetEntries(activeTab);
   const uploading = useAssets((s) => s.uploading);
   const feedback = useAssets((s) => s.feedback);
 
-  const results = categoryItems.filter((a) =>
-    a.toLowerCase().includes(search.toLowerCase()),
+  const results = categoryEntries.filter((entry) =>
+    entry.name.toLowerCase().includes(search.toLowerCase()),
   );
 
   const isMapOrSceneTab = activeTab === 'Scenes' || activeTab === 'Maps';
@@ -220,7 +257,7 @@ export default function AssetsPanel({
 
   async function finalizeImport(targetCategory, files, names, alignment) {
     if (files?.length) {
-      await assetStore.getState().uploadFileList({
+      const res = await assetStore.getState().uploadFileList({
         type:
           targetCategory === 'Scenes' || targetCategory === 'Maps'
             ? 'map'
@@ -229,6 +266,13 @@ export default function AssetsPanel({
         files,
         metadata: alignment || undefined,
       });
+      if (!res?.ok) return;
+      if (!res.uploaded?.length) {
+        addPreviewUploadedAssets(targetCategory, names);
+      }
+      const nextName = res.uploaded?.[0]?.name || names[0];
+      if (nextName) setSelected(nextName);
+      return;
     }
     addPreviewUploadedAssets(targetCategory, names);
     if (names[0]) setSelected(names[0]);
@@ -322,7 +366,7 @@ export default function AssetsPanel({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/svg+xml"
             multiple
             hidden
             onChange={handleFileInputChange}
@@ -341,89 +385,107 @@ export default function AssetsPanel({
           </p>
         )}
         <div className="asset-items">
-          {results.map((asset, i) => (
-            <div
-              className={`asset-item ${selected === asset || (activeTab === 'Scenes' && scene === asset) ? 'selected' : ''}`}
-              key={asset}
-              role="button"
-              tabIndex={0}
-              draggable={role === 'DM'}
-              onDragStart={(e) => {
-                const payload = JSON.stringify({ name: asset, category: activeTab });
-                e.dataTransfer.setData('application/x-hakton-asset', payload);
-                e.dataTransfer.setData('text/plain', payload);
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
-              onClick={() => setSelected(asset)}
-              onDoubleClick={() => {
-                if (activeTab === 'Scenes') onScene(asset);
-                else onInspect(asset, activeTab);
-              }}
-            >
-              <button
-                type="button"
-                className="asset-item-dots"
-                aria-label={`Options for ${asset}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setOpenMenuFor((curr) => (curr === asset ? null : asset));
+          {results.map((entry, i) => {
+            const asset = entry.name;
+            return (
+              <div
+                className={`asset-item ${selected === asset || (activeTab === 'Scenes' && scene === asset) ? 'selected' : ''}`}
+                key={entry.id || asset}
+                role="button"
+                tabIndex={0}
+                draggable={role === 'DM'}
+                onDragStart={(e) => {
+                  const payload = JSON.stringify({
+                    id: entry.id,
+                    name: asset,
+                    category: activeTab,
+                    url: entry.url,
+                    width: entry.width,
+                    height: entry.height,
+                    metadata: entry.metadata,
+                  });
+                  e.dataTransfer.setData('application/x-hakton-asset', payload);
+                  e.dataTransfer.setData('text/plain', payload);
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
+                onClick={() => setSelected(asset)}
+                onDoubleClick={() => {
+                  if (activeTab === 'Scenes') onScene(asset);
+                  else onInspect(asset, activeTab);
                 }}
               >
-                ⋮
-              </button>
-              {openMenuFor === asset && (
-                <div
-                  className="asset-item-menu"
-                  role="menu"
-                  onClick={(e) => e.stopPropagation()}
+                <button
+                  type="button"
+                  className="asset-item-dots"
+                  aria-label={`Options for ${asset}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenuFor((curr) => (curr === asset ? null : asset));
+                  }}
                 >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setOpenMenuFor(null);
-                      setRenamingAsset(asset);
-                      setRenameValue(asset);
-                    }}
+                  ⋮
+                </button>
+                {openMenuFor === asset && (
+                  <div
+                    className="asset-item-menu"
+                    role="menu"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <ToolIcon name="text" />
-                    <span>Rename</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="danger-item"
-                    onClick={() => {
-                      setOpenMenuFor(null);
-                      setDeletingAsset(asset);
-                    }}
-                  >
-                    <ToolIcon name="trash" />
-                    <span>Delete</span>
-                  </button>
-                </div>
-              )}
-              <span
-                className={`asset-thumbnail type-${activeTab.toLowerCase()} thumbnail-${i % 3}`}
-              >
-                {activeTab === 'Characters' ? (
-                  party[i]?.initials || asset.slice(0, 2).toUpperCase()
-                ) : activeTab === 'Attachments' ? (
-                  '≡'
-                ) : (
-                  <span className="mini-plan">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenMenuFor(null);
+                        setRenamingAsset(asset);
+                        setRenameValue(asset);
+                      }}
+                    >
+                      <ToolIcon name="text" />
+                      <span>Rename</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="danger-item"
+                      onClick={() => {
+                        setOpenMenuFor(null);
+                        setDeletingAsset(asset);
+                      }}
+                    >
+                      <ToolIcon name="trash" />
+                      <span>Delete</span>
+                    </button>
+                  </div>
                 )}
-              </span>
-              <strong>{asset}</strong>
-              {activeTab === 'Scenes' && scene === asset && (
-                <small>Active</small>
-              )}
-            </div>
-          ))}
+                <span
+                  className={`asset-thumbnail type-${activeTab.toLowerCase()} thumbnail-${i % 3}`}
+                >
+                  {entry.url ? (
+                    <img
+                      className="asset-thumbnail-img"
+                      src={resolveAssetUrl(entry.url)}
+                      alt={asset}
+                      draggable={false}
+                    />
+                  ) : activeTab === 'Characters' ? (
+                    party[i]?.initials || asset.slice(0, 2).toUpperCase()
+                  ) : activeTab === 'Attachments' ? (
+                    '≡'
+                  ) : (
+                    <span className="mini-plan">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  )}
+                </span>
+                <strong>{asset}</strong>
+                {activeTab === 'Scenes' && scene === asset && (
+                  <small>Active</small>
+                )}
+              </div>
+            );
+          })}
           {results.length === 0 && (
             <p className="empty-inline">No matching assets.</p>
           )}

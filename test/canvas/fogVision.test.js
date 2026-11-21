@@ -7,6 +7,7 @@ import {
   isPointInFogShape,
   isPointInAnyFog,
   getFogShapeWalls,
+  subtractOpenDoorsFromWalls,
   getAllCollisionWalls,
   findNearestWallSegment,
   detectClosedLoop
@@ -218,4 +219,112 @@ test('computeVisibilityPolygon supports maxDistance range and directional cone a
   for (const pt of conePoly) {
     assert.ok(pt.x >= origin.x - 0.1, `Expected cone facing East x >= 300, got ${pt.x}`)
   }
+})
+
+test('open door on fog perimeter allows token entry/exit and light rays while closed door and remaining walls block', () => {
+  const fogShapes = [{ id: 'fog-room', type: 'rect', x: 200, y: 100, width: 300, height: 300 }]
+  const closedDoor = {
+    id: 'door-west',
+    p1: { x: 200, y: 210 },
+    p2: { x: 200, y: 290 },
+    isDoor: true,
+    isOpen: false,
+    wallId: 'fog-room_w3',
+  }
+
+  // 1. Closed door blocks movement into fog at y=250
+  const closedWalls = getAllCollisionWalls([closedDoor], fogShapes)
+  const blockedEnter = resolveTokenMoveWithWalls(
+    { x: 140, y: 250 },
+    { x: 260, y: 250 },
+    closedWalls,
+    { buffer: 12 },
+  )
+  assert.equal(blockedEnter.blocked, true)
+  assert.ok(blockedEnter.position.x <= 200)
+
+  // 2. Open door carves passage in fog perimeter wall so token can enter AND exit at y=250
+  const openDoor = { ...closedDoor, isOpen: true }
+  const openWalls = getAllCollisionWalls([openDoor], fogShapes)
+
+  const enterThroughDoor = resolveTokenMoveWithWalls(
+    { x: 140, y: 250 },
+    { x: 260, y: 250 },
+    openWalls,
+    { buffer: 12 },
+  )
+  assert.equal(enterThroughDoor.blocked, false)
+  assert.deepEqual(enterThroughDoor.position, { x: 260, y: 250 })
+  assert.equal(isPointInAnyFog(enterThroughDoor.position, fogShapes), true)
+
+  const exitThroughDoor = resolveTokenMoveWithWalls(
+    { x: 260, y: 250 },
+    { x: 140, y: 250 },
+    openWalls,
+    { buffer: 12 },
+  )
+  assert.equal(exitThroughDoor.blocked, false)
+  assert.deepEqual(exitThroughDoor.position, { x: 140, y: 250 })
+  assert.equal(isPointInAnyFog(exitThroughDoor.position, fogShapes), false)
+
+  // 3. Remaining wall sections above/below the open door (e.g. y=150) STILL block passage
+  const blockedAtWallBesideDoor = resolveTokenMoveWithWalls(
+    { x: 140, y: 150 },
+    { x: 260, y: 150 },
+    openWalls,
+    { buffer: 12 },
+  )
+  assert.equal(blockedAtWallBesideDoor.blocked, true)
+  assert.ok(blockedAtWallBesideDoor.position.x <= 200)
+
+  // 4. Visibility polygon passes through the open door into the fog interior (x > 200),
+  //    but no ray reaches strictly inside the fog room while the door is closed
+  const origin = { x: 140, y: 250 }
+  const isStrictlyInsideRoom = (p) =>
+    p.x > 200.5 && p.x < 499.5 && p.y > 100.5 && p.y < 399.5
+
+  const polyClosed = computeVisibilityPolygon(origin, closedWalls, { x: 0, y: 0, width: 800, height: 600 }, { maxDistance: 300 })
+  assert.equal(
+    polyClosed.some(isStrictlyInsideRoom),
+    false,
+    'Expected no light rays inside fog room while door is closed',
+  )
+
+  const polyOpen = computeVisibilityPolygon(origin, openWalls, { x: 0, y: 0, width: 800, height: 600 }, { maxDistance: 300 })
+  const interiorOpenPts = polyOpen.filter(isStrictlyInsideRoom)
+  assert.ok(
+    interiorOpenPts.some((p) => p.x > 350),
+    'Expected open door light to penetrate fog room past x=350',
+  )
+})
+
+test('resolveTokenMoveWithWalls slides tangentially along a wall without crossing when flush', () => {
+  const walls = [{ id: 'w1', p1: { x: 200, y: 100 }, p2: { x: 200, y: 200 }, isDoor: false, isOpen: false }]
+  // Frame 1: Token moves diagonally into wall from (196, 150) toward (240, 260); stops before crossing x=200
+  const frame1 = resolveTokenMoveWithWalls({ x: 196, y: 150 }, { x: 240, y: 260 }, walls, { buffer: 4 })
+  assert.equal(frame1.blocked, true)
+  assert.ok(frame1.position.x < 200)
+
+  // Frame 2: Continuing diagonal push while flush at buffer distance slides tangentially south along wall
+  const frame2 = resolveTokenMoveWithWalls(frame1.position, { x: 240, y: 260 }, walls, { buffer: 4 })
+  assert.equal(frame2.blocked, true)
+  assert.equal(frame2.position.x, frame1.position.x)
+  assert.ok(frame2.position.y > frame1.position.y, `Expected token to slide south along wall, got y=${frame2.position.y}`)
+})
+
+test('subtractOpenDoorsFromWalls ignores perpendicular neighbor edges touching a corner door', () => {
+  const rectWalls = getFogShapeWalls([{ id: 'r1', type: 'rect', x: 100, y: 100, width: 200, height: 200 }])
+  const topCornerDoor = {
+    id: 'd-top',
+    p1: { x: 102, y: 100 },
+    p2: { x: 150, y: 100 },
+    isDoor: true,
+    isOpen: true,
+    wallId: 'r1_w0',
+  }
+  const carved = subtractOpenDoorsFromWalls(rectWalls, [topCornerDoor])
+  // West edge r1_w3 must remain full 200px height untouched
+  const westEdge = carved.find((w) => w.id === 'r1_w3')
+  assert.ok(westEdge)
+  assert.equal(Math.hypot(westEdge.p2.x - westEdge.p1.x, westEdge.p2.y - westEdge.p1.y), 200)
 })

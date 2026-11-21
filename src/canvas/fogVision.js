@@ -162,8 +162,8 @@ export function getFogShapeWalls(fogShapes = []) {
         }
       }
     } else if (shape.type === 'circle' && shape.radius > 4) {
-      // Approximate circle perimeter with 16 polygonal segments for smooth barrier collision
-      const segs = 16;
+      // Approximate circle perimeter with 24 polygonal segments for smooth barrier collision
+      const segs = 24;
       const step = (Math.PI * 2) / segs;
       for (let i = 0; i < segs; i++) {
         const a1 = i * step;
@@ -193,12 +193,99 @@ export function getFogShapeWalls(fogShapes = []) {
 }
 
 /**
+ * Splits wall segments wherever open doors overlap them, carving real doorway gaps
+ * for both physical movement and light/vision rays while keeping adjacent wall sections intact.
+ */
+export function subtractOpenDoorsFromWalls(walls = [], openDoors = []) {
+  if (!Array.isArray(walls) || walls.length === 0) return [];
+  if (!Array.isArray(openDoors) || openDoors.length === 0) return walls;
+
+  const result = [];
+
+  for (const wall of walls) {
+    if (!wall?.p1 || !wall?.p2) continue;
+    const dx = wall.p2.x - wall.p1.x;
+    const dy = wall.p2.y - wall.p1.y;
+    const wallLen = Math.hypot(dx, dy);
+    if (wallLen < 1) continue;
+
+    const gaps = [];
+    for (const door of openDoors) {
+      if (!door?.isDoor || !door.isOpen || !door.p1 || !door.p2) continue;
+      const proj1 = projectPointOnSegment(door.p1, wall.p1, wall.p2);
+      const proj2 = projectPointOnSegment(door.p2, wall.p1, wall.p2);
+      const matchesById = Boolean(door.wallId && door.wallId === wall.id);
+      const matchesCollinear = proj1.distance <= 12 && proj2.distance <= 12;
+      if (!matchesById && !matchesCollinear) continue;
+
+      const tStart = Math.max(0, Math.min(1, Math.min(proj1.t, proj2.t)));
+      const tEnd = Math.max(0, Math.min(1, Math.max(proj1.t, proj2.t)));
+      if (tEnd - tStart > 1e-4) {
+        gaps.push([tStart, tEnd]);
+      }
+    }
+
+    if (gaps.length === 0) {
+      result.push(wall);
+      continue;
+    }
+
+    gaps.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const [start, end] of gaps) {
+      if (merged.length === 0 || start > merged[merged.length - 1][1] + 1e-6) {
+        merged.push([start, end]);
+      } else {
+        merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], end);
+      }
+    }
+
+    let cursor = 0;
+    let segIdx = 0;
+    const lerpPt = (t) => ({
+      x: wall.p1.x + dx * t,
+      y: wall.p1.y + dy * t,
+    });
+
+    for (const [gStart, gEnd] of merged) {
+      if ((gStart - cursor) * wallLen >= 2) {
+        result.push({
+          ...wall,
+          id: `${wall.id}_seg${segIdx++}`,
+          p1: lerpPt(cursor),
+          p2: lerpPt(gStart),
+        });
+      }
+      cursor = Math.max(cursor, gEnd);
+    }
+
+    if ((1 - cursor) * wallLen >= 2) {
+      result.push({
+        ...wall,
+        id: `${wall.id}_seg${segIdx++}`,
+        p1: lerpPt(cursor),
+        p2: wall.p2,
+      });
+    }
+  }
+
+  return result;
+}
+
+/**
  * Combines explicit walls and doors with auto-generated perimeter walls from fog shapes.
- * If an open door exists on an edge, that door's open passage is honored.
+ * Open doors geometrically carve passages through collinear walls and fog boundaries.
  */
 export function getAllCollisionWalls(explicitWalls = [], fogShapes = []) {
+  const list = Array.isArray(explicitWalls) ? explicitWalls : [];
+  const openDoors = list.filter((w) => w && w.isDoor && w.isOpen);
+  const closedDoors = list.filter((w) => w && w.isDoor && !w.isOpen);
+  const explicitSolidWalls = list.filter((w) => w && !w.isDoor);
   const autoWalls = getFogShapeWalls(fogShapes);
-  return [...explicitWalls, ...autoWalls];
+
+  const carvedExplicit = subtractOpenDoorsFromWalls(explicitSolidWalls, openDoors);
+  const carvedAuto = subtractOpenDoorsFromWalls(autoWalls, openDoors);
+  return [...closedDoors, ...carvedExplicit, ...carvedAuto];
 }
 
 /**
@@ -323,10 +410,36 @@ export function resolveTokenMoveWithWalls(startPos, targetPos, walls = [], optio
     const hitDist = totalDist * earliestHit.t;
     // Halt right in front of the wall by the buffer amount
     const stopDist = Math.max(0, hitDist - buffer);
-    const stoppedPos = {
+    let stoppedPos = {
       x: startPos.x + ux * stopDist,
       y: startPos.y + uy * stopDist,
     };
+
+    // Smooth tangential wall slide when pressed flush against a wall
+    if (stopDist <= 0.5 && earliestHit.wall?.p1 && earliestHit.wall?.p2) {
+      const wx = earliestHit.wall.p2.x - earliestHit.wall.p1.x;
+      const wy = earliestHit.wall.p2.y - earliestHit.wall.p1.y;
+      const wLen = Math.hypot(wx, wy);
+      if (wLen > 1e-3) {
+        const tx = wx / wLen;
+        const ty = wy / wLen;
+        const slideDist = dx * tx + dy * ty;
+        if (Math.abs(slideDist) > 0.5) {
+          const candidateSlide = {
+            x: startPos.x + tx * slideDist,
+            y: startPos.y + ty * slideDist,
+          };
+          const slideBlocked = walls.some(
+            (w) =>
+              isBlockingWall(w) &&
+              segmentsIntersect(startPos, candidateSlide, w.p1, w.p2).intersects,
+          );
+          if (!slideBlocked) {
+            stoppedPos = candidateSlide;
+          }
+        }
+      }
+    }
 
     return {
       blocked: true,

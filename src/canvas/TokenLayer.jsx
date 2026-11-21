@@ -2,9 +2,9 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Circle, Group, Image as KonvaImage, Rect, Text } from 'react-konva';
 import { useSession } from '../store/sessionStore.js';
 import { canvasStore, useCanvas } from './canvasStore.js';
-import { emitTokenMove } from '../net/socket.js';
+import { emitTokenMove, resolveAssetUrl } from '../net/socket.js';
 import { clampTokenPosition, snapPoint } from './viewport.js';
-import { getAllCollisionWalls, isPointInAnyFog, resolveTokenMoveWithWalls } from './fogVision.js';
+import { getAllCollisionWalls, resolveTokenMoveWithWalls } from './fogVision.js';
 import { useCanvasImage } from './useCanvasImage.js';
 
 const DEFAULT_COLOR = '#adfcf9';
@@ -28,10 +28,11 @@ const TokenNode = memo(function TokenNode({
   const [hovered, setHovered] = useState(false);
   const startRef = useRef({ x: token.x, y: token.y });
   const lastValidPosRef = useRef({ x: token.x, y: token.y });
-  const wasOutsideFogRef = useRef(true);
   const nodeRef = useRef(null);
 
-  const { image } = useCanvasImage(token.isMap ? token.imageUrl : null);
+  const resolvedMapUrl =
+    token.isMap && token.imageUrl ? resolveAssetUrl(token.imageUrl) : null;
+  const { image } = useCanvasImage(resolvedMapUrl);
 
   const setRef = useCallback(
     (node) => {
@@ -46,8 +47,8 @@ const TokenNode = memo(function TokenNode({
   const fill = token.color || DEFAULT_COLOR;
   const displayX = dragging ? startRef.current.x : token.x;
   const displayY = dragging ? startRef.current.y : token.y;
-  const mapW = token.width || 800;
-  const mapH = token.height || 600;
+  const mapW = token.width || image?.naturalWidth || 800;
+  const mapH = token.height || image?.naturalHeight || 600;
 
   const dragBoundFunc = useCallback(
     (pos) => {
@@ -68,19 +69,15 @@ const TokenNode = memo(function TokenNode({
       // Clamp inside playable map bounds
       const clamped = clampTokenPosition(mapPos, mapWidth, mapHeight, grid);
 
-      // Check collision against all blocking walls and closed doors
+      // Check collision against all blocking walls and closed doors (open doors have carved gaps)
       const store = canvasStore.getState();
       const allWalls = getAllCollisionWalls(store.walls, store.fogShapes);
       const start = lastValidPosRef.current || { x: token.x, y: token.y };
       const resolved = resolveTokenMoveWithWalls(start, clamped, allWalls, {
-        buffer: radius + 2,
+        buffer: Math.min(radius + 2, 16),
       });
 
-      let finalMap = resolved.position;
-      if (wasOutsideFogRef.current && isPointInAnyFog(finalMap, store.fogShapes)) {
-        finalMap = start;
-      }
-
+      const finalMap = resolved.position;
       lastValidPosRef.current = finalMap;
       const absTransform = stage.getAbsoluteTransform();
       return absTransform.point(finalMap);
@@ -110,8 +107,6 @@ const TokenNode = memo(function TokenNode({
         const curPos = { x: event.target.x(), y: event.target.y() };
         startRef.current = curPos;
         lastValidPosRef.current = curPos;
-        const store = canvasStore.getState();
-        wasOutsideFogRef.current = !isPointInAnyFog(curPos, store.fogShapes);
         setDragging(true);
         onDragStart(token.id, event.target);
       }}
@@ -235,7 +230,14 @@ const TokenNode = memo(function TokenNode({
  * Interactive token layer. Coordinates are map-space; the stage transform
  * handles zoom/pan, so drag gestures stay correct at any scale.
  */
-export default function TokenLayer({ map, gridSize, role, panMode, onCursor }) {
+export default function TokenLayer({
+  map,
+  gridSize,
+  role,
+  panMode,
+  onCursor,
+  filter = 'all',
+}) {
   const tokensMap = useSession((state) => state.tokens);
   const currentUser = useSession((state) => state.currentUser);
   const selectedIds = useCanvas((state) => state.selectedIds);
@@ -244,7 +246,11 @@ export default function TokenLayer({ map, gridSize, role, panMode, onCursor }) {
   const grid = gridSize > 0 ? gridSize : 70;
   const mapWidth = map?.width ?? 0;
   const mapHeight = map?.height ?? 0;
-  const isDM = role === 'DM' || currentUser?.role === 'dm';
+  const isDM =
+    role === 'DM' ||
+    role === 'dm' ||
+    currentUser?.role === 'dm' ||
+    currentUser?.role === 'DM';
 
   const nodesRef = useRef(new Map());
   const dragRef = useRef(null);
@@ -279,13 +285,24 @@ export default function TokenLayer({ map, gridSize, role, panMode, onCursor }) {
       const positions = new Map();
       for (const tokenId of ids) {
         const token = tokensMap[tokenId];
-        if (token) positions.set(tokenId, { x: token.x, y: token.y });
+        if (token) {
+          positions.set(tokenId, {
+            x: token.x,
+            y: token.y,
+            isMap: Boolean(token.isMap),
+          });
+        }
       }
-      positions.set(id, { x: node.x(), y: node.y() });
+      positions.set(id, {
+        x: node.x(),
+        y: node.y(),
+        isMap: Boolean(tokensMap[id]?.isMap),
+      });
 
       dragRef.current = {
         leadId: id,
         leadStart: { x: node.x(), y: node.y() },
+        leadIsMap: Boolean(tokensMap[id]?.isMap),
         positions,
       };
       store.setDraggingIds(Array.from(positions.keys()));
@@ -297,12 +314,18 @@ export default function TokenLayer({ map, gridSize, role, panMode, onCursor }) {
     const drag = dragRef.current;
     if (!drag || drag.leadId !== id) return;
 
-    const dx = node.x() - drag.leadStart.x;
-    const dy = node.y() - drag.leadStart.y;
+    const leadPos = { x: node.x(), y: node.y() };
+    const store = canvasStore.getState();
+    store.setDraggingPosition(id, leadPos);
+
+    const dx = leadPos.x - drag.leadStart.x;
+    const dy = leadPos.y - drag.leadStart.y;
     drag.positions.forEach((start, tokenId) => {
       if (tokenId === id) return;
       const other = nodesRef.current.get(tokenId);
-      if (other) other.position({ x: start.x + dx, y: start.y + dy });
+      const nextPos = { x: start.x + dx, y: start.y + dy };
+      if (other) other.position(nextPos);
+      store.setDraggingPosition(tokenId, nextPos);
     });
   }, []);
 
@@ -311,32 +334,43 @@ export default function TokenLayer({ map, gridSize, role, panMode, onCursor }) {
       const drag = dragRef.current;
       if (!drag || drag.leadId !== id) return;
 
-      const snapped =
-        snapEnabled && !altKey ? snapPoint(position, grid) : position;
-      const lead = clampTokenPosition(snapped, mapWidth, mapHeight, grid);
+      const store = canvasStore.getState();
+      const allWalls = getAllCollisionWalls(store.walls, store.fogShapes);
+      const buffer = Math.min(Math.max(8, grid / 2 - 4) + 2, 16);
+
+      let lead;
+      if (drag.leadIsMap) {
+        lead = position;
+      } else {
+        const snapped =
+          snapEnabled && !altKey ? snapPoint(position, grid) : position;
+        const clampedLead = clampTokenPosition(snapped, mapWidth, mapHeight, grid);
+        lead = resolveTokenMoveWithWalls(position, clampedLead, allWalls, {
+          buffer,
+        }).position;
+      }
+
       const dx = lead.x - drag.leadStart.x;
       const dy = lead.y - drag.leadStart.y;
 
-      const store = canvasStore.getState();
-      const allWalls = getAllCollisionWalls(store.walls, store.fogShapes);
       const moves = [];
       drag.positions.forEach((start, tokenId) => {
-        const candidate =
-          tokenId === id
-            ? lead
-            : clampTokenPosition(
-                { x: start.x + dx, y: start.y + dy },
-                mapWidth,
-                mapHeight,
-                grid,
-              );
-        const resolved =
-          tokenId === id
-            ? { position: candidate }
-            : resolveTokenMoveWithWalls(start, candidate, allWalls, {
-                buffer: Math.max(8, grid / 2 - 4) + 2,
-              });
-        const final = resolved.position;
+        let final;
+        if (tokenId === id) {
+          final = lead;
+        } else if (start.isMap) {
+          final = { x: start.x + dx, y: start.y + dy };
+        } else {
+          const candidate = clampTokenPosition(
+            { x: start.x + dx, y: start.y + dy },
+            mapWidth,
+            mapHeight,
+            grid,
+          );
+          final = resolveTokenMoveWithWalls(start, candidate, allWalls, {
+            buffer,
+          }).position;
+        }
         const other = nodesRef.current.get(tokenId);
         if (other) other.position(final);
         if (final.x !== start.x || final.y !== start.y) {
@@ -345,7 +379,8 @@ export default function TokenLayer({ map, gridSize, role, panMode, onCursor }) {
       });
 
       dragRef.current = null;
-      canvasStore.getState().setDraggingIds([]);
+      store.setDraggingIds([]);
+      store.clearDraggingPositions();
 
       for (const move of moves) {
         emitTokenMove(move.id, move.x, move.y);
@@ -354,9 +389,17 @@ export default function TokenLayer({ map, gridSize, role, panMode, onCursor }) {
     [grid, mapHeight, mapWidth, snapEnabled],
   );
 
+  const visibleTokens = Object.values(tokensMap)
+    .filter((token) => {
+      if (filter === 'maps') return Boolean(token.isMap);
+      if (filter === 'tokens') return !token.isMap;
+      return true;
+    })
+    .sort((a, b) => (a.isMap ? 0 : 1) - (b.isMap ? 0 : 1));
+
   return (
     <>
-      {Object.values(tokensMap).map((token) => {
+      {visibleTokens.map((token) => {
         const canDrag =
           !panMode &&
           (isDM ||
