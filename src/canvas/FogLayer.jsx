@@ -1,5 +1,6 @@
 import { Circle, Group, Line, Rect } from 'react-konva';
 import { canvasStore, useCanvas } from './canvasStore.js';
+import { visibleBounds } from './viewport.js';
 import { useSession } from '../store/sessionStore.js';
 import {
   computeVisibilityPolygon,
@@ -75,6 +76,9 @@ export default function FogLayer({
   const fogTool = useCanvas((s) => s.fogTool);
   const playerVisionPreview = useCanvas((s) => s.playerVisionPreview);
   const draggingPositions = useCanvas((s) => s.draggingPositions);
+  const draggingRotations = useCanvas((s) => s.draggingRotations);
+  const viewport = useCanvas((s) => s.viewport);
+  const viewportSize = useCanvas((s) => s.viewportSize);
   const tokens = useSession((s) => s.tokens);
 
   const isDM = role === 'DM' || role === 'dm';
@@ -95,12 +99,15 @@ export default function FogLayer({
     (t) => t?.light?.enabled,
   );
 
-  const mapBounds = {
-    x: 0,
-    y: 0,
-    width: Math.max(map?.width || 2100, 1400),
-    height: Math.max(map?.height || 1400, 980),
-  };
+  const viewRect = visibleBounds(
+    viewport,
+    viewportSize?.width || 1400,
+    viewportSize?.height || 980,
+  );
+  const baseMinX = Math.min(0, viewRect.x0);
+  const baseMinY = Math.min(0, viewRect.y0);
+  const baseMaxX = Math.max(map?.width || 2100, 1400, viewRect.x1);
+  const baseMaxY = Math.max(map?.height || 1400, 980, viewRect.y1);
 
   const lightPolygons = lightTokens
     .map((token) => {
@@ -110,14 +117,32 @@ export default function FogLayer({
         : { x: token.x, y: token.y };
       const rangeFt = Number(token.light?.range) || 30;
       const maxDistance = (rangeFt / 5) * (map?.gridSize || 70);
+      const pad = maxDistance + 64;
+      const minX = Math.min(baseMinX, origin.x - pad);
+      const minY = Math.min(baseMinY, origin.y - pad);
+      const maxX = Math.max(baseMaxX, origin.x + pad);
+      const maxY = Math.max(baseMaxY, origin.y + pad);
+      const tokenBounds = {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+      };
+      const liveRot = draggingRotations?.[token.id];
+      const effectiveRotation =
+        liveRot !== undefined
+          ? liveRot
+          : Number.isFinite(Number(token.rotation))
+            ? Number(token.rotation)
+            : Number(token.light?.rotation) || 0;
       const arc =
         token.light?.type === 'vision'
           ? {
               angle: Number(token.light.angle) || 90,
-              rotation: Number(token.light.rotation) || 0,
+              rotation: effectiveRotation,
             }
           : null;
-      const poly = computeVisibilityPolygon(origin, allWalls, mapBounds, {
+      const poly = computeVisibilityPolygon(origin, allWalls, tokenBounds, {
         maxDistance,
         arc,
       });

@@ -2,7 +2,6 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import {
   clampScale,
-  clampTranslation,
   fitViewport,
   zoomAtPoint,
 } from './viewport.js';
@@ -14,19 +13,12 @@ const EMPTY_SIZE = { width: 0, height: 0 };
  * panning/zooming can drive Konva imperatively without re-rendering the tree.
  */
 export const canvasStore = createStore((set, get) => {
-  /** Clamp a viewport against the current (or supplied) sizes. */
-  const bound = (viewport, overrides = {}) => {
-    const state = get();
-    const viewportSize = overrides.viewportSize ?? state.viewportSize;
-    const mapSize = overrides.mapSize ?? state.mapSize;
-    return clampTranslation(
-      { ...viewport, scale: clampScale(viewport.scale) },
-      viewportSize.width,
-      viewportSize.height,
-      mapSize.width,
-      mapSize.height,
-    );
-  };
+  /** Clamp zoom scale while permitting unrestricted panning across the full-screen canvas. */
+  const bound = (viewport) => ({
+    x: Number.isFinite(viewport?.x) ? viewport.x : 0,
+    y: Number.isFinite(viewport?.y) ? viewport.y : 0,
+    scale: clampScale(viewport?.scale),
+  });
 
   return {
     viewport: { x: 0, y: 0, scale: 1 },
@@ -37,6 +29,7 @@ export const canvasStore = createStore((set, get) => {
     selectedIds: [],
     draggingIds: [],
     draggingPositions: {},
+    draggingRotations: {},
 
     // Fog of War & Dynamic Vision state (starts empty — never auto-placed on maps)
     fogTool: null, // 'rect' | 'circle' | 'polygon' | 'line' | 'wall' | 'door' | 'erase' | null
@@ -198,6 +191,21 @@ export const canvasStore = createStore((set, get) => {
       })),
 
     clearDraggingPositions: () => set({ draggingPositions: {} }),
+
+    setDraggingRotation: (id, rotation) =>
+      set((state) => ({
+        draggingRotations: { ...state.draggingRotations, [id]: rotation },
+      })),
+
+    clearDraggingRotation: (id) =>
+      set((state) => {
+        if (!(id in state.draggingRotations)) return state;
+        const next = { ...state.draggingRotations };
+        delete next[id];
+        return { draggingRotations: next };
+      }),
+
+    clearDraggingRotations: () => set({ draggingRotations: {} }),
   };
 });
 

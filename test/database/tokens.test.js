@@ -92,10 +92,12 @@ describe('token persistence', () => {
         label: 'Mira',
         x: 105,
         y: 105,
+        rotation: 45,
       });
 
       repos.tokens.update('tok-hero', {
-        light: { enabled: true, type: 'vision', range: 45, angle: 90, rotation: 30 },
+        rotation: 135,
+        light: { enabled: true, type: 'vision', range: 45, angle: 90, rotation: 135 },
       });
       db.close();
 
@@ -108,6 +110,7 @@ describe('token persistence', () => {
       assert.equal(storedMap.image_url, '/assets/map-1/file');
       assert.equal(storedMap.width, 1200);
       assert.equal(storedMap.height, 800);
+      assert.equal(storedHero.rotation, 135);
 
       const parsedLight = JSON.parse(storedHero.light);
       assert.deepEqual(parsedLight, {
@@ -115,7 +118,7 @@ describe('token persistence', () => {
         type: 'vision',
         range: 45,
         angle: 90,
-        rotation: 30,
+        rotation: 135,
       });
       db.close();
     } finally {

@@ -14,11 +14,16 @@ import { createUserModel } from './models/users.js';
  */
 export function createRepositories(db) {
   const tokenColumns =
-    'id, map_id, label, x, y, owner_id, locked, color, is_map, image_url, width, height, light';
+    'id, map_id, label, x, y, owner_id, locked, color, is_map, image_url, width, height, light, rotation';
 
   const serializeLight = (light) => {
     if (!light || typeof light !== 'object') return null;
     return JSON.stringify(light);
+  };
+
+  const normalizeRotation = (val) => {
+    const n = Number(val);
+    return Number.isFinite(n) ? ((n % 360) + 360) % 360 : 0;
   };
 
   const stmts = {
@@ -40,8 +45,8 @@ export function createRepositories(db) {
     ),
     tokenById: db.prepare(`SELECT ${tokenColumns} FROM tokens WHERE id = ?`),
     insertToken: db.prepare(`
-      INSERT INTO tokens (id, map_id, label, x, y, owner_id, locked, color, is_map, image_url, width, height, light)
-      VALUES (@id, @mapId, @label, @x, @y, @ownerId, @locked, @color, @isMap, @imageUrl, @width, @height, @light)`),
+      INSERT INTO tokens (id, map_id, label, x, y, owner_id, locked, color, is_map, image_url, width, height, light, rotation)
+      VALUES (@id, @mapId, @label, @x, @y, @ownerId, @locked, @color, @isMap, @imageUrl, @width, @height, @light, @rotation)`),
     upsertToken: db.prepare(`
       INSERT INTO tokens (id, map_id, label, x, y) VALUES (@id, @mapId, @label, @x, @y)
       ON CONFLICT(id) DO UPDATE SET x = excluded.x, y = excluded.y`),
@@ -102,6 +107,7 @@ export function createRepositories(db) {
         width = null,
         height = null,
         light = null,
+        rotation = 0,
       }) => {
         stmts.insertToken.run({
           id,
@@ -117,6 +123,7 @@ export function createRepositories(db) {
           width: Number.isFinite(Number(width)) && Number(width) > 0 ? Number(width) : null,
           height: Number.isFinite(Number(height)) && Number(height) > 0 ? Number(height) : null,
           light: serializeLight(light),
+          rotation: normalizeRotation(rotation),
         });
         return stmts.tokenById.get(id);
       },
@@ -131,6 +138,7 @@ export function createRepositories(db) {
           width: 'width',
           height: 'height',
           light: 'light',
+          rotation: 'rotation',
         };
         const fields = Object.keys(columns).filter((key) => key in patch);
         if (fields.length === 0) return stmts.tokenById.get(id) ?? null;
@@ -145,6 +153,8 @@ export function createRepositories(db) {
               Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null;
           } else if (field === 'light') {
             params[field] = serializeLight(value);
+          } else if (field === 'rotation') {
+            params[field] = normalizeRotation(value);
           } else {
             params[field] = value === undefined ? null : value;
           }

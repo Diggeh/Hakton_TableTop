@@ -165,6 +165,7 @@ describe('database integrity check, backups, and recovery', () => {
       '005_autosave_recovery.sql',
       '006_users.sql',
       '007_token_extras.sql',
+      '008_token_rotation.sql',
     ]);
     assert.ok(recovery.backedUpBeforeMigration);
     assert.ok(fs.existsSync(recovery.backedUpBeforeMigration));

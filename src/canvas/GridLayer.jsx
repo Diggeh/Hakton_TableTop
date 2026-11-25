@@ -9,26 +9,25 @@ const MAJOR = 'rgba(173, 252, 249, 0.26)';
  * maps (thousands of cells) without creating thousands of React nodes.
  */
 export default function GridLayer({ map, gridSize }) {
-  const width = map?.width || 0;
-  const height = map?.height || 0;
   const grid = gridSize > 0 ? gridSize : 70;
 
   const sceneFunc = (context, shape) => {
-    if (!width || !height) return;
     const { viewport, viewportSize } = canvasStore.getState();
     const { x, y, scale } = viewport;
+    if (!viewportSize.width || !viewportSize.height || !scale) return;
 
-    // Map-space rectangle currently on screen, clamped to the map.
-    const left = Math.max(0, -x / scale);
-    const top = Math.max(0, -y / scale);
-    const right = Math.min(width, (viewportSize.width - x) / scale);
-    const bottom = Math.min(height, (viewportSize.height - y) / scale);
+    // Stretch grid edge-to-edge across the entire VTT viewport in world/map coordinates.
+    const left = -x / scale;
+    const top = -y / scale;
+    const right = (viewportSize.width - x) / scale;
+    const bottom = (viewportSize.height - y) / scale;
     if (right <= left || bottom <= top) return;
 
     const firstColumn = Math.ceil(left / grid);
     const lastColumn = Math.floor(right / grid);
     const firstRow = Math.ceil(top / grid);
     const lastRow = Math.floor(bottom / grid);
+    const isMajor = (n) => ((n % 5) + 5) % 5 === 0;
 
     const line = 1 / scale;
 
@@ -37,13 +36,13 @@ export default function GridLayer({ map, gridSize }) {
     // Minor lines.
     context.beginPath();
     for (let column = firstColumn; column <= lastColumn; column += 1) {
-      if (column % 5 === 0) continue;
+      if (isMajor(column)) continue;
       const lineX = column * grid;
       context.moveTo(lineX, top);
       context.lineTo(lineX, bottom);
     }
     for (let row = firstRow; row <= lastRow; row += 1) {
-      if (row % 5 === 0) continue;
+      if (isMajor(row)) continue;
       const lineY = row * grid;
       context.moveTo(left, lineY);
       context.lineTo(right, lineY);
@@ -55,13 +54,13 @@ export default function GridLayer({ map, gridSize }) {
     // Major lines every five squares.
     context.beginPath();
     for (let column = firstColumn; column <= lastColumn; column += 1) {
-      if (column % 5 !== 0) continue;
+      if (!isMajor(column)) continue;
       const lineX = column * grid;
       context.moveTo(lineX, top);
       context.lineTo(lineX, bottom);
     }
     for (let row = firstRow; row <= lastRow; row += 1) {
-      if (row % 5 !== 0) continue;
+      if (!isMajor(row)) continue;
       const lineY = row * grid;
       context.moveTo(left, lineY);
       context.lineTo(right, lineY);

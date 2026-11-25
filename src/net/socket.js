@@ -728,6 +728,9 @@ export function createToken(token) {
         width: token.width || null,
         height: token.height || null,
         light: token.light || null,
+        rotation: Number.isFinite(Number(token.rotation))
+          ? ((Number(token.rotation) % 360) + 360) % 360
+          : 0,
       };
       sessionStore.getState().upsertToken(localToken);
       return { ok: true, offline: true, token: localToken };

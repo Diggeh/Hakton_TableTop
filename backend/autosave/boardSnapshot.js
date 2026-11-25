@@ -55,6 +55,9 @@ export function buildBoardSnapshot(repos, campaignId) {
         width: token.width ?? null,
         height: token.height ?? null,
         light,
+        rotation: Number.isFinite(Number(token.rotation))
+          ? ((Number(token.rotation) % 360) + 360) % 360
+          : 0,
       };
     }),
     settings: { gridSize: active?.grid_size ?? 70 },

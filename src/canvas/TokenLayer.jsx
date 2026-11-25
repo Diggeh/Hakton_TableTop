@@ -1,9 +1,9 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Circle, Group, Image as KonvaImage, Rect, Text } from 'react-konva';
-import { useSession } from '../store/sessionStore.js';
+import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from 'react-konva';
+import { sessionStore, useSession } from '../store/sessionStore.js';
 import { canvasStore, useCanvas } from './canvasStore.js';
-import { emitTokenMove, resolveAssetUrl } from '../net/socket.js';
-import { clampTokenPosition, snapPoint } from './viewport.js';
+import { emitTokenMove, resolveAssetUrl, updateToken } from '../net/socket.js';
+import { screenToMap, snapPoint } from './viewport.js';
 import { getAllCollisionWalls, resolveTokenMoveWithWalls } from './fogVision.js';
 import { useCanvasImage } from './useCanvasImage.js';
 
@@ -12,15 +12,15 @@ const DEFAULT_COLOR = '#adfcf9';
 const TokenNode = memo(function TokenNode({
   token,
   grid,
-  mapWidth,
-  mapHeight,
   selected,
   draggable,
   panMode,
+  liveRotation,
   onSelect,
   onDragStart,
   onDragMove,
   onDragEnd,
+  onRotateCommit,
   onCursor,
   registerNode,
 }) {
@@ -29,6 +29,16 @@ const TokenNode = memo(function TokenNode({
   const startRef = useRef({ x: token.x, y: token.y });
   const lastValidPosRef = useRef({ x: token.x, y: token.y });
   const nodeRef = useRef(null);
+  const rotateCleanupRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (rotateCleanupRef.current) {
+        rotateCleanupRef.current();
+        rotateCleanupRef.current = null;
+      }
+    };
+  }, []);
 
   const resolvedMapUrl =
     token.isMap && token.imageUrl ? resolveAssetUrl(token.imageUrl) : null;
@@ -49,6 +59,12 @@ const TokenNode = memo(function TokenNode({
   const displayY = dragging ? startRef.current.y : token.y;
   const mapW = token.width || image?.naturalWidth || 800;
   const mapH = token.height || image?.naturalHeight || 600;
+  const displayRotation =
+    liveRotation !== undefined
+      ? liveRotation
+      : Number.isFinite(Number(token.rotation))
+        ? Number(token.rotation)
+        : Number(token.light?.rotation) || 0;
 
   const dragBoundFunc = useCallback(
     (pos) => {
@@ -66,14 +82,11 @@ const TokenNode = memo(function TokenNode({
         return absTransform.point(mapPos);
       }
 
-      // Clamp inside playable map bounds
-      const clamped = clampTokenPosition(mapPos, mapWidth, mapHeight, grid);
-
       // Check collision against all blocking walls and closed doors (open doors have carved gaps)
       const store = canvasStore.getState();
       const allWalls = getAllCollisionWalls(store.walls, store.fogShapes);
       const start = lastValidPosRef.current || { x: token.x, y: token.y };
-      const resolved = resolveTokenMoveWithWalls(start, clamped, allWalls, {
+      const resolved = resolveTokenMoveWithWalls(start, mapPos, allWalls, {
         buffer: Math.min(radius + 2, 16),
       });
 
@@ -82,7 +95,64 @@ const TokenNode = memo(function TokenNode({
       const absTransform = stage.getAbsoluteTransform();
       return absTransform.point(finalMap);
     },
-    [grid, mapHeight, mapWidth, radius, token.isMap, token.x, token.y],
+    [radius, token.isMap, token.x, token.y],
+  );
+
+  const startRotateDrag = useCallback(
+    (event) => {
+      event.cancelBubble = true;
+      event.evt?.preventDefault?.();
+      event.evt?.stopPropagation?.();
+
+      const node = nodeRef.current;
+      const stage = node?.getStage();
+      const container = stage?.container();
+      if (!container) return;
+
+      if (rotateCleanupRef.current) {
+        rotateCleanupRef.current();
+        rotateCleanupRef.current = null;
+      }
+
+      const center = { x: node.x(), y: node.y() };
+      let latestDeg = displayRotation;
+      onCursor?.('grabbing');
+
+      const onMove = (ev) => {
+        const rect = container.getBoundingClientRect();
+        const mapPt = screenToMap(canvasStore.getState().viewport, {
+          x: ev.clientX - rect.left,
+          y: ev.clientY - rect.top,
+        });
+        let deg =
+          ((Math.atan2(mapPt.y - center.y, mapPt.x - center.x) * 180) / Math.PI +
+            360) %
+          360;
+        deg = ev.shiftKey ? (Math.round(deg / 15) * 15) % 360 : Math.round(deg) % 360;
+        latestDeg = deg;
+        canvasStore.getState().setDraggingRotation(token.id, deg);
+      };
+
+      const cleanup = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        rotateCleanupRef.current = null;
+      };
+
+      const onUp = () => {
+        cleanup();
+        onCursor?.('default');
+        canvasStore.getState().clearDraggingRotation(token.id);
+        onRotateCommit?.(token.id, latestDeg);
+      };
+
+      rotateCleanupRef.current = cleanup;
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    },
+    [displayRotation, onCursor, onRotateCommit, token.id],
   );
 
   return (
@@ -207,6 +277,47 @@ const TokenNode = memo(function TokenNode({
             shadowOpacity={0.45}
             perfectDrawEnabled={false}
           />
+          <Group rotation={displayRotation} listening={false}>
+            <Line
+              points={[radius - 2, -6, radius + 7, 0, radius - 2, 6]}
+              closed
+              fill="#ffffff"
+              stroke="#081824"
+              strokeWidth={1.5}
+              strokeScaleEnabled={false}
+            />
+          </Group>
+          {selected && draggable && !panMode && (
+            <Group rotation={displayRotation}>
+              <Line
+                points={[radius + 6, 0, radius + 21, 0]}
+                stroke="#adfcf9"
+                strokeWidth={2}
+                strokeScaleEnabled={false}
+                listening={false}
+              />
+              <Circle
+                x={radius + 26}
+                y={0}
+                radius={7}
+                hitStrokeWidth={12}
+                fill="#ffd57a"
+                stroke="#081824"
+                strokeWidth={2}
+                strokeScaleEnabled={false}
+                onMouseDown={startRotateDrag}
+                onTouchStart={startRotateDrag}
+                onMouseEnter={(e) => {
+                  e.cancelBubble = true;
+                  onCursor?.('grab');
+                }}
+                onMouseLeave={(e) => {
+                  e.cancelBubble = true;
+                  onCursor?.('default');
+                }}
+              />
+            </Group>
+          )}
           <Text
             text={token.label}
             x={-grid * 0.85}
@@ -242,10 +353,9 @@ export default function TokenLayer({
   const currentUser = useSession((state) => state.currentUser);
   const selectedIds = useCanvas((state) => state.selectedIds);
   const snapEnabled = useCanvas((state) => state.snap);
+  const draggingRotations = useCanvas((state) => state.draggingRotations);
 
   const grid = gridSize > 0 ? gridSize : 70;
-  const mapWidth = map?.width ?? 0;
-  const mapHeight = map?.height ?? 0;
   const isDM =
     role === 'DM' ||
     role === 'dm' ||
@@ -344,8 +454,7 @@ export default function TokenLayer({
       } else {
         const snapped =
           snapEnabled && !altKey ? snapPoint(position, grid) : position;
-        const clampedLead = clampTokenPosition(snapped, mapWidth, mapHeight, grid);
-        lead = resolveTokenMoveWithWalls(position, clampedLead, allWalls, {
+        lead = resolveTokenMoveWithWalls(position, snapped, allWalls, {
           buffer,
         }).position;
       }
@@ -361,12 +470,7 @@ export default function TokenLayer({
         } else if (start.isMap) {
           final = { x: start.x + dx, y: start.y + dy };
         } else {
-          const candidate = clampTokenPosition(
-            { x: start.x + dx, y: start.y + dy },
-            mapWidth,
-            mapHeight,
-            grid,
-          );
+          const candidate = { x: start.x + dx, y: start.y + dy };
           final = resolveTokenMoveWithWalls(start, candidate, allWalls, {
             buffer,
           }).position;
@@ -386,8 +490,20 @@ export default function TokenLayer({
         emitTokenMove(move.id, move.x, move.y);
       }
     },
-    [grid, mapHeight, mapWidth, snapEnabled],
+    [grid, snapEnabled],
   );
+
+  const handleRotateCommit = useCallback((id, degrees) => {
+    const latest = sessionStore.getState().tokens[id];
+    if (!latest) return;
+    const rot = ((Math.round(Number(degrees) || 0) % 360) + 360) % 360;
+    const patch = {
+      rotation: rot,
+      ...(latest.light ? { light: { ...latest.light, rotation: rot } } : {}),
+    };
+    sessionStore.getState().upsertToken({ ...latest, ...patch });
+    updateToken(id, patch);
+  }, []);
 
   const visibleTokens = Object.values(tokensMap)
     .filter((token) => {
@@ -411,15 +527,15 @@ export default function TokenLayer({
             key={token.id}
             token={token}
             grid={grid}
-            mapWidth={mapWidth}
-            mapHeight={mapHeight}
             selected={selectedIds.includes(token.id)}
             draggable={canDrag}
             panMode={panMode}
+            liveRotation={draggingRotations[token.id]}
             onSelect={handleSelect}
             onDragStart={handleDragStart}
             onDragMove={handleDragMove}
             onDragEnd={handleDragEnd}
+            onRotateCommit={handleRotateCommit}
             onCursor={onCursor}
             registerNode={registerNode}
           />

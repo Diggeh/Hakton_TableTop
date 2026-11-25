@@ -10,6 +10,12 @@ import { SessionManager, sanitizeParticipant } from '../session/sessionManager.j
 import { announceVoicePeerLeft, registerVoiceHandlers } from '../voice/handlers.js';
 
 const registeredServers = new WeakSet();
+const CANVAS_COORD_LIMIT = 100000;
+
+function sanitizeRotation(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? ((n % 360) + 360) % 360 : 0;
+}
 
 /**
  * Returns the Socket.IO room name for a given session ID.
@@ -62,6 +68,7 @@ export function tokenToWire(token) {
     width: token.width ?? null,
     height: token.height ?? null,
     light: parseTokenLight(token.light),
+    rotation: sanitizeRotation(token.rotation),
   };
 }
 
@@ -405,10 +412,8 @@ export function registerSocketRouter(io, repos, opts = {}) {
       }
 
       const map = currentMap();
-      const maxX = map?.width ?? Number.POSITIVE_INFINITY;
-      const maxY = map?.height ?? Number.POSITIVE_INFINITY;
-      const nextX = clamp(x, 0, maxX);
-      const nextY = clamp(y, 0, maxY);
+      const nextX = clamp(x, -CANVAS_COORD_LIMIT, CANVAS_COORD_LIMIT);
+      const nextY = clamp(y, -CANVAS_COORD_LIMIT, CANVAS_COORD_LIMIT);
 
       if (!repos.tokens.move(id, nextX, nextY)) {
         respond({ ok: false, reason: 'move_failed' });
@@ -454,13 +459,13 @@ export function registerSocketRouter(io, repos, opts = {}) {
           : 'Token';
       const x = clamp(
         Number.isFinite(payload.x) ? payload.x : cellCentre(map.width / 2, grid),
-        0,
-        map.width,
+        -CANVAS_COORD_LIMIT,
+        CANVAS_COORD_LIMIT,
       );
       const y = clamp(
         Number.isFinite(payload.y) ? payload.y : cellCentre(map.height / 2, grid),
-        0,
-        map.height,
+        -CANVAS_COORD_LIMIT,
+        CANVAS_COORD_LIMIT,
       );
       const ownerId =
         typeof payload.ownerId === 'string' && payload.ownerId
@@ -486,6 +491,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
         width: Number.isFinite(widthNum) && widthNum > 0 ? widthNum : null,
         height: Number.isFinite(heightNum) && heightNum > 0 ? heightNum : null,
         light: sanitizeLight(payload.light),
+        rotation: sanitizeRotation(payload.rotation),
       });
       markBoardDirty(map, socket.data.playerId);
 
@@ -511,7 +517,8 @@ export function registerSocketRouter(io, repos, opts = {}) {
         !('isMap' in payload) &&
         (
           (typeof payload.label === 'string' && payload.label.trim().length > 0) ||
-          'light' in payload
+          'light' in payload ||
+          'rotation' in payload
         );
       if (!isJoined() || (!isDM() && !playerAllowed)) {
         respond({ ok: false, reason: 'forbidden' });
@@ -535,6 +542,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
       if ('locked' in payload) patch.locked = Boolean(payload.locked);
       if ('color' in payload) patch.color = normalizeColor(payload.color);
       if ('light' in payload) patch.light = sanitizeLight(payload.light);
+      if ('rotation' in payload) patch.rotation = sanitizeRotation(payload.rotation);
       if ('isMap' in payload) patch.isMap = Boolean(payload.isMap);
       if ('imageUrl' in payload) {
         patch.imageUrl =

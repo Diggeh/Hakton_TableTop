@@ -11,7 +11,6 @@ import { assetStore } from '../store/assetStore.js';
 import { canvasStore, useCanvas } from '../canvas/canvasStore.js';
 import {
   MAX_SCALE,
-  clampTokenPosition,
   mapToScreen,
   screenToMap,
   snapPoint,
@@ -68,6 +67,8 @@ export default function Board({
   const gridVisible = useCanvas((s) => s.gridVisible);
   const snapEnabled = useCanvas((s) => s.snap);
   const selectedIds = useCanvas((s) => s.selectedIds);
+  const draggingIds = useCanvas((s) => s.draggingIds);
+  const draggingRotations = useCanvas((s) => s.draggingRotations);
   const fogTool = useCanvas((s) => s.fogTool);
   const playerVisionPreview = useCanvas((s) => s.playerVisionPreview);
 
@@ -114,12 +115,15 @@ export default function Board({
       timers.delete(token.id);
     }
     const hasLight = Boolean(token.light?.enabled);
+    const tokenRot = Number.isFinite(Number(token.rotation))
+      ? ((Number(token.rotation) % 360) + 360) % 360
+      : Number(token.light?.rotation) || 0;
     const updatedLight = {
       enabled: !hasLight,
       type: token.light?.type || 'torch',
       range: Number(token.light?.range) || 30,
       angle: Number(token.light?.angle) || 90,
-      rotation: Number(token.light?.rotation) || 0,
+      rotation: tokenRot,
     };
     const updatedToken = { ...token, light: updatedLight };
     sessionStore.getState().upsertToken(updatedToken);
@@ -133,15 +137,30 @@ export default function Board({
 
   function handleUpdateLight(token, updates, { immediate = false } = {}) {
     if (!token) return;
+    const baseRot = Number.isFinite(Number(token.rotation))
+      ? ((Number(token.rotation) % 360) + 360) % 360
+      : Number(token.light?.rotation) || 0;
     const currentLight = token.light || {
       enabled: true,
       type: 'torch',
       range: 30,
       angle: 90,
-      rotation: 0,
+      rotation: baseRot,
     };
-    const updatedLight = { ...currentLight, ...updates };
-    const updatedToken = { ...token, light: updatedLight };
+    const hasRotUpdate = 'rotation' in updates;
+    const normRot = hasRotUpdate
+      ? ((Math.round(Number(updates.rotation) || 0) % 360) + 360) % 360
+      : null;
+    const updatedLight = {
+      ...currentLight,
+      ...updates,
+      ...(hasRotUpdate ? { rotation: normRot } : {}),
+    };
+    const updatedToken = {
+      ...token,
+      light: updatedLight,
+      ...(hasRotUpdate ? { rotation: normRot } : {}),
+    };
     sessionStore.getState().upsertToken(updatedToken);
 
     const timers = lightSyncTimersRef.current;
@@ -149,13 +168,22 @@ export default function Board({
       clearTimeout(timers.get(token.id));
       timers.delete(token.id);
     }
+    const wirePatch = hasRotUpdate
+      ? { rotation: normRot, light: updatedLight }
+      : { light: updatedLight };
     if (immediate) {
-      updateToken(token.id, { light: updatedLight });
+      updateToken(token.id, wirePatch);
     } else {
       const timer = setTimeout(() => {
         timers.delete(token.id);
         const latest = sessionStore.getState().tokens[token.id];
-        updateToken(token.id, { light: latest?.light || updatedLight });
+        const latestPatch = {
+          light: latest?.light || updatedLight,
+          ...(hasRotUpdate
+            ? { rotation: latest?.rotation ?? normRot }
+            : {}),
+        };
+        updateToken(token.id, latestPatch);
       }, 100);
       timers.set(token.id, timer);
     }
@@ -308,7 +336,7 @@ export default function Board({
       category.toLowerCase() === 'maps' ||
       String(payload.category || '').toLowerCase() === 'maps';
     const snapped = isMapAsset ? mapPt : snapEnabled ? snapPoint(mapPt, grid) : mapPt;
-    const finalPos = clampTokenPosition(snapped, mapWidth, mapHeight, grid);
+    const finalPos = snapped;
 
     // Determine category-specific color & style
     let tokenColor;
@@ -428,8 +456,11 @@ export default function Board({
     soundboard: soundboardOpen,
   };
 
-  // Compute screen coordinates for the single-selected token's floating popup bar
+  // Compute screen coordinates for the single-selected token's floating popup bar & non-obstructing Light menu
   const grid = map?.gridSize || 70;
+  const isSelectedTokenDragging = Boolean(
+    singleSelectedToken && draggingIds.includes(singleSelectedToken.id),
+  );
   const tokenScreenPos = singleSelectedToken
     ? mapToScreen(viewport, {
         x: singleSelectedToken.x,
@@ -445,7 +476,29 @@ export default function Board({
       ? Math.max(64, Math.min(size.height - 64, tokenScreenPos.y))
       : Math.max(54, Math.min(size.height - 54, tokenScreenPos.y + tokenRadiusPx + 10))
     : 0;
-  const lightMenuOpenBelow = popupTop < 280;
+
+  const MENU_W = 256;
+  const MENU_H = 310;
+  const MENU_GAP = Math.max(tokenRadiusPx + 46, 78);
+  const lightMenuFitsRight = tokenScreenPos
+    ? tokenScreenPos.x + MENU_GAP + MENU_W <= size.width - 12
+    : true;
+  const lightMenuLeft = tokenScreenPos
+    ? lightMenuFitsRight
+      ? Math.min(size.width - MENU_W - 12, tokenScreenPos.x + MENU_GAP)
+      : Math.max(12, tokenScreenPos.x - MENU_GAP - MENU_W)
+    : 0;
+  const lightMenuTop = tokenScreenPos
+    ? Math.max(16, Math.min(Math.max(16, size.height - MENU_H - 16), tokenScreenPos.y - 72))
+    : 0;
+  const effectiveDirection = singleSelectedToken
+    ? draggingRotations[singleSelectedToken.id] ??
+      singleSelectedToken.rotation ??
+      singleSelectedToken.light?.rotation ??
+      0
+    : 0;
+  const normalizedDirection =
+    ((Math.round(Number(effectiveDirection) || 0) % 360) + 360) % 360;
 
   return (
     <section className="board" aria-label="Tabletop canvas">
@@ -529,7 +582,7 @@ export default function Board({
         />
 
         {/* Single-Clicked Token Property Popup Bar (Rename & Light Controls) */}
-        {singleSelectedToken && tokenScreenPos && (
+        {singleSelectedToken && tokenScreenPos && !isSelectedTokenDragging && (
           <div
             className="token-popup-bar"
             style={{
@@ -611,151 +664,158 @@ export default function Board({
                 )}
               </>
             )}
+          </div>
+        )}
 
-            {/* Light Settings Popover Menu */}
-            {!singleSelectedToken.isMap &&
-              lightMenuOpen &&
-              singleSelectedToken.light?.enabled && (
-              <div
-                className={`token-light-menu${lightMenuOpenBelow ? ' open-below' : ''}`}
-                role="dialog"
-                aria-label="Light Settings"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="token-light-header">
-                  <strong>Light & Vision</strong>
+        {/* Non-Obstructing Light Settings Popover Menu (positioned beside token) */}
+        {singleSelectedToken &&
+          tokenScreenPos &&
+          !isSelectedTokenDragging &&
+          !singleSelectedToken.isMap &&
+          lightMenuOpen &&
+          singleSelectedToken.light?.enabled && (
+            <div
+              className="token-light-menu"
+              style={{
+                left: `${lightMenuLeft}px`,
+                top: `${lightMenuTop}px`,
+              }}
+              role="dialog"
+              aria-label="Light Settings"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="token-light-header">
+                <strong>Light & Vision</strong>
+                <button
+                  type="button"
+                  className="close-menu-btn"
+                  onClick={() => setLightMenuOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="token-light-section">
+                <div className="token-light-row">
+                  <label htmlFor="light-range-input">Range</label>
+                  <span className="token-light-value">
+                    {singleSelectedToken.light?.range || 30} ft
+                  </span>
+                </div>
+                <input
+                  id="light-range-input"
+                  type="range"
+                  min="5"
+                  max="120"
+                  step="5"
+                  value={singleSelectedToken.light?.range || 30}
+                  onChange={(e) =>
+                    handleUpdateLight(singleSelectedToken, {
+                      range: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+
+              <div className="token-light-section">
+                <span className="token-light-label">Mode</span>
+                <div className="token-light-mode-group">
                   <button
                     type="button"
-                    className="close-menu-btn"
-                    onClick={() => setLightMenuOpen(false)}
-                  >
-                    ×
-                  </button>
-                </div>
-
-                <div className="token-light-section">
-                  <div className="token-light-row">
-                    <label htmlFor="light-range-input">Range</label>
-                    <span className="token-light-value">
-                      {singleSelectedToken.light?.range || 30} ft
-                    </span>
-                  </div>
-                  <input
-                    id="light-range-input"
-                    type="range"
-                    min="5"
-                    max="120"
-                    step="5"
-                    value={singleSelectedToken.light?.range || 30}
-                    onChange={(e) =>
-                      handleUpdateLight(singleSelectedToken, {
-                        range: Number(e.target.value),
-                      })
+                    className={`mode-btn ${
+                      singleSelectedToken.light?.type !== 'vision' ? 'active' : ''
+                    }`}
+                    onClick={() =>
+                      handleUpdateLight(
+                        singleSelectedToken,
+                        { type: 'torch' },
+                        { immediate: true },
+                      )
                     }
-                  />
-                </div>
-
-                <div className="token-light-section">
-                  <span className="token-light-label">Mode</span>
-                  <div className="token-light-mode-group">
-                    <button
-                      type="button"
-                      className={`mode-btn ${
-                        singleSelectedToken.light?.type !== 'vision' ? 'active' : ''
-                      }`}
-                      onClick={() =>
-                        handleUpdateLight(
-                          singleSelectedToken,
-                          { type: 'torch' },
-                          { immediate: true },
-                        )
-                      }
-                      title="Torch / Lantern (360° Made Light)"
-                    >
-                      <ToolIcon name="torch" />
-                      <span>Torch (360°)</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`mode-btn ${
-                        singleSelectedToken.light?.type === 'vision' ? 'active' : ''
-                      }`}
-                      onClick={() =>
-                        handleUpdateLight(
-                          singleSelectedToken,
-                          { type: 'vision' },
-                          { immediate: true },
-                        )
-                      }
-                      title="Line of Sight (Directional Vision Cone)"
-                    >
-                      <ToolIcon name="cone" />
-                      <span>Line of Sight</span>
-                    </button>
-                  </div>
-                </div>
-
-                {singleSelectedToken.light?.type === 'vision' && (
-                  <>
-                    <div className="token-light-section">
-                      <div className="token-light-row">
-                        <label htmlFor="light-rotation-input">Direction</label>
-                        <span className="token-light-value">
-                          {singleSelectedToken.light?.rotation || 0}°
-                        </span>
-                      </div>
-                      <input
-                        id="light-rotation-input"
-                        type="range"
-                        min="0"
-                        max="360"
-                        step="5"
-                        value={singleSelectedToken.light?.rotation || 0}
-                        onChange={(e) =>
-                          handleUpdateLight(singleSelectedToken, {
-                            rotation: Number(e.target.value),
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="token-light-section">
-                      <div className="token-light-row">
-                        <label htmlFor="light-angle-input">Cone Angle</label>
-                        <span className="token-light-value">
-                          {singleSelectedToken.light?.angle || 90}°
-                        </span>
-                      </div>
-                      <input
-                        id="light-angle-input"
-                        type="range"
-                        min="30"
-                        max="180"
-                        step="15"
-                        value={singleSelectedToken.light?.angle || 90}
-                        onChange={(e) =>
-                          handleUpdateLight(singleSelectedToken, {
-                            angle: Number(e.target.value),
-                          })
-                        }
-                      />
-                    </div>
-                  </>
-                )}
-
-                <div className="token-light-footer">
+                    title="Torch / Lantern (360° Made Light)"
+                  >
+                    <ToolIcon name="torch" />
+                    <span>Torch (360°)</span>
+                  </button>
                   <button
                     type="button"
-                    className="danger-btn remove-light-btn"
-                    onClick={() => handleToggleLight(singleSelectedToken)}
+                    className={`mode-btn ${
+                      singleSelectedToken.light?.type === 'vision' ? 'active' : ''
+                    }`}
+                    onClick={() =>
+                      handleUpdateLight(
+                        singleSelectedToken,
+                        { type: 'vision' },
+                        { immediate: true },
+                      )
+                    }
+                    title="Line of Sight (Directional Vision Cone)"
                   >
-                    Remove Light
+                    <ToolIcon name="cone" />
+                    <span>Line of Sight</span>
                   </button>
                 </div>
               </div>
-            )}
-          </div>
-        )}
+
+              {singleSelectedToken.light?.type === 'vision' && (
+                <>
+                  <div className="token-light-section">
+                    <div className="token-light-row">
+                      <label htmlFor="light-rotation-input">Direction</label>
+                      <span className="token-light-value">
+                        {normalizedDirection}°
+                      </span>
+                    </div>
+                    <input
+                      id="light-rotation-input"
+                      type="range"
+                      min="0"
+                      max="359"
+                      step="1"
+                      value={normalizedDirection}
+                      onChange={(e) =>
+                        handleUpdateLight(singleSelectedToken, {
+                          rotation: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="token-light-section">
+                    <div className="token-light-row">
+                      <label htmlFor="light-angle-input">Cone Angle</label>
+                      <span className="token-light-value">
+                        {singleSelectedToken.light?.angle || 90}°
+                      </span>
+                    </div>
+                    <input
+                      id="light-angle-input"
+                      type="range"
+                      min="30"
+                      max="180"
+                      step="15"
+                      value={singleSelectedToken.light?.angle || 90}
+                      onChange={(e) =>
+                        handleUpdateLight(singleSelectedToken, {
+                          angle: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="token-light-footer">
+                <button
+                  type="button"
+                  className="danger-btn remove-light-btn"
+                  onClick={() => handleToggleLight(singleSelectedToken)}
+                >
+                  Remove Light
+                </button>
+              </div>
+            </div>
+          )}
 
         {(error || connectionError || connection !== 'connected') && (
           <div className="board-notice" role="status">
@@ -1021,17 +1081,7 @@ export default function Board({
                           ? 'selected'
                           : ''
                       }`}
-                      title={`Drag "${asset}" onto the canvas or click to select`}
-                      onClick={() => {
-                        if (
-                          assetTrayCategory === 'Scenes' ||
-                          assetTrayCategory === 'Maps'
-                        ) {
-                          handleSelectScene(asset);
-                        } else {
-                          onInspectAsset?.(asset, assetTrayCategory);
-                        }
-                      }}
+                      title={`Drag "${asset}" onto the canvas`}
                     >
                       <span
                         className={`asset-thumbnail type-${assetTrayCategory.toLowerCase()} thumbnail-${i % 3}`}
