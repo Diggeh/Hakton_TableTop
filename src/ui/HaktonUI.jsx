@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { loadIdentity } from '../net/identity.js';
 import { decodeRoomCode } from '../../shared/roomCode.js';
 import { campaigns as initialCampaigns } from './fixtures.js';
 import { IconButton, Mark, Modal } from './Primitives.jsx';
@@ -129,7 +130,7 @@ export default function HaktonUI() {
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [selected, setSelected] = useState('salt');
   const [modal, setModal] = useState(null);
-  const [name, setName] = useState('Adventurer');
+  const [name, setName] = useState(() => loadIdentity()?.displayName || 'Adventurer');
 
   // Player Room Code join state
   const [roomCodeInput, setRoomCodeInput] = useState('');

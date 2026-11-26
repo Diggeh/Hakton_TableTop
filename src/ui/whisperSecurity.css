@@ -1,0 +1,24 @@
+.whisper-security {
+  padding: 7px 10px;
+  border-bottom: 1px solid #304752;
+  font-size: 11px;
+}
+
+.whisper-security p {
+  margin: 5px 0;
+  line-height: 1.5;
+}
+
+.whisper-security code {
+  display: block;
+  padding: 6px 0;
+  color: #b7e8db;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.hakton-app .whisper-security button {
+  font-size: 11px;
+  padding: 4px 6px;
+}

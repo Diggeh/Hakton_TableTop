@@ -21,7 +21,7 @@ export default function ChatImage({ message, connected, visible }) {
   }, [visible]);
 
   useEffect(() => {
-    if (!inView || !visible || !connected || message.status !== 'sent' || image)
+    if (!inView || !visible || !connected || message.status !== 'sent' || image || message.image)
       return;
     let active = true;
     setError(false);
@@ -36,7 +36,7 @@ export default function ChatImage({ message, connected, visible }) {
     return () => {
       active = false;
     };
-  }, [message.id, message.status, inView, visible, connected, attempt, image]);
+  }, [message.id, message.status, message.image, inView, visible, connected, attempt, image]);
 
   const data = message.image || image;
   return (

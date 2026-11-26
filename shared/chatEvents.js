@@ -3,6 +3,8 @@ export const CHAT_EVENTS = Object.freeze({
   MESSAGE: 'chat:message',
   HISTORY: 'chat:history',
   IMAGE: 'chat:image',
+  KEY_PUBLISH: 'chat:key:publish',
+  KEY_GET: 'chat:key:get',
 });
 export const MAX_TEXT_LENGTH = 2000;
 export const MAX_IMAGE_BYTES = 256 * 1024;
