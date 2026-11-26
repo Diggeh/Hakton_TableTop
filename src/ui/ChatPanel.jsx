@@ -54,7 +54,7 @@ export function RollLogEntry({ roll }) {
   );
 }
 
-export default function ChatPanel({ preview = true, ...props }) {
+export default function ChatPanel({ preview = false, ...props }) {
   return preview ? (
     <PreviewChatPanel {...props} />
   ) : (

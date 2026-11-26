@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { openHandle } from '../../database/index.js';
 import { openDatabaseWithRecovery } from '../../database/recovery.js';
 import {
@@ -14,7 +15,7 @@ import {
 import { createRepositories } from '../../database/repositories.js';
 
 const MIGRATIONS_DIR = path.join(
-  path.dirname(new URL(import.meta.url).pathname),
+  path.dirname(fileURLToPath(import.meta.url)),
   '..',
   '..',
   'database',
@@ -162,6 +163,10 @@ describe('database integrity check, backups, and recovery', () => {
     assert.deepEqual(recovery.pendingBefore, [
       '005_assets.sql',
       '005_autosave_recovery.sql',
+      '006_users.sql',
+      '007_token_extras.sql',
+      '008_token_rotation.sql',
+      '009_whisper_keys.sql',
     ]);
     assert.ok(recovery.backedUpBeforeMigration);
     assert.ok(fs.existsSync(recovery.backedUpBeforeMigration));

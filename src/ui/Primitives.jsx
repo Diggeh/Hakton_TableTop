@@ -16,14 +16,27 @@ export function Mark() {
     </svg>
   );
 }
-export function IconButton({ label, children, ...props }) {
+export function IconButton({
+  label,
+  children,
+  className = '',
+  type = 'button',
+  ...props
+}) {
+  const classes = ['icon-button', className].filter(Boolean).join(' ');
   return (
-    <button className="icon-button" title={label} aria-label={label} {...props}>
+    <button
+      type={type}
+      className={classes}
+      title={label}
+      aria-label={label}
+      {...props}
+    >
       {children}
     </button>
   );
 }
-export function Modal({ title, children, onClose }) {
+export function Modal({ title, children, onClose, className = '' }) {
   const ref = useRef(null);
   const titleId = useId();
   useEffect(() => {
@@ -38,6 +51,7 @@ export function Modal({ title, children, onClose }) {
   return (
     <dialog
       ref={ref}
+      className={className || undefined}
       aria-labelledby={titleId}
       onCancel={onClose}
       onClick={(e) => {

@@ -277,9 +277,13 @@
   border: 1px solid #526b6a;
   min-height: 0;
 }
-.board-host {
+.board-host,
+.board-viewport {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 .board-caption {
   background: transparent;
@@ -620,9 +624,6 @@
 }
 .hakton-app .danger {
   color: #f2f5ee;
-}
-.tabletop[data-role='Player'] .canvas-window {
-  padding-top: 37px;
 }
 /* Final hierarchy and sizing: rounded window geometry, sharper working controls. */
 .hakton-app {
@@ -993,6 +994,33 @@
   height: 72px;
   background: #2d4b56;
   border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.asset-thumbnail-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.asset-inspect-preview {
+  margin-bottom: 12px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0c1a24;
+  border: 1px solid #2d4b58;
+  max-height: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.asset-inspect-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
 }
 .asset-item strong {
   font-size: 12px;
@@ -1855,7 +1883,8 @@
 .chat-file small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* --- Live canvas / token dialog ------------------------------------------ */
-.board-host .konvajs-content {
+.board-host .konvajs-content,
+.board-viewport .konvajs-content {
   touch-action: none;
   user-select: none;
 }
@@ -1975,3 +2004,2267 @@
   border-color: #7fb6a8;
   color: #e6f2f3;
 }
+
+/* ==========================================================================
+ * Full-Screen Figma VTT Layout, Translucent Toolbars & Floating Pop-ups
+ * ========================================================================== */
+.tabletop {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.tabletop-stage {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tabletop-stage > .board {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+/* Translucent Top, Side, and Bottom Toolbars */
+.extension-toolbar,
+.utility-toolbar {
+  background: rgba(23, 45, 55, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.28);
+  box-shadow: 0 4px 16px rgba(5, 13, 22, 0.45);
+  z-index: 6;
+}
+
+.extension-toolbar {
+  top: 12px;
+  left: 12px;
+  border-radius: 999px;
+  padding: 4px 8px;
+  gap: 4px;
+}
+
+.utility-toolbar {
+  top: 12px;
+  right: 12px;
+  border-radius: 999px;
+  padding: 8px 4px;
+  gap: 4px;
+}
+
+.hakton-app .extension-toolbar .icon-button,
+.hakton-app .utility-toolbar .icon-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  color: #d6e7ea;
+}
+
+.hakton-app .extension-toolbar .icon-button[aria-pressed='true'],
+.hakton-app .utility-toolbar .icon-button[aria-pressed='true'] {
+  background: rgba(50, 92, 90, 0.88);
+  color: #adfcf9;
+}
+
+.board-caption {
+  top: 54px;
+  left: 16px;
+  z-index: 4;
+}
+
+/* Bottom Asset Dock Region: Quick-Access Uploaded Assets Pop-up + Translucent Pill Bar */
+.asset-dock-region {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.asset-dock-region > * {
+  pointer-events: auto;
+}
+
+.asset-launcher {
+  position: static;
+  transform: none;
+  display: inline-flex;
+  align-items: stretch;
+  padding: 0;
+  gap: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(34, 58, 70, 0.68);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.3);
+  box-shadow: 0 4px 16px rgba(5, 13, 22, 0.45);
+}
+
+.asset-launcher-categories {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 4px 10px;
+}
+
+.hakton-app .asset-launcher-categories .icon-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  color: #d6e7ea;
+}
+
+.hakton-app .asset-launcher-categories .icon-button[aria-pressed='true'] {
+  background: rgba(50, 92, 90, 0.9);
+  color: #adfcf9;
+}
+
+.hakton-app .asset-launcher .asset-import-trigger {
+  width: 40px;
+  height: 38px;
+  padding: 0 10px 0 8px;
+  border-radius: 0 999px 999px 0;
+  background: rgba(12, 23, 32, 0.88);
+  border-left: 1px solid rgba(162, 220, 208, 0.25);
+  color: #adfcf9;
+}
+
+.hakton-app .asset-launcher .asset-import-trigger:hover:not(:disabled) {
+  background: rgba(24, 46, 60, 0.95);
+  color: #ffffff;
+}
+
+/* Compact Uploaded Assets Pop-up Tray (Above Bottom Bar) */
+.asset-tray-popup {
+  background: rgba(19, 35, 45, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(162, 220, 208, 0.3);
+  border-radius: 20px;
+  padding: 8px 14px;
+  max-width: min(680px, calc(100vw - 96px));
+  box-shadow: 0 8px 24px rgba(5, 13, 22, 0.55);
+  animation: hakton-pop-in 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.asset-tray-items {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.hakton-app .asset-tray-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 112px;
+  flex-shrink: 0;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: rgba(28, 49, 60, 0.65);
+  gap: 4px;
+  text-align: left;
+  cursor: grab;
+}
+
+.hakton-app .asset-tray-item:active {
+  cursor: grabbing;
+}
+
+.hakton-app .asset-tray-item:hover {
+  background: rgba(42, 71, 84, 0.85);
+  border-color: rgba(162, 220, 208, 0.45);
+}
+
+.hakton-app .asset-tray-item.selected {
+  background: rgba(40, 73, 79, 0.9);
+  border-color: #86c9bd;
+}
+
+.asset-tray-item .asset-thumbnail {
+  height: 52px;
+  border-radius: 5px;
+  font-size: 16px;
+}
+
+.asset-tray-item strong {
+  font-size: 11px;
+  font-weight: 500;
+  color: #d6e7ea;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 2px;
+}
+
+.asset-tray-item small {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #173439;
+  color: #adfcf9;
+}
+
+.asset-tray-empty {
+  color: #9bafb7;
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+/* Anchored Floating Pop-up Panels (Players, Dice, Soundboard, Chat) */
+.floating-stack-top-left {
+  position: absolute;
+  top: 56px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: calc(100vw - 76px);
+  max-height: calc(100vh - 76px);
+  pointer-events: none;
+}
+
+.floating-stack-top-left > .floating-popup {
+  pointer-events: auto;
+  margin: 0;
+  animation: hakton-pop-in 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.floating-stack-top-left .player-list-window {
+  width: 210px;
+  margin-top: 0;
+  background: rgba(25, 44, 55, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid #3c5664;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.player-list-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #2c434f;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.player-list-footer select {
+  width: 100%;
+  font-size: 11px;
+  padding: 5px 8px;
+}
+
+.floating-stack-top-left .workspace-soundboard {
+  width: 300px;
+  max-height: calc(100vh - 110px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(23, 42, 53, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid #3c5664;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.floating-stack-top-left .workspace-soundboard > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #304854;
+}
+
+.floating-stack-top-left .workspace-soundboard > header h2 {
+  font-size: 13px;
+}
+
+.floating-stack-top-left .workspace-soundboard-body {
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.floating-stack-right {
+  position: absolute;
+  top: 12px;
+  right: 58px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 28px);
+  pointer-events: none;
+}
+
+.floating-stack-right > .floating-popup {
+  pointer-events: auto;
+  margin: 0;
+  width: 310px;
+  animation: hakton-pop-in 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.floating-stack-right .chat-window {
+  margin-top: 0;
+}
+
+.floating-stack-right .chat-window .chat-panel {
+  border-radius: 12px;
+  background: rgba(25, 44, 55, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid #3c5664;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  height: min(520px, calc(100vh - 36px));
+}
+
+/* Centered Full Asset Manager Modal */
+.hakton-app dialog.asset-manager-modal {
+  width: min(760px, calc(100vw - 48px));
+}
+
+.asset-manager-modal .dialog-body {
+  padding: 0;
+}
+
+.asset-manager-modal .assets-panel {
+  height: auto;
+  min-height: 300px;
+  max-height: 70vh;
+  border: 0;
+  background: transparent;
+  resize: none;
+}
+
+.asset-manager-modal .assets-panel > header {
+  border-radius: 0;
+  padding: 0 16px;
+}
+
+/* ==========================================================================
+   First-Time Account Creation & Jackbox/Kahoot Room Code Joining
+   ========================================================================== */
+
+.account-screen {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.account-card {
+  width: min(420px, 100%);
+  background: rgba(18, 35, 45, 0.95);
+  border: 1px solid #35505e;
+  border-radius: 16px;
+  padding: 32px 28px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.account-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #8fd2c5;
+}
+
+.account-brand svg {
+  width: 22px;
+  height: 22px;
+}
+
+.account-card h1 {
+  margin: 0;
+  font-size: 24px;
+  color: #edf4f4;
+}
+
+.account-subtitle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #9cb5be;
+}
+
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.account-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #b7ccd3;
+}
+
+.account-form input {
+  background: #0d1c24;
+  border: 1px solid #2e4754;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #eef5f5;
+  font-size: 14px;
+}
+
+.account-form input:focus {
+  outline: none;
+  border-color: #79c8b8;
+  box-shadow: 0 0 0 2px rgba(121, 200, 184, 0.2);
+}
+
+.account-error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(214, 76, 76, 0.16);
+  border: 1px solid rgba(228, 104, 104, 0.45);
+  color: #f6b2b2;
+  font-size: 12px;
+}
+
+.account-submit {
+  margin-top: 4px;
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.account-footer {
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* Jackbox / Kahoot Style Room Code Screen */
+.join-code-screen {
+  flex: 1;
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 20px 28px 40px;
+  display: flex;
+  flex-direction: column;
+}
+
+.join-code-card {
+  margin: auto;
+  width: min(460px, 100%);
+  background: rgba(18, 35, 45, 0.94);
+  border: 1px solid #385463;
+  border-radius: 18px;
+  padding: 36px 32px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  text-align: center;
+}
+
+.join-code-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.join-code-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(121, 200, 184, 0.14);
+  border: 1px solid rgba(121, 200, 184, 0.38);
+  color: #8fd9ca;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.join-code-header h1 {
+  margin: 0;
+  font-size: 28px;
+  color: #f1f7f7;
+}
+
+.join-code-header p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #9cb5be;
+}
+
+.join-code-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.join-code-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.join-code-field > span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #8ab2bf;
+}
+
+.hakton-app input.room-code-input {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #0b1820;
+  border: 2px solid #355362;
+  color: #adfcf9;
+}
+
+.hakton-app input.room-code-input::placeholder {
+  color: #466471;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+
+.hakton-app input.room-code-input:focus {
+  outline: none;
+  border-color: #82d3c4;
+  box-shadow: 0 0 0 3px rgba(130, 211, 196, 0.22);
+}
+
+.join-code-mode {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(58, 124, 165, 0.18);
+  border: 1px solid rgba(98, 168, 210, 0.35);
+  color: #bddfeb;
+}
+
+.join-code-mode.is-webrtc {
+  background: rgba(121, 200, 184, 0.15);
+  border-color: rgba(121, 200, 184, 0.4);
+  color: #b7efe3;
+}
+
+.join-code-submit {
+  padding: 13px 18px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 10px;
+}
+
+/* Dual Room Code Pills in Session Status */
+.session-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.session-room-codes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hakton-app button.room-code-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(14, 29, 38, 0.85);
+  border: 1px solid #355463;
+  color: #d6ece9;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.hakton-app button.room-code-pill:hover {
+  border-color: #7bcab9;
+  background: rgba(24, 48, 61, 0.95);
+}
+
+.room-code-pill .room-code-label {
+  color: #88aab6;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.room-code-pill strong {
+  color: #adfcf9;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.06em;
+}
+
+.session-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Campaign Details Edit Button & Modal Form */
+.campaign-title-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hakton-app button.campaign-edit-inline {
+  position: static;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(14, 30, 39, 0.75);
+  border: 1px solid #355463;
+  color: #adfcf9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 120ms ease;
+}
+
+.hakton-app button.campaign-edit-inline:hover {
+  border-color: #82cec0;
+  background: rgba(24, 52, 65, 0.95);
+  color: #ffffff;
+}
+
+.hakton-app button.campaign-edit-inline svg {
+  width: 15px;
+  height: 15px;
+}
+
+.hakton-app button.campaign-edit-button {
+  position: absolute;
+  top: 22px;
+  right: 68px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(14, 30, 39, 0.85);
+  border: 1px solid #355463;
+  color: #adfcf9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.hakton-app button.campaign-edit-button:hover {
+  border-color: #82cec0;
+  background: rgba(24, 52, 65, 0.95);
+}
+
+.campaign-edit-form {
+  display: grid;
+  gap: 14px;
+  padding: 6px 0 14px;
+}
+
+.session-stepper-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #2b4a59;
+  background: rgba(9, 21, 28, 0.65);
+  color: #d6ece9;
+  font-size: 13px;
+}
+
+.session-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hakton-app .session-stepper button {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #3c6577;
+  background: rgba(18, 41, 52, 0.9);
+  color: #adfcf9;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hakton-app .session-stepper button:hover {
+  border-color: #8ce0d2;
+  background: rgba(28, 63, 78, 0.96);
+}
+
+.session-stepper strong {
+  min-width: 28px;
+  text-align: center;
+  font-size: 16px;
+  color: #ffffff;
+}
+
+/* Token Single-Click Floating Popup Bar */
+.token-popup-bar {
+  position: absolute;
+  z-index: 25;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(11, 24, 32, 0.94);
+  border: 1px solid rgba(116, 198, 184, 0.55);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+.hakton-app .token-popup-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: rgba(24, 51, 63, 0.85);
+  color: #e4f8f5;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hakton-app .token-popup-btn:hover {
+  border-color: #7bcab9;
+  background: rgba(34, 71, 86, 0.96);
+}
+
+.token-popup-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: #adfcf9;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.token-rename-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.token-rename-form input {
+  width: 140px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  border: 1px solid #4c7c8e;
+  background: #08151d;
+  color: #effaf8;
+  font-size: 12px;
+}
+
+.hakton-app .token-rename-save,
+.hakton-app .token-rename-cancel {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hakton-app .token-rename-save {
+  background: #2f7d73;
+  border: 1px solid #69c5b7;
+  color: #ffffff;
+}
+
+.hakton-app .token-rename-cancel {
+  background: rgba(24, 42, 52, 0.9);
+  border: 1px solid #3c5d6d;
+  color: #b7d2db;
+}
+
+/* Active light button in token popup bar */
+.hakton-app .token-popup-bar .icon-button.active-light-btn {
+  background: rgba(255, 215, 120, 0.28);
+  border-color: #ffd57a;
+  color: #ffe699;
+}
+
+.hakton-app .token-popup-bar .icon-button.active-light-btn svg {
+  stroke: #ffd57a;
+  fill: rgba(255, 215, 120, 0.35);
+}
+
+/* Light Settings Popover Menu */
+.token-light-menu {
+  position: absolute;
+  width: 256px;
+  background: rgba(11, 23, 31, 0.96);
+  border: 1px solid rgba(116, 198, 184, 0.5);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 30;
+  pointer-events: auto;
+}
+
+.token-light-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(76, 124, 142, 0.35);
+  padding-bottom: 8px;
+}
+
+.token-light-header strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #edfaf7;
+  letter-spacing: 0.02em;
+}
+
+.close-menu-btn {
+  background: transparent;
+  border: 0;
+  color: #9cb5be;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.close-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.token-light-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.token-light-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #b7d2db;
+}
+
+.token-light-value {
+  font-weight: 600;
+  color: #ffd57a;
+}
+
+.token-light-label {
+  font-size: 12px;
+  color: #b7d2db;
+}
+
+.token-light-section input[type="range"] {
+  width: 100%;
+  accent-color: #ffd57a;
+  cursor: pointer;
+}
+
+.token-light-mode-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.hakton-app .mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(18, 36, 47, 0.85);
+  border: 1px solid #2e4d5c;
+  border-radius: 6px;
+  color: #b7d2db;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hakton-app .mode-btn:hover {
+  border-color: #55879a;
+  background: rgba(25, 49, 64, 0.95);
+  color: #ffffff;
+}
+
+.hakton-app .mode-btn.active {
+  background: rgba(255, 215, 120, 0.2);
+  border-color: #ffd57a;
+  color: #ffe699;
+}
+
+.token-light-footer {
+  padding-top: 4px;
+  border-top: 1px solid rgba(76, 124, 142, 0.3);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hakton-app .remove-light-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(180, 50, 50, 0.25);
+  border: 1px solid #d9534f;
+  color: #fca5a5;
+  cursor: pointer;
+}
+
+.hakton-app .remove-light-btn:hover {
+  background: rgba(180, 50, 50, 0.45);
+  color: #ffffff;
+}
+
+/* Asset Manager 3-Dot Menu & Submodals */
+.asset-item {
+  position: relative;
+}
+
+.hakton-app button.asset-item-dots {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid rgba(112, 168, 184, 0.35);
+  background: rgba(8, 20, 27, 0.85);
+  color: #d4ece9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.hakton-app button.asset-item-dots:hover {
+  border-color: #82cec0;
+  background: rgba(16, 39, 51, 0.96);
+}
+
+.asset-item-dots svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.asset-item-menu {
+  position: absolute;
+  top: 38px;
+  right: 8px;
+  z-index: 12;
+  min-width: 132px;
+  padding: 5px;
+  border-radius: 10px;
+  background: rgba(9, 22, 30, 0.97);
+  border: 1px solid #3b6374;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.58);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hakton-app .asset-item-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 0;
+  background: transparent;
+  color: #dff4f1;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hakton-app .asset-item-menu button:hover {
+  background: rgba(34, 68, 82, 0.78);
+}
+
+.hakton-app .asset-item-menu button.danger-item {
+  color: #ff9c9c;
+}
+
+.hakton-app .asset-item-menu button.danger-item:hover {
+  background: rgba(115, 34, 42, 0.55);
+}
+
+.asset-item-menu svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.asset-submodal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(4, 10, 15, 0.76);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.asset-submodal {
+  width: min(420px, 94vw);
+  padding: 20px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #102531 0%, #0b1922 100%);
+  border: 1px solid #355a6b;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+  color: #e4f6f4;
+  display: grid;
+  gap: 12px;
+}
+
+.asset-submodal h4 {
+  margin: 0;
+  font-size: 17px;
+  color: #adfcf9;
+}
+
+.asset-submodal p {
+  margin: 0;
+  font-size: 13px;
+  color: #b7d2db;
+  line-height: 1.45;
+}
+
+.asset-submodal input[type="text"],
+.asset-submodal input:not([type]) {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid #3b6375;
+  background: #08141c;
+  color: #effaf8;
+  font-size: 13px;
+}
+
+/* Pre-Import Map Grid Alignment Modal */
+.map-align-modal {
+  width: min(640px, 95vw);
+}
+
+.map-align-viewport {
+  position: relative;
+  width: 100%;
+  height: 300px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #061017;
+  border: 1px solid #2f5263;
+  cursor: grab;
+  user-select: none;
+}
+
+.map-align-viewport:active {
+  cursor: grabbing;
+}
+
+.map-align-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+}
+
+.map-align-grid-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(173, 252, 249, 0.34) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(173, 252, 249, 0.34) 1px, transparent 1px);
+}
+
+.map-align-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.map-align-controls label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  color: #b8d5de;
+}
+
+/* DM Fog of War Top Toolbar Bar */
+.fog-top-bar {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  padding: 5px 10px;
+  border-radius: 12px;
+  background: rgba(9, 21, 29, 0.94);
+  border: 1px solid rgba(114, 189, 179, 0.45);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.fog-bar-section {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fog-top-bar-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(114, 189, 179, 0.25);
+  margin: 0 3px;
+}
+
+.hakton-app .fog-top-bar button {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  border: 1px solid #2f5262;
+  background: rgba(17, 38, 49, 0.88);
+  color: #d7efec;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 120ms ease;
+}
+
+.hakton-app .fog-top-bar button:hover {
+  border-color: #7bcab9;
+  background: rgba(28, 56, 70, 0.95);
+  color: #ffffff;
+}
+
+.hakton-app .fog-top-bar button.active,
+.hakton-app .fog-top-bar button[aria-pressed="true"] {
+  background: #276961;
+  border-color: #93f0e2;
+  color: #ffffff;
+}
+
+.hakton-app .fog-top-bar button.danger-btn:hover {
+  border-color: rgba(235, 105, 105, 0.85);
+  background: rgba(80, 24, 24, 0.85);
+  color: #ffadad;
+}
+
+.fog-preview-pill {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffad54;
+  background: rgba(240, 168, 84, 0.15);
+  border: 1px solid rgba(240, 168, 84, 0.4);
+  border-radius: 999px;
+  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Fallback legacy popup for backward compatibility */
+.fog-toolbar-popup {
+  position: absolute;
+  left: 84px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 22;
+  width: 230px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(9, 21, 29, 0.94);
+  border: 1px solid rgba(114, 189, 179, 0.45);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  display: grid;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.fog-tool-group {
+  display: grid;
+  gap: 6px;
+}
+
+.fog-tool-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #88aab6;
+  font-weight: 700;
+}
+
+.fog-tool-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hakton-app .fog-tool-buttons button {
+  padding: 5px 9px;
+  border-radius: 7px;
+  border: 1px solid #2f5262;
+  background: rgba(17, 38, 49, 0.88);
+  color: #d7efec;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hakton-app .fog-tool-buttons button:hover {
+  border-color: #7bcab9;
+}
+
+.hakton-app .fog-tool-buttons button.active {
+  background: #276961;
+  border-color: #93f0e2;
+  color: #ffffff;
+}
+
+.hakton-app .fog-tool-buttons button.danger-btn {
+  border-color: rgba(214, 92, 92, 0.55);
+  color: #ffadad;
+}
+
+/* Top-Left Combined Toolbar Row (Extension Toolbar + DM Voice Call Bar) */
+.top-left-toolbar-row {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.top-left-toolbar-row > * {
+  pointer-events: auto;
+}
+
+.top-left-toolbar-row .extension-toolbar {
+  position: static;
+  top: auto;
+  left: auto;
+}
+
+/* Floating 4-Button Voice & Video Call Toolbar */
+.voice-call-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(23, 45, 55, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.3);
+  box-shadow: 0 4px 16px rgba(5, 13, 22, 0.45);
+  z-index: 6;
+}
+
+.voice-call-toolbar.is-player-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+}
+
+.hakton-app .voice-call-toolbar .icon-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  color: #d6e7ea;
+}
+
+.hakton-app .voice-call-toolbar .icon-button[aria-pressed='true'] {
+  background: rgba(50, 92, 90, 0.88);
+  color: #adfcf9;
+}
+
+.hakton-app .voice-call-toolbar .icon-button.is-danger {
+  background: rgba(154, 48, 52, 0.85);
+  color: #ffdede;
+}
+
+.hakton-app .voice-call-toolbar .icon-button.is-danger:hover {
+  background: rgba(190, 56, 62, 0.95);
+}
+
+/* Discord-style Split Mic / Camera Device Pickers */
+.voice-split-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.voice-split-control {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(10, 24, 32, 0.45);
+  border: 1px solid rgba(162, 220, 208, 0.14);
+  padding-right: 2px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.voice-split-control:hover,
+.voice-split-control.is-open {
+  background: rgba(12, 30, 40, 0.72);
+  border-color: rgba(173, 252, 249, 0.34);
+}
+
+.hakton-app .voice-split-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #a9c7ce;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.hakton-app .voice-split-chevron:hover {
+  background: rgba(173, 252, 249, 0.12);
+  color: #adfcf9;
+}
+
+.hakton-app .voice-split-chevron svg {
+  width: 13px;
+  height: 13px;
+  transition: transform 0.16s ease;
+}
+
+.hakton-app .voice-split-chevron.is-open svg {
+  transform: rotate(180deg);
+  color: #adfcf9;
+}
+
+.voice-device-popover {
+  position: absolute;
+  left: 0;
+  min-width: 230px;
+  max-width: 290px;
+  background: rgba(11, 23, 31, 0.96);
+  border: 1px solid rgba(116, 198, 184, 0.42);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 25;
+}
+
+.voice-call-toolbar.is-dm-top .voice-device-popover {
+  top: calc(100% + 8px);
+}
+
+.voice-call-toolbar.is-player-bottom .voice-device-popover,
+.voice-call-toolbar.is-popout-bottom .voice-device-popover {
+  bottom: calc(100% + 8px);
+}
+
+.voice-call-toolbar.is-popout-bottom {
+  position: relative;
+  align-self: center;
+}
+
+.voice-call-toolbar.is-popout-bottom .voice-device-popover {
+  max-width: min(280px, calc(100vw - 24px));
+}
+
+.voice-call-toolbar.is-popout-bottom .voice-split-anchor:last-of-type .voice-device-popover {
+  left: auto;
+  right: 0;
+}
+
+.voice-device-header {
+  padding: 2px 6px 4px;
+  border-bottom: 1px solid rgba(116, 198, 184, 0.2);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8eb4be;
+}
+
+.voice-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.hakton-app button.voice-device-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #d6e7ea;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hakton-app button.voice-device-option:hover:not(:disabled) {
+  background: rgba(50, 92, 90, 0.45);
+  color: #ffffff;
+}
+
+.hakton-app button.voice-device-option.is-selected {
+  background: rgba(50, 92, 90, 0.72);
+  color: #adfcf9;
+}
+
+.hakton-app button.voice-device-option:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.voice-device-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-device-check {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #adfcf9;
+}
+
+.voice-device-check svg {
+  width: 14px;
+  height: 14px;
+}
+
+.voice-device-error {
+  padding: 4px 6px 2px;
+  border-top: 1px solid rgba(255, 132, 132, 0.22);
+  font-size: 11px;
+  color: #ff9c9c;
+}
+
+.voice-toolbar-error {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(320px, 82vw);
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(68, 22, 26, 0.94);
+  border: 1px solid rgba(255, 146, 146, 0.45);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.48);
+  color: #ffd9d9;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: normal;
+  z-index: 24;
+}
+
+.voice-call-toolbar.is-dm-top .voice-toolbar-error {
+  top: calc(100% + 8px);
+}
+
+.voice-call-toolbar.is-player-bottom .voice-toolbar-error,
+.voice-call-toolbar.is-popout-bottom .voice-toolbar-error {
+  bottom: calc(100% + 8px);
+}
+
+.hakton-app button.voice-toolbar-error-close {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+/* Opt-In Voice Call Bar inside Players Panel */
+.voice-join-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid #2c434f;
+}
+
+.voice-join-btn {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 7px;
+}
+
+.voice-join-active {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  color: #a8c7cf;
+}
+
+.voice-status-badge.is-connected {
+  color: #8ce5c9;
+  font-weight: 600;
+}
+
+.voice-join-notice {
+  margin: 0;
+  font-size: 11px;
+  color: #f0cf85;
+}
+
+.voice-join-error {
+  margin: 0;
+  font-size: 11px;
+  color: #f39a9a;
+}
+
+.live-participant-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.voice-roster-badge {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(65, 146, 130, 0.35);
+  border: 1px solid rgba(140, 229, 201, 0.4);
+  color: #adfcf9;
+}
+
+.voice-roster-badge.is-cam {
+  background: rgba(58, 124, 165, 0.35);
+  border-color: rgba(120, 185, 225, 0.45);
+}
+
+/* Internet Bridge Status Dot & Toggle */
+.internet-code-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.internet-bridge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6c848f;
+  flex-shrink: 0;
+}
+
+.internet-bridge-dot.is-ready {
+  background: #5de0a8;
+  box-shadow: 0 0 6px rgba(93, 224, 168, 0.65);
+}
+
+.internet-bridge-dot.is-connecting {
+  background: #f0c054;
+}
+
+.internet-bridge-dot.is-error {
+  background: #ef7474;
+}
+
+.hakton-app button.internet-toggle-btn {
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border: 1px solid #355463;
+  background: rgba(14, 29, 38, 0.85);
+  color: #93adb7;
+  cursor: pointer;
+}
+
+.hakton-app button.internet-toggle-btn.is-on {
+  border-color: rgba(93, 224, 168, 0.55);
+  color: #9ff5cd;
+  background: rgba(24, 62, 56, 0.85);
+}
+
+.internet-bridge-error {
+  margin: 0;
+  font-size: 11px;
+  color: #f39a9a;
+}
+
+/* Board Notice Retry & Change Code Actions */
+.board-notice-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.board-notice-actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+/* Collapsible Advanced Network Settings Drawer */
+.network-settings-drawer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(85, 128, 146, 0.28);
+  text-align: left;
+}
+
+.network-settings-drawer.is-compact {
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+.network-settings-toggle {
+  font-size: 11px;
+  color: #97bdc9;
+  padding: 2px 0;
+}
+
+.network-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.network-settings-hint {
+  margin: 0;
+  font-size: 11px;
+  color: #88a7b2;
+}
+
+.network-settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: #b7d2db;
+}
+
+.network-settings-form input {
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #355362;
+  background: #0b1820;
+  color: #e4f4f6;
+}
+
+.network-settings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.network-settings-form label.network-settings-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.network-settings-saved {
+  margin: 0;
+  font-size: 11px;
+  color: #8ce5c9;
+}
+
+.network-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.network-settings-actions button {
+  padding: 5px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
+.session-ended-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  background: rgba(154, 48, 52, 0.24);
+  border: 1px solid rgba(228, 130, 130, 0.45);
+  color: #f6d5d5;
+  font-size: 13px;
+}
+
+.hakton-app .session-ended-banner button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0 4px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Phase 2: Adjustable Floating Video Call Display & Pop-Out Window */
+.video-call-strip {
+  position: absolute;
+  bottom: 14px;
+  right: 16px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: calc(100% - 28px);
+  max-height: calc(100% - 28px);
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(14, 30, 40, 0.86);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.28);
+  box-shadow: 0 8px 24px rgba(4, 10, 18, 0.5);
+  pointer-events: auto;
+  user-select: none;
+}
+
+.video-call-strip.is-positioned {
+  right: auto;
+  bottom: auto;
+}
+
+.video-call-strip.is-dragging {
+  box-shadow: 0 14px 34px rgba(4, 10, 18, 0.68);
+  border-color: rgba(173, 252, 249, 0.55);
+}
+
+.video-call-strip.is-collapsed {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.hakton-app button.video-strip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(23, 45, 55, 0.84);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.32);
+  color: #e4f4f6;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(5, 13, 22, 0.45);
+}
+
+.hakton-app button.video-strip-pill:hover {
+  border-color: #adfcf9;
+}
+
+.video-popout-docked-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  background: rgba(23, 45, 55, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.36);
+  box-shadow: 0 4px 16px rgba(5, 13, 22, 0.45);
+}
+
+.hakton-app button.video-popout-focus-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: #e4f4f6;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.hakton-app button.video-popout-focus-btn:hover {
+  color: #adfcf9;
+}
+
+.hakton-app .video-popout-docked-pill .icon-button {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: #b7d7de;
+}
+
+.video-strip-resize-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  z-index: 3;
+  opacity: 0.45;
+  transition: opacity 120ms ease;
+}
+
+.video-call-strip:hover .video-strip-resize-handle {
+  opacity: 0.9;
+}
+
+.video-strip-resize-handle.is-top-left {
+  top: 2px;
+  left: 2px;
+  cursor: nwse-resize;
+  border-top: 2px solid rgba(173, 252, 249, 0.65);
+  border-left: 2px solid rgba(173, 252, 249, 0.65);
+  border-top-left-radius: 6px;
+}
+
+.video-strip-resize-handle.is-bottom-right {
+  right: 2px;
+  bottom: 2px;
+  cursor: nwse-resize;
+  border-right: 2px solid rgba(173, 252, 249, 0.65);
+  border-bottom: 2px solid rgba(173, 252, 249, 0.65);
+  border-bottom-right-radius: 6px;
+}
+
+.video-strip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 2px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #b7d7de;
+  cursor: grab;
+}
+
+.video-call-strip.is-dragging .video-strip-header {
+  cursor: grabbing;
+}
+
+.video-strip-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.video-strip-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hakton-app .video-strip-header .icon-button,
+.hakton-app button.video-strip-step-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: #b7d7de;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.hakton-app button.video-strip-step-btn {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.hakton-app .video-strip-header .icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.hakton-app .video-strip-header .icon-button:hover:not(:disabled),
+.hakton-app button.video-strip-step-btn:hover:not(:disabled) {
+  background: rgba(173, 252, 249, 0.14);
+  color: #adfcf9;
+}
+
+.hakton-app button.video-strip-step-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.video-speaking-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5b7885;
+  flex-shrink: 0;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.video-speaking-dot.is-active {
+  background: #adfcf9;
+  box-shadow: 0 0 8px rgba(173, 252, 249, 0.85);
+}
+
+.video-strip-tiles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  padding: 2px;
+}
+
+.video-call-strip.is-layout-column .video-strip-tiles {
+  flex-direction: column;
+  align-items: stretch;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: calc(100vh - 140px);
+}
+
+.video-call-strip.is-layout-grid .video-strip-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, var(--video-tile-w, 156px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: calc(100vh - 140px);
+}
+
+.video-tile {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--video-tile-w, 156px);
+  height: var(--video-tile-h, 100px);
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(155deg, #102437 0%, #091529 100%);
+  border: 1px solid rgba(114, 189, 179, 0.28);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.video-tile.is-speaking {
+  border-color: #adfcf9;
+  box-shadow: 0 0 0 2px rgba(173, 252, 249, 0.6), 0 0 14px rgba(173, 252, 249, 0.4);
+}
+
+.video-tile-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.video-tile-media.is-mirrored {
+  transform: scaleX(-1);
+}
+
+.video-tile-avatar {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-tile-avatar span {
+  width: clamp(34px, 26%, 58px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(58, 124, 165, 0.35);
+  border: 1px solid rgba(173, 252, 249, 0.35);
+  color: #adfcf9;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.video-tile-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 12px 6px 4px;
+  background: linear-gradient(to top, rgba(6, 13, 22, 0.88) 0%, transparent 100%);
+}
+
+.video-tile-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #eef8fa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.video-tile-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.video-tile-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: rgba(154, 48, 52, 0.85);
+  color: #ffe5e5;
+}
+
+.video-tile-badge svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* Discord-style Pop-Out Call Window */
+html.hakton-popout-html,
+body.hakton-popout-body,
+.hakton-popout-root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at top, #132c3d 0%, #091521 100%);
+  color: #eef8fa;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.video-popout-shell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.video-popout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: #cbe3ea;
+}
+
+.hakton-popout-body .video-popout-header .icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 0;
+  background: rgba(24, 48, 60, 0.72);
+  color: #c5e0e6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.hakton-popout-body .video-popout-header .icon-button:hover {
+  background: rgba(50, 92, 90, 0.78);
+  color: #adfcf9;
+}
+
+.hakton-popout-body .video-popout-header .icon-button[aria-pressed='true'] {
+  background: rgba(50, 92, 90, 0.92);
+  color: #adfcf9;
+}
+
+.video-popout-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--popout-cols, 2), minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  justify-items: stretch;
+}
+
+.video-popout-grid .video-tile {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.video-popout-grid .video-tile-avatar span {
+  width: 64px;
+  height: 64px;
+  font-size: 20px;
+}
+
+.video-popout-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.hakton-popout-body .voice-call-toolbar .icon-button {
+  border: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.hakton-popout-body .voice-call-toolbar .icon-button:hover:not(:disabled) {
+  background: rgba(173, 252, 249, 0.14);
+}
+
+@media (max-width: 900px) {
+  .video-call-strip:not(.is-positioned) {
+    max-width: calc(100vw - 32px);
+    bottom: 58px;
+    right: 12px;
+  }
+}
+
+
+

@@ -1,6 +1,7 @@
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
-import { CONNECTION_STATUS, ROLES } from '../../shared/events.js';
+import { CONNECTION_STATUS, ROLES, VOICE_SIGNALING_MODE } from '../../shared/events.js';
+import { canvasStore } from '../canvas/canvasStore.js';
 
 /** Normalize a wire token (camelCase) or raw SQLite row (snake_case). */
 function normalizeToken(token) {
@@ -14,6 +15,24 @@ function normalizeToken(token) {
     ownerId: token.ownerId ?? token.owner_id ?? null,
     locked: Boolean(token.locked),
     color: token.color ?? null,
+    isMap: Boolean(token.isMap ?? token.is_map),
+    imageUrl: token.imageUrl ?? token.image_url ?? null,
+    width: token.width ?? null,
+    height: token.height ?? null,
+    light: token.light
+      ? {
+          enabled: Boolean(token.light.enabled),
+          type: token.light.type || 'torch',
+          range: Number(token.light.range) || 30,
+          angle: Number(token.light.angle) || 90,
+          rotation: Number(token.light.rotation) || 0,
+        }
+      : null,
+    rotation: Number.isFinite(Number(token.rotation))
+      ? ((Number(token.rotation) % 360) + 360) % 360
+      : Number.isFinite(Number(token.light?.rotation))
+        ? ((Number(token.light.rotation) % 360) + 360) % 360
+        : 0,
   };
 }
 
@@ -134,6 +153,16 @@ export const sessionStore = createStore((set) => ({
   session: null,
   currentUser: null,
   participants: [],
+  sessionEndedReason: null,
+  voiceSignalingMode: VOICE_SIGNALING_MODE.LOCAL,
+  internetBridge: {
+    enabled: true,
+    status: 'offline', // 'offline' | 'connecting' | 'ready' | 'error'
+    error: null,
+    peerId: null,
+    code: null,
+    peerCount: 0,
+  },
 
   // Board state (existing)
   map: null,
@@ -141,6 +170,7 @@ export const sessionStore = createStore((set) => ({
   tokens: {}, // id -> { id, label, x, y, ownerId, locked, color }
   board: null, // { campaignId, revision, data, updatedAt } | null
   lastMoveLatencyMs: null,
+  sceneAssets: {}, // sceneKey -> { tokens: {}, fogShapes: [], walls: [] }
 
   // Autosaved documents
   characters: {}, // id -> normalized character
@@ -158,6 +188,27 @@ export const sessionStore = createStore((set) => ({
   setConnection: (connection, connectionError = null) =>
     set({ connection, connectionError }),
 
+  setSessionEnded: (reason) =>
+    set({ sessionEndedReason: reason || 'Host ended the session.' }),
+
+  clearSessionEnded: () => set({ sessionEndedReason: null }),
+
+  setVoiceSignalingMode: (voiceSignalingMode) =>
+    set({
+      voiceSignalingMode:
+        voiceSignalingMode === VOICE_SIGNALING_MODE.INTERNET
+          ? VOICE_SIGNALING_MODE.INTERNET
+          : VOICE_SIGNALING_MODE.LOCAL,
+    }),
+
+  setInternetBridge: (patch = {}) =>
+    set((state) => ({
+      internetBridge: {
+        ...state.internetBridge,
+        ...patch,
+      },
+    })),
+
   setServerInfo: (serverInfo) =>
     set({
       serverInfo: serverInfo
@@ -168,6 +219,8 @@ export const sessionStore = createStore((set) => ({
             sessionId: serverInfo.sessionId ?? null,
             lanIps: Array.isArray(serverInfo.lanIps) ? serverInfo.lanIps : [],
             lanUrls: Array.isArray(serverInfo.lanUrls) ? serverInfo.lanUrls : [],
+            roomCode: serverInfo.roomCode ?? serverInfo.status?.roomCode ?? null,
+            internetCode: serverInfo.internetCode ?? serverInfo.status?.internetCode ?? null,
           }
         : null,
     }),
@@ -194,6 +247,10 @@ export const sessionStore = createStore((set) => ({
         isHost: Boolean(isHost || welcome.role === ROLES.DM),
       },
       participants: Array.isArray(welcome.participants) ? welcome.participants : [],
+      voiceSignalingMode:
+        welcome.serverStatus?.voiceSignalingMode === VOICE_SIGNALING_MODE.INTERNET
+          ? VOICE_SIGNALING_MODE.INTERNET
+          : VOICE_SIGNALING_MODE.LOCAL,
     });
   },
 
@@ -225,12 +282,21 @@ export const sessionStore = createStore((set) => ({
     })),
 
   resetSession: () =>
-    set({
+    set((state) => ({
       session: null,
       currentUser: null,
       participants: [],
       connectionError: null,
-    }),
+      voiceSignalingMode: VOICE_SIGNALING_MODE.LOCAL,
+      internetBridge: {
+        ...state.internetBridge,
+        status: 'offline',
+        error: null,
+        peerId: null,
+        code: null,
+        peerCount: 0,
+      },
+    })),
 
   // Board actions (existing)
   setMap: (map) => set({ map: map ?? null }),
@@ -283,6 +349,53 @@ export const sessionStore = createStore((set) => ({
 
   setMoveLatency: (lastMoveLatencyMs) =>
     set({ lastMoveLatencyMs: Number.isFinite(lastMoveLatencyMs) ? lastMoveLatencyMs : null }),
+
+  setTokens: (tokens) => set({ tokens: tokens || {} }),
+
+  saveSceneSnapshot: (sceneKey, overrides = {}) =>
+    set((state) => {
+      if (!sceneKey) return state;
+      const key = String(sceneKey).trim().toLowerCase();
+      const currentTokens = overrides.tokens ?? state.tokens;
+      const currentFog = overrides.fogShapes ?? canvasStore.getState().fogShapes;
+      const currentWalls = overrides.walls ?? canvasStore.getState().walls;
+      const currentMap = overrides.map ?? state.map;
+      const currentSelectedMapAsset = overrides.selectedMapAsset ?? state.selectedMapAsset;
+      return {
+        sceneAssets: {
+          ...state.sceneAssets,
+          [key]: {
+            tokens: currentTokens ? { ...currentTokens } : {},
+            fogShapes: Array.isArray(currentFog) ? [...currentFog] : [],
+            walls: Array.isArray(currentWalls) ? [...currentWalls] : [],
+            map: currentMap ? { ...currentMap } : null,
+            selectedMapAsset: currentSelectedMapAsset ? { ...currentSelectedMapAsset } : null,
+          },
+        },
+      };
+    }),
+
+  loadSceneAssets: (sceneKey) => {
+    if (!sceneKey) return;
+    const key = String(sceneKey).trim().toLowerCase();
+    const state = sessionStore.getState();
+    const saved = state.sceneAssets[key];
+    if (saved) {
+      set({
+        tokens: saved.tokens ? { ...saved.tokens } : {},
+        map: saved.map ? { ...saved.map } : state.map,
+        selectedMapAsset: saved.selectedMapAsset ? { ...saved.selectedMapAsset } : null,
+      });
+      canvasStore.getState().setFogState({
+        fogShapes: saved.fogShapes ? [...saved.fogShapes] : [],
+        walls: saved.walls ? [...saved.walls] : [],
+      });
+    } else {
+      // Clean slate for newly activated scene
+      set({ tokens: {} });
+      canvasStore.getState().clearFog();
+    }
+  },
 
   // Autosaved document actions -------------------------------------------------
   setCharacters: (characters) =>

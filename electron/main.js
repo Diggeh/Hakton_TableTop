@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkpoint } from '../database/index.js';
@@ -25,8 +25,10 @@ let repos = null;
 let storage = null;
 let server = null;
 let mainWindow = null;
+let popoutWindow = null;
 let recoveryInfo = null;
 let stopBackups = null;
+let currentUser = null;
 
 // Only one Hakton instance: a second one would fight over the port and SQLite file.
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -61,6 +63,8 @@ function buildServerInfo() {
     sessionId: server.sessionId,
     lanIps: server.lanIps,
     lanUrls: server.lanUrls,
+    roomCode: server.roomCode,
+    internetCode: server.internetCode,
     status: server.getStatus(),
   };
 }
@@ -68,6 +72,50 @@ function buildServerInfo() {
 function registerIpcHandlers() {
   ipcMain.on('hakton:quit', (event) => {
     if (mainWindow && event.senderFrame === mainWindow.webContents.mainFrame) app.quit();
+  });
+
+  ipcMain.handle('hakton:user:has-account', () => ({
+    ok: true,
+    hasAccount: Boolean(repos?.users?.hasAny()),
+  }));
+
+  ipcMain.handle('hakton:user:get-current', () => {
+    if (!currentUser && repos?.users?.hasAny()) {
+      currentUser = repos.users.first();
+    }
+    return {
+      ok: true,
+      hasAccount: Boolean(repos?.users?.hasAny()),
+      user: currentUser,
+    };
+  });
+
+  ipcMain.handle('hakton:user:create', (_event, credentials = {}) => {
+    try {
+      const user = repos.users.create(credentials);
+      currentUser = user;
+      return { ok: true, user };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:user:login', (_event, credentials = {}) => {
+    try {
+      const user = repos.users.authenticate(credentials);
+      if (!user) {
+        return { ok: false, error: 'Invalid account name or password.' };
+      }
+      currentUser = user;
+      return { ok: true, user };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:user:logout', () => {
+    currentUser = null;
+    return { ok: true };
   });
 
   ipcMain.handle('hakton:server-info', () => buildServerInfo());
@@ -141,6 +189,25 @@ function registerIpcHandlers() {
     getMainWindow: () => mainWindow,
     assetService,
   });
+
+  ipcMain.handle('hakton:popout:set-always-on-top', (_event, enabled) => {
+    if (!popoutWindow || popoutWindow.isDestroyed()) {
+      return { ok: false, alwaysOnTop: false };
+    }
+    const next = Boolean(enabled);
+    popoutWindow.setAlwaysOnTop(next, 'floating');
+    return { ok: true, alwaysOnTop: next };
+  });
+
+  ipcMain.handle('hakton:popout:focus', () => {
+    if (!popoutWindow || popoutWindow.isDestroyed()) {
+      return { ok: false };
+    }
+    if (popoutWindow.isMinimized()) popoutWindow.restore();
+    popoutWindow.show();
+    popoutWindow.focus();
+    return { ok: true };
+  });
 }
 
 async function bootstrap() {
@@ -166,7 +233,21 @@ async function bootstrap() {
   // Snapshot every five minutes so a hard crash never loses more than that.
   stopBackups = startBackupSchedule(db, storage.backupsDir, { intervalMs: 5 * 60 * 1000 });
 
-  // 2. Register IPC bridge handlers before launching renderer
+  // 2. Grant audio/video media permissions for WebRTC voice & camera capture
+  const allowedMediaPermissions = new Set([
+    'media',
+    'audioCapture',
+    'videoCapture',
+    'mediaKeySystem',
+  ]);
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(allowedMediaPermissions.has(permission));
+  });
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) =>
+    allowedMediaPermissions.has(permission),
+  );
+
+  // 3. Register IPC bridge handlers before launching renderer
   registerIpcHandlers();
 
   // 3. Embedded backend (Socket.IO + PeerJS signaling)
@@ -200,12 +281,53 @@ function createWindow() {
     },
   });
 
-  mainWindow.on('closed', () => (mainWindow = null));
+  mainWindow.on('closed', () => {
+    if (popoutWindow && !popoutWindow.isDestroyed()) {
+      popoutWindow.close();
+    }
+    popoutWindow = null;
+    mainWindow = null;
+  });
 
-  // Never navigate the app window to external content; open links in the OS browser.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  // Allow the Voice & Video Call pop-out child window; open any external URLs in the OS browser.
+  mainWindow.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    if (frameName === 'hakton-video-popout') {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 580,
+          height: 390,
+          minWidth: 280,
+          minHeight: 200,
+          backgroundColor: '#0b1924',
+          autoHideMenuBar: true,
+          title: 'Hakton — Voice & Video Call',
+          alwaysOnTop: false,
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        },
+      };
+    }
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('did-create-window', (childWindow, details) => {
+    if (details?.frameName !== 'hakton-video-popout') return;
+    if (popoutWindow && !popoutWindow.isDestroyed() && popoutWindow !== childWindow) {
+      popoutWindow.close();
+    }
+    popoutWindow = childWindow;
+    childWindow.setMenuBarVisibility(false);
+    childWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    childWindow.on('closed', () => {
+      if (popoutWindow === childWindow) {
+        popoutWindow = null;
+      }
+    });
   });
 
   if (DEV_URL) {

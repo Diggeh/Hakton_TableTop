@@ -10,6 +10,10 @@ export const DEFAULT_SESSION_NAME = 'Hakton Tabletop Session';
 export const MAX_DISPLAY_NAME_LENGTH = 32;
 export const MAX_SESSION_ID_LENGTH = 64;
 
+/** Maximum number of simultaneous participants in the P2P voice mesh (N*(N-1)/2 links). */
+export const MAX_VOICE_PEERS = 8;
+export const MAX_PEER_ID_LENGTH = 128;
+
 export const EVENTS = Object.freeze({
   // Built-in socket.io lifecycle is used for connect/disconnect/connect_error.
 
@@ -20,11 +24,13 @@ export const EVENTS = Object.freeze({
   // Session Lifecycle & Player Identification
   SESSION_JOIN: 'session:join',
   SESSION_LEAVE: 'session:leave',
+  SESSION_END: 'session:end',
   SESSION_WELCOME: 'session:welcome',
   SESSION_PARTICIPANT_JOINED: 'session:participant:joined',
   SESSION_PARTICIPANT_LEFT: 'session:participant:left',
   SESSION_PARTICIPANTS_UPDATE: 'session:participants:update',
   SESSION_ERROR: 'session:error',
+  SESSION_NETWORK_MODE: 'session:network-mode',
 
   // Board & Game State (existing contracts)
   SESSION_STATE: 'session:state',
@@ -47,6 +53,13 @@ export const EVENTS = Object.freeze({
   CHAT_HISTORY: 'chat:history',
   DICE_ROLL: 'dice:roll',
   DICE_ROLLED: 'dice:rolled',
+
+  // WebRTC voice mesh signaling (audio never touches the host; only Peer IDs do)
+  VOICE_JOIN: 'voice:join',
+  VOICE_LEAVE: 'voice:leave',
+  VOICE_MEDIA_STATE: 'voice:media-state',
+  VOICE_PEER_JOINED: 'player_joined',
+  VOICE_PEER_LEFT: 'player_left',
 
   // Scenes / shared board settings
   MAP_SELECT: 'map:select',
@@ -88,6 +101,11 @@ export const SERVER_STATE = Object.freeze({
   ERROR: 'error',
 });
 
+export const VOICE_SIGNALING_MODE = Object.freeze({
+  LOCAL: 'local',
+  INTERNET: 'internet',
+});
+
 /**
  * Error codes returned in session acknowledgments and error events.
  */
@@ -101,4 +119,8 @@ export const ERROR_CODES = Object.freeze({
   UNAUTHORIZED_IDENTITY: 'E_UNAUTHORIZED_IDENTITY',
   SESSION_NOT_FOUND: 'E_SESSION_NOT_FOUND',
   SERVER_SHUTTING_DOWN: 'E_SERVER_SHUTTING_DOWN',
+  VOICE_MESH_FULL: 'E_VOICE_MESH_FULL',
+  INVALID_PEER_ID: 'E_INVALID_PEER_ID',
+  DUPLICATE_PEER_ID: 'E_DUPLICATE_PEER_ID',
+  NOT_JOINED: 'E_NOT_JOINED',
 });

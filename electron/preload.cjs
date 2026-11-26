@@ -9,6 +9,18 @@ contextBridge.exposeInMainWorld('hakton', {
   getRecoveryStatus: () => ipcRenderer.invoke('hakton:recovery-status'),
   startServer: (opts) => ipcRenderer.invoke('hakton:server-start', opts),
   stopServer: () => ipcRenderer.invoke('hakton:server-stop'),
+  popout: {
+    setAlwaysOnTop: (enabled) =>
+      ipcRenderer.invoke('hakton:popout:set-always-on-top', Boolean(enabled)),
+    focus: () => ipcRenderer.invoke('hakton:popout:focus'),
+  },
+  user: {
+    hasAccount: () => ipcRenderer.invoke('hakton:user:has-account'),
+    create: (credentials) => ipcRenderer.invoke('hakton:user:create', credentials),
+    login: (credentials) => ipcRenderer.invoke('hakton:user:login', credentials),
+    getCurrent: () => ipcRenderer.invoke('hakton:user:get-current'),
+    logout: () => ipcRenderer.invoke('hakton:user:logout'),
+  },
   assets: {
     list: (filters = {}) => ipcRenderer.invoke('hakton:assets:list', filters),
     get: (id) => ipcRenderer.invoke('hakton:assets:get', { id }),

@@ -33,6 +33,22 @@ function getBridge() {
   return api;
 }
 
+function readImageDimensions(url) {
+  if (!url || typeof window === 'undefined' || typeof window.Image !== 'function') {
+    return Promise.resolve({ width: 1400, height: 980 });
+  }
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.onload = () =>
+      resolve({
+        width: img.naturalWidth || 1400,
+        height: img.naturalHeight || 980,
+      });
+    img.onerror = () => resolve({ width: 1400, height: 980 });
+    img.src = url;
+  });
+}
+
 /**
  * Headless vanilla Zustand store for Map & Token Uploads, Asset Storage, and Asset Catalogs.
  * Designed to be wired directly into any React UI (e.g. AssetsPanel / Assets Manager modal)
@@ -274,6 +290,8 @@ export const assetStore = createStore((set, get) => ({
     }
   },
 
+  uploadFiles: async (opts) => get().uploadFileList(opts),
+
   /**
    * Uploads browser `File` / `Blob` objects or raw byte payloads (e.g. from drag-and-drop or `<input type="file">`).
    */
@@ -295,6 +313,42 @@ export const assetStore = createStore((set, get) => ({
 
     set({ uploading: true, error: null, feedback: null });
     try {
+      if (!globalThis?.window?.hakton?.assets) {
+        // Fallback for browser / preview mode without electron preload bridge
+        const localUploaded = await Promise.all(
+          list.map(async (file, idx) => {
+            const url =
+              typeof URL !== 'undefined' && URL.createObjectURL && file instanceof Blob
+                ? URL.createObjectURL(file)
+                : null;
+            const dims = await readImageDimensions(url);
+            const cleanName = (file.name || 'imported_asset').replace(/\.[^.]+$/, '');
+            return {
+              id: `local_asset_${Date.now()}_${idx}`,
+              name: cleanName,
+              originalName: file.name,
+              type: type || 'map',
+              category: (category || 'maps').toLowerCase(),
+              url,
+              width: dims.width,
+              height: dims.height,
+              mimeType: file.type || 'image/png',
+              metadata: metadata || {},
+              createdAt: new Date().toISOString(),
+            };
+          }),
+        );
+        set((state) => ({
+          uploading: false,
+          assets: [...localUploaded, ...state.assets],
+          feedback: {
+            kind: 'success',
+            message: `Imported ${localUploaded.length} asset(s).`,
+          },
+        }));
+        return { ok: true, uploaded: localUploaded, failed: [] };
+      }
+
       const serialized = await Promise.all(
         list.map(async (file) => {
           if (typeof file?.arrayBuffer === 'function') {
@@ -337,7 +391,7 @@ export const assetStore = createStore((set, get) => ({
           failed: res.failed ?? [],
         },
       });
-      await get().loadAssets();
+      await get().loadAssets({ type: 'all', category: 'all' });
       return { ok: true, uploaded: res.uploaded ?? [], failed: res.failed ?? [] };
     } catch (err) {
       const errObj = { code: 'E_IPC_ERROR', message: err.message };

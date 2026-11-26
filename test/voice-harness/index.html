@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hakton voice mesh harness</title>
+    <style>
+      body { background: #091540; color: #adfcf9; font: 13px/1.4 Consolas, monospace; padding: 16px; }
+      pre { white-space: pre-wrap; }
+    </style>
+    <!-- Resolve the renderer's bare imports without a bundler. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "zustand/vanilla": "/vendor/zustand/vanilla.mjs",
+          "zustand": "/harness/zustand-stub.js"
+        }
+      }
+    </script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/vendor/peerjs.min.js"></script>
+  </head>
+  <body>
+    <h3>Hakton P2P voice mesh harness</h3>
+    <p>
+      Real PeerJS + real RTCPeerConnections inside this page, signaling through the live host.
+      Query: <code>?peers=3&amp;mic=synthetic|device</code>. Results also POST to the host CLI.
+    </p>
+    <pre id="out">starting…</pre>
+    <script type="module" src="/harness/harness.js"></script>
+  </body>
+</html>

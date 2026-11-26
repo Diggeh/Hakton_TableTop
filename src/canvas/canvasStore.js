@@ -2,7 +2,6 @@ import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import {
   clampScale,
-  clampTranslation,
   fitViewport,
   zoomAtPoint,
 } from './viewport.js';
@@ -14,19 +13,12 @@ const EMPTY_SIZE = { width: 0, height: 0 };
  * panning/zooming can drive Konva imperatively without re-rendering the tree.
  */
 export const canvasStore = createStore((set, get) => {
-  /** Clamp a viewport against the current (or supplied) sizes. */
-  const bound = (viewport, overrides = {}) => {
-    const state = get();
-    const viewportSize = overrides.viewportSize ?? state.viewportSize;
-    const mapSize = overrides.mapSize ?? state.mapSize;
-    return clampTranslation(
-      { ...viewport, scale: clampScale(viewport.scale) },
-      viewportSize.width,
-      viewportSize.height,
-      mapSize.width,
-      mapSize.height,
-    );
-  };
+  /** Clamp zoom scale while permitting unrestricted panning across the full-screen canvas. */
+  const bound = (viewport) => ({
+    x: Number.isFinite(viewport?.x) ? viewport.x : 0,
+    y: Number.isFinite(viewport?.y) ? viewport.y : 0,
+    scale: clampScale(viewport?.scale),
+  });
 
   return {
     viewport: { x: 0, y: 0, scale: 1 },
@@ -36,6 +28,78 @@ export const canvasStore = createStore((set, get) => {
     snap: true,
     selectedIds: [],
     draggingIds: [],
+    draggingPositions: {},
+    draggingRotations: {},
+
+    // Fog of War & Dynamic Vision state (starts empty — never auto-placed on maps)
+    fogTool: null, // 'rect' | 'circle' | 'polygon' | 'line' | 'wall' | 'door' | 'erase' | null
+    fogShapes: [],
+    walls: [],
+    playerVisionPreview: false,
+
+    setFogTool: (fogTool) =>
+      set((state) => ({
+        fogTool: state.fogTool === fogTool ? null : fogTool,
+      })),
+
+    togglePlayerVisionPreview: () =>
+      set((state) => ({
+        playerVisionPreview: !state.playerVisionPreview,
+      })),
+
+    setPlayerVisionPreview: (playerVisionPreview) =>
+      set({ playerVisionPreview: Boolean(playerVisionPreview) }),
+
+    addFogShape: (shape) =>
+      set((state) => ({
+        fogShapes: [
+          ...state.fogShapes,
+          {
+            id: shape.id || `fog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            ...shape,
+          },
+        ],
+      })),
+
+    removeFogShape: (id) =>
+      set((state) => ({
+        fogShapes: state.fogShapes.filter((s) => s.id !== id),
+      })),
+
+    addWall: (wall) =>
+      set((state) => ({
+        walls: [
+          ...state.walls,
+          {
+            id: wall.id || `wall_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            isDoor: Boolean(wall.isDoor),
+            isOpen: Boolean(wall.isOpen),
+            wallId: wall.wallId ?? null,
+            p1: wall.p1,
+            p2: wall.p2,
+          },
+        ],
+      })),
+
+    removeWall: (id) =>
+      set((state) => ({
+        walls: state.walls.filter((w) => w.id !== id),
+      })),
+
+    toggleDoor: (id) =>
+      set((state) => ({
+        walls: state.walls.map((w) =>
+          w.id === id && w.isDoor ? { ...w, isOpen: !w.isOpen } : w,
+        ),
+      })),
+
+    clearFog: () => set({ fogShapes: [], walls: [] }),
+
+    setFogState: ({ fogShapes, walls } = {}) =>
+      set((state) => ({
+        fogShapes: Array.isArray(fogShapes) ? fogShapes : state.fogShapes,
+        walls: Array.isArray(walls) ? walls : state.walls,
+      })),
 
     setViewportSize: (viewportSize) =>
       set((state) => {
@@ -120,6 +184,28 @@ export const canvasStore = createStore((set, get) => {
 
     setDraggingIds: (ids) =>
       set({ draggingIds: Array.isArray(ids) ? ids : [] }),
+
+    setDraggingPosition: (id, pos) =>
+      set((state) => ({
+        draggingPositions: { ...state.draggingPositions, [id]: pos },
+      })),
+
+    clearDraggingPositions: () => set({ draggingPositions: {} }),
+
+    setDraggingRotation: (id, rotation) =>
+      set((state) => ({
+        draggingRotations: { ...state.draggingRotations, [id]: rotation },
+      })),
+
+    clearDraggingRotation: (id) =>
+      set((state) => {
+        if (!(id in state.draggingRotations)) return state;
+        const next = { ...state.draggingRotations };
+        delete next[id];
+        return { draggingRotations: next };
+      }),
+
+    clearDraggingRotations: () => set({ draggingRotations: {} }),
   };
 });
 

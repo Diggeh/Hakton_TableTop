@@ -28,16 +28,38 @@ export function buildBoardSnapshot(repos, campaignId) {
       height: map.height,
       imageFile: map.image_file ?? null,
     })),
-    tokens: tokens.map((token) => ({
-      id: token.id,
-      mapId: token.map_id ?? null,
-      label: token.label,
-      x: token.x,
-      y: token.y,
-      ownerId: token.owner_id ?? null,
-      locked: Boolean(token.locked),
-      color: token.color ?? null,
-    })),
+    tokens: tokens.map((token) => {
+      let light = null;
+      if (token.light) {
+        if (typeof token.light === 'string') {
+          try {
+            light = JSON.parse(token.light);
+          } catch {
+            light = null;
+          }
+        } else if (typeof token.light === 'object') {
+          light = token.light;
+        }
+      }
+      return {
+        id: token.id,
+        mapId: token.map_id ?? null,
+        label: token.label,
+        x: token.x,
+        y: token.y,
+        ownerId: token.owner_id ?? null,
+        locked: Boolean(token.locked),
+        color: token.color ?? null,
+        isMap: Boolean(token.is_map ?? token.isMap),
+        imageUrl: token.image_url ?? token.imageUrl ?? null,
+        width: token.width ?? null,
+        height: token.height ?? null,
+        light,
+        rotation: Number.isFinite(Number(token.rotation))
+          ? ((Number(token.rotation) % 360) + 360) % 360
+          : 0,
+      };
+    }),
     settings: { gridSize: active?.grid_size ?? 70 },
     overlays: { fog: [], drawings: [], markers: [] },
     tokenOrder: tokens.map((token) => token.id),
