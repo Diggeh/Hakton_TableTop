@@ -1,5 +1,11 @@
 import { sessionStore } from '../store/sessionStore.js';
 import { voiceStore } from '../store/voiceStore.js';
+import {
+  defaultEnumerateDevices,
+  normalizeDeviceId,
+  partitionMediaDevices,
+  saveMediaDevicePrefs,
+} from './mediaDevices.js';
 import { resolvePeerOptions } from './peerOptions.js';
 import { getSocket, registerDisconnectHook } from './socket.js';
 import { VoiceMeshManager } from './voiceMesh.js';
@@ -108,6 +114,35 @@ export function toggleCamera(constraints) {
   return setCameraEnabled(!current, constraints);
 }
 
+export async function refreshMediaDevices() {
+  if (manager) {
+    return manager.refreshDevices();
+  }
+  const partitioned = partitionMediaDevices(await defaultEnumerateDevices());
+  voiceStore.getState().setMediaDevices(partitioned);
+  return partitioned;
+}
+
+export async function selectAudioInputDevice(deviceId = '') {
+  if (manager) {
+    return manager.setAudioInputDevice(deviceId);
+  }
+  const nextId = normalizeDeviceId(deviceId);
+  voiceStore.getState().setSelectedAudioInputId(nextId);
+  saveMediaDevicePrefs({ audioInputId: nextId });
+  return { ok: true, deviceId: nextId };
+}
+
+export async function selectVideoInputDevice(deviceId = '') {
+  if (manager) {
+    return manager.setVideoInputDevice(deviceId);
+  }
+  const nextId = normalizeDeviceId(deviceId);
+  voiceStore.getState().setSelectedVideoInputId(nextId);
+  saveMediaDevicePrefs({ videoInputId: nextId });
+  return { ok: true, deviceId: nextId, active: false };
+}
+
 /**
  * Headless diagnostics until the voice UI exists. From the renderer DevTools console:
  *   await __haktonVoice.join()      // after connecting to a session
@@ -124,6 +159,9 @@ if (typeof window !== 'undefined') {
     toggleDeafened,
     setCameraEnabled,
     toggleCamera,
+    refreshMediaDevices,
+    selectAudioInputDevice,
+    selectVideoInputDevice,
     manager: getVoiceManager,
     stats: () => manager?.getStats() ?? Promise.resolve({}),
     logs: () => voiceStore.getState().connectionLogs,

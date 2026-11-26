@@ -64,6 +64,13 @@ export default function ToolIcon({ name }) {
       'M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
     chevronDown: 'M6 9l6 6 6-6',
     chevronUp: 'M18 15l-6-6-6 6',
+    check: 'M20 6L9 17l-5-5',
+    popout: 'M14 3h7v7 M10 14L21 3 M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5',
+    popin: 'M21 3l-9 9 M12 7v5h5 M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5',
+    pin: 'M12 17v5 M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16h14v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6l1-2H8l1 2v4.76z',
+    layoutRow: 'M3 7h18v10H3z M9 7v10 M15 7v10',
+    layoutColumn: 'M7 3h10v18H7z M7 9h10 M7 15h10',
+    layoutGrid: 'M3 3h8v8H3z M13 3h8v8h-8z M3 13h8v8H3z M13 13h8v8h-8z',
   };
   return (
     <svg

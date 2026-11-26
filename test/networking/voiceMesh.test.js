@@ -11,10 +11,11 @@ import {
   ROLES,
 } from '../../shared/events.js';
 import { VOICE_SINK_ID, VoiceMeshManager } from '../../src/net/voiceMesh.js';
+import { partitionMediaDevices } from '../../src/net/mediaDevices.js';
 import { SpeakingDetector } from '../../src/net/speakingDetector.js';
 import { resolvePeerOptions } from '../../src/net/peerOptions.js';
 import { createVoiceStore, VOICE_STATUS } from '../../src/store/voiceStore.js';
-import { FakeDocument, FakePeerNetwork, FakeStream } from './voiceFakes.js';
+import { FakeDocument, FakePeerNetwork, FakeStream, FakeTrack } from './voiceFakes.js';
 
 const TIMEOUT = { timeout: 30000 };
 
@@ -499,8 +500,8 @@ describe('P2P voice mesh over the real host signaling (Socket.io + fake WebRTC)'
     assert.equal(camOn.ok, true);
     assert.equal(camOn.enabled, true);
     assert.equal(a.store.getState().localVideoEnabled, true);
-    assert.equal(lastVideoConstraints.video.height.max, 480);
-    assert.equal(lastVideoConstraints.video.frameRate.max, 20);
+    assert.equal(lastVideoConstraints.video.height.ideal, 480);
+    assert.equal(lastVideoConstraints.video.frameRate.ideal, 20);
 
     const camOff = await a.manager.setCameraEnabled(false);
     assert.equal(camOff.ok, true);
@@ -805,5 +806,220 @@ describe('P2P voice mesh over the real host signaling (Socket.io + fake WebRTC)'
     assert.equal(Object.keys(b.store.getState().peers).length, 0);
     assert.equal(b.doc.audioElements().length, 0);
     assert.equal(b.mic.tracks[0].readyState, 'live', 'mic stays open while reconnecting');
+  });
+
+  it('partitions media devices cleanly and supports live mic/camera device switching, fallback, and hot-unplug', TIMEOUT, async () => {
+    // 1. partitionMediaDevices filters outputs, deduplicates real IDs, and builds fallback labels
+    const partitioned = partitionMediaDevices([
+      { kind: 'audiooutput', deviceId: 'spk-1', label: 'Speakers' },
+      { kind: 'audioinput', deviceId: 'default', label: '' },
+      { kind: 'audioinput', deviceId: 'mic-1', label: 'Headset Mic' },
+      { kind: 'audioinput', deviceId: 'mic-1', label: 'Duplicate Mic' },
+      { kind: 'videoinput', deviceId: '', label: '' },
+      { kind: 'videoinput', deviceId: '', label: '' },
+    ]);
+    assert.deepEqual(partitioned.audioInputs, [
+      { deviceId: 'default', label: 'System Default', groupId: '', isDefault: true },
+      { deviceId: 'mic-1', label: 'Headset Mic', groupId: '', isDefault: false },
+    ]);
+    assert.deepEqual(partitioned.videoInputs, [
+      { deviceId: '', label: 'Camera 1', groupId: '', isDefault: false },
+      { deviceId: '', label: 'Camera 2', groupId: '', isDefault: false },
+    ]);
+
+    // 2. Saved selectedAudioInputId falls back cleanly if missing on join, then allows live mid-call mic switch
+    const host = await makeClient('Host');
+    await host.manager.join({ peerId: 'peer-host' });
+
+    const playerSocket = await connectSocket();
+    const joinAck = await emitAck(playerSocket, EVENTS.SESSION_JOIN, {
+      sessionId: DEFAULT_SESSION_ID,
+      displayName: 'Player1',
+    });
+    assert.equal(joinAck.success, true);
+
+    const store = createVoiceStore({ audioInputId: 'missing-mic', videoInputId: 'cam-2' });
+    const doc = new FakeDocument();
+    const mediaEvents = new EventTarget();
+    let availableDevices = [
+      { kind: 'audioinput', deviceId: 'mic-1', label: 'Built-in Mic' },
+      { kind: 'audioinput', deviceId: 'mic-2', label: 'Studio USB Mic' },
+      { kind: 'videoinput', deviceId: 'cam-1', label: 'Integrated Webcam' },
+      { kind: 'videoinput', deviceId: 'cam-2', label: 'USB Capture Cam' },
+    ];
+    const requestedConstraints = [];
+    const mic1Track = new FakeTrack('Built-in Mic', { kind: 'audio', deviceId: 'mic-1' });
+    const mic2Track = new FakeTrack('Studio USB Mic', { kind: 'audio', deviceId: 'mic-2' });
+    const cam1Track = new FakeTrack('Integrated Webcam', { kind: 'video', deviceId: 'cam-1' });
+    const cam2Track = new FakeTrack('USB Capture Cam', { kind: 'video', deviceId: 'cam-2' });
+
+    const trackedStreams = [];
+    const detectorStub = {
+      tracked: [],
+      untracked: [],
+      suppressed: [],
+      track(key, stream) {
+        this.tracked.push(key);
+        trackedStreams.push(stream);
+        return true;
+      },
+      untrack(key) {
+        this.untracked.push(key);
+      },
+      setSuppressed(key, val) {
+        this.suppressed.push([key, val]);
+      },
+      destroy() {},
+    };
+
+    const manager = new VoiceMeshManager({
+      socket: playerSocket,
+      createPeer: network.createPeer,
+      documentRef: doc,
+      store,
+      logger: null,
+      speakingDetector: detectorStub,
+      enumerateDevices: async () => availableDevices,
+      mediaDevicesRef: mediaEvents,
+      getUserMedia: async (constraints) => {
+        requestedConstraints.push(constraints);
+        if (constraints.audio) {
+          const reqId = constraints.audio?.deviceId?.exact;
+          if (reqId === 'missing-mic') {
+            throw Object.assign(new Error('No such mic'), { name: 'OverconstrainedError' });
+          }
+          if (reqId === 'mic-2') return new FakeStream('mic-2', [mic2Track]);
+          return new FakeStream('mic-1', [mic1Track]);
+        }
+        const camReqId = constraints.video?.deviceId?.exact;
+        if (camReqId === 'cam-2') return new FakeStream('cam-2', [cam2Track]);
+        return new FakeStream('cam-1', [cam1Track]);
+      },
+    });
+    managers.push(manager);
+
+    await manager.join({ peerId: 'peer-p1' });
+    await Promise.all([host.manager.waitForStreams(1), manager.waitForStreams(1)]);
+
+    // Stale 'missing-mic' cleared back to default; enumerated lists populated
+    assert.equal(requestedConstraints[0].audio.deviceId.exact, 'missing-mic');
+    assert.equal(requestedConstraints[1].audio.deviceId, undefined);
+    assert.equal(store.getState().selectedAudioInputId, '');
+    await waitFor(() => store.getState().audioInputs.length === 2, 'devices populated');
+
+    // Mute stays preserved across live mic switch, old track stops, sender replaces, detector rebinds
+    manager.setAudioMuted(true);
+    const revBeforeMic = store.getState().localStreamRevision;
+    const switchMic = await manager.setAudioInputDevice('mic-2');
+    assert.equal(switchMic.ok, true);
+    assert.equal(store.getState().selectedAudioInputId, 'mic-2');
+    assert.equal(mic1Track.readyState, 'ended');
+    assert.equal(mic2Track.enabled, false, 'mute state preserved on new mic track');
+    assert.ok(store.getState().localStreamRevision > revBeforeMic);
+    assert.ok(detectorStub.untracked.includes('local'), 'SpeakingDetector unbound old track');
+    assert.ok(detectorStub.tracked.filter((k) => k === 'local').length >= 2, 'SpeakingDetector rebound new stream');
+
+    const hostConn = manager.connections.get('peer-host');
+    assert.ok(
+      hostConn.call.peerConnection.replacedTracks.some((r) => r.kind === 'audio' && r.track === mic2Track),
+      'WebRTC audio sender replaced track mid-call',
+    );
+
+    // 3. Selecting camera while OFF persists choice without turning camera ON
+    const pickOff = await manager.setVideoInputDevice('cam-1');
+    assert.equal(pickOff.ok, true);
+    assert.equal(pickOff.active, false);
+    assert.equal(store.getState().localVideoEnabled, false);
+    assert.equal(store.getState().selectedVideoInputId, 'cam-1');
+
+    // Turning camera ON uses selected cam-1, and switching to cam-2 while ON hot-swaps via replaceTrack
+    const videoReplaced = [];
+    hostConn.call.peerConnection.senders.push({
+      track: { kind: 'video' },
+      replaceTrack: async (nextTrack) => {
+        videoReplaced.push(nextTrack);
+      },
+    });
+    const camOn = await manager.setCameraEnabled(true);
+    assert.equal(camOn.ok, true);
+    assert.equal(requestedConstraints.at(-1).video.deviceId.exact, 'cam-1');
+
+    const switchCam = await manager.setVideoInputDevice('cam-2');
+    assert.equal(switchCam.ok, true);
+    assert.equal(switchCam.active, true);
+    assert.equal(store.getState().selectedVideoInputId, 'cam-2');
+    assert.equal(cam1Track.readyState, 'ended');
+    assert.deepEqual(videoReplaced, [cam1Track, cam2Track]);
+
+    // 4. Unplugging active camera falls back to default camera cleanly on track 'ended'
+    availableDevices = availableDevices.filter((d) => d.deviceId !== 'cam-2');
+    const freshCam1Track = new FakeTrack('Integrated Webcam', { kind: 'video', deviceId: 'cam-1' });
+    manager.getUserMedia = async () => new FakeStream('cam-1-rebound', [freshCam1Track]);
+    cam2Track.dispatchEvent(new Event('ended'));
+
+    await waitFor(
+      () => store.getState().selectedVideoInputId === '' && manager.localStream.getVideoTracks().includes(freshCam1Track),
+      'active camera unplug fallback to default camera',
+    );
+
+    // 5. Unplugging active mic when no working mic remains falls back to listen-only mode
+    availableDevices = availableDevices.filter((d) => d.deviceId !== 'mic-2');
+    manager.getUserMedia = async () => {
+      throw Object.assign(new Error('No microphone found'), { name: 'NotFoundError' });
+    };
+    mic2Track.dispatchEvent(new Event('ended'));
+
+    await waitFor(
+      () => store.getState().listenOnly === true && store.getState().selectedAudioInputId === '',
+      'unplugged final microphone to enter listen-only mode',
+    );
+    assert.equal(store.getState().localAudioMuted, true);
+  });
+
+  it('relaxes OverconstrainedError video constraints and bumps remote streamRevision on addtrack', TIMEOUT, async () => {
+    const a = await makeClient('A');
+    const b = await makeClient('B');
+    await a.manager.join({ peerId: 'peer-a' });
+    await b.manager.join({ peerId: 'peer-b' });
+    await Promise.all([a.manager.waitForStreams(1), b.manager.waitForStreams(1)]);
+
+    // 1. Default camera falls back from ideal 480p@20fps constraints to bare `video: true` on OverconstrainedError
+    const seenVideoRequests = [];
+    const fallbackCamTrack = new FakeTrack('Fallback HD Webcam', { kind: 'video' });
+    a.manager.getUserMedia = async (constraints) => {
+      seenVideoRequests.push(constraints.video);
+      if (typeof constraints.video === 'object') {
+        throw Object.assign(new Error('Unsupported frameRate'), { name: 'OverconstrainedError' });
+      }
+      return new FakeStream('cam-fallback', [fallbackCamTrack]);
+    };
+    const camResult = await a.manager.setCameraEnabled(true);
+    assert.equal(camResult.ok, true);
+    assert.equal(camResult.enabled, true);
+    assert.equal(seenVideoRequests.length, 2);
+    assert.equal(seenVideoRequests[1], true);
+    assert.equal(a.store.getState().localVideoEnabled, true);
+
+    // 2. Remote peer streamRevision increments and hasVideo flips true when a video track arrives via addtrack
+    const remoteStream = new FakeStream('remote-a', [new FakeTrack('A mic')]);
+    remoteStream.listeners = new EventTarget();
+    remoteStream.addEventListener = (type, fn) => remoteStream.listeners.addEventListener(type, fn);
+    remoteStream.removeEventListener = (type, fn) => remoteStream.listeners.removeEventListener(type, fn);
+    remoteStream.dispatchEvent = (evt) => remoteStream.listeners.dispatchEvent(evt);
+
+    const peerRecord = b.manager.connections.get('peer-a');
+    peerRecord.call.emit('stream', remoteStream);
+    const revAfterStream = b.store.getState().peers['peer-a'].streamRevision;
+    assert.ok(revAfterStream >= 1);
+
+    const lateVideoTrack = new FakeTrack('A cam', { kind: 'video' });
+    remoteStream.addTrack(lateVideoTrack);
+    const addTrackEvt = new Event('addtrack');
+    addTrackEvt.track = lateVideoTrack;
+    remoteStream.dispatchEvent(addTrackEvt);
+
+    const updatedPeer = b.store.getState().peers['peer-a'];
+    assert.equal(updatedPeer.streamRevision, revAfterStream + 1);
+    assert.equal(updatedPeer.hasVideo, true);
   });
 });
