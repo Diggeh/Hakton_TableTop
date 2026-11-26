@@ -24,11 +24,13 @@ export const EVENTS = Object.freeze({
   // Session Lifecycle & Player Identification
   SESSION_JOIN: 'session:join',
   SESSION_LEAVE: 'session:leave',
+  SESSION_END: 'session:end',
   SESSION_WELCOME: 'session:welcome',
   SESSION_PARTICIPANT_JOINED: 'session:participant:joined',
   SESSION_PARTICIPANT_LEFT: 'session:participant:left',
   SESSION_PARTICIPANTS_UPDATE: 'session:participants:update',
   SESSION_ERROR: 'session:error',
+  SESSION_NETWORK_MODE: 'session:network-mode',
 
   // Board & Game State (existing contracts)
   SESSION_STATE: 'session:state',
@@ -55,6 +57,7 @@ export const EVENTS = Object.freeze({
   // WebRTC voice mesh signaling (audio never touches the host; only Peer IDs do)
   VOICE_JOIN: 'voice:join',
   VOICE_LEAVE: 'voice:leave',
+  VOICE_MEDIA_STATE: 'voice:media-state',
   VOICE_PEER_JOINED: 'player_joined',
   VOICE_PEER_LEFT: 'player_left',
 
@@ -96,6 +99,11 @@ export const SERVER_STATE = Object.freeze({
   RUNNING: 'running',
   STOPPING: 'stopping',
   ERROR: 'error',
+});
+
+export const VOICE_SIGNALING_MODE = Object.freeze({
+  LOCAL: 'local',
+  INTERNET: 'internet',
 });
 
 /**

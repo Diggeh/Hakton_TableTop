@@ -1,6 +1,13 @@
+import { sessionStore } from '../store/sessionStore.js';
 import { voiceStore } from '../store/voiceStore.js';
+import {
+  defaultEnumerateDevices,
+  normalizeDeviceId,
+  partitionMediaDevices,
+  saveMediaDevicePrefs,
+} from './mediaDevices.js';
 import { resolvePeerOptions } from './peerOptions.js';
-import { getSocket } from './socket.js';
+import { getSocket, registerDisconnectHook } from './socket.js';
 import { VoiceMeshManager } from './voiceMesh.js';
 
 export { resolvePeerOptions } from './peerOptions.js';
@@ -55,10 +62,16 @@ export async function joinVoiceMesh(options = {}) {
     manager = null;
   }
 
+  const sessionState = sessionStore.getState();
+  const signalingMode =
+    sessionState.internetBridge?.status === 'ready'
+      ? 'internet'
+      : sessionState.voiceSignalingMode;
+
   manager ??= new VoiceMeshManager({
     socket,
     createPeer: defaultCreatePeer,
-    peerOptions: resolvePeerOptions({ socket, ...(options.peer ?? {}) }),
+    peerOptions: resolvePeerOptions({ socket, signalingMode, ...(options.peer ?? {}) }),
     store: voiceStore,
     label: options.label ?? 'voice',
     logger: options.quiet ? null : undefined,
@@ -67,9 +80,67 @@ export async function joinVoiceMesh(options = {}) {
   return manager.join({ peerId: options.peerId, audio: options.audio });
 }
 
-/** Leave the voice mesh (keeps the Socket.io session). */
-export function leaveVoiceMesh() {
-  manager?.leave();
+/** Leave the voice mesh (keeps the Socket.io session unless called during disconnect). */
+export function leaveVoiceMesh(options) {
+  manager?.leave(options);
+}
+
+registerDisconnectHook(() => leaveVoiceMesh({ notifyHost: false }));
+
+export function setAudioMuted(muted) {
+  return manager?.setAudioMuted(muted) ?? false;
+}
+
+export function toggleAudioMuted() {
+  const current = voiceStore.getState().localAudioMuted;
+  return setAudioMuted(!current);
+}
+
+export function setDeafened(deafened) {
+  return manager?.setDeafened(deafened) ?? false;
+}
+
+export function toggleDeafened() {
+  const current = voiceStore.getState().localDeafened;
+  return setDeafened(!current);
+}
+
+export function setCameraEnabled(enabled, constraints) {
+  return manager?.setCameraEnabled(enabled, constraints) ?? Promise.resolve({ ok: false, enabled: false });
+}
+
+export function toggleCamera(constraints) {
+  const current = voiceStore.getState().localVideoEnabled;
+  return setCameraEnabled(!current, constraints);
+}
+
+export async function refreshMediaDevices() {
+  if (manager) {
+    return manager.refreshDevices();
+  }
+  const partitioned = partitionMediaDevices(await defaultEnumerateDevices());
+  voiceStore.getState().setMediaDevices(partitioned);
+  return partitioned;
+}
+
+export async function selectAudioInputDevice(deviceId = '') {
+  if (manager) {
+    return manager.setAudioInputDevice(deviceId);
+  }
+  const nextId = normalizeDeviceId(deviceId);
+  voiceStore.getState().setSelectedAudioInputId(nextId);
+  saveMediaDevicePrefs({ audioInputId: nextId });
+  return { ok: true, deviceId: nextId };
+}
+
+export async function selectVideoInputDevice(deviceId = '') {
+  if (manager) {
+    return manager.setVideoInputDevice(deviceId);
+  }
+  const nextId = normalizeDeviceId(deviceId);
+  voiceStore.getState().setSelectedVideoInputId(nextId);
+  saveMediaDevicePrefs({ videoInputId: nextId });
+  return { ok: true, deviceId: nextId, active: false };
 }
 
 /**
@@ -82,6 +153,15 @@ if (typeof window !== 'undefined') {
   window.__haktonVoice = {
     join: joinVoiceMesh,
     leave: leaveVoiceMesh,
+    setAudioMuted,
+    toggleAudioMuted,
+    setDeafened,
+    toggleDeafened,
+    setCameraEnabled,
+    toggleCamera,
+    refreshMediaDevices,
+    selectAudioInputDevice,
+    selectVideoInputDevice,
     manager: getVoiceManager,
     stats: () => manager?.getStats() ?? Promise.resolve({}),
     logs: () => voiceStore.getState().connectionLogs,

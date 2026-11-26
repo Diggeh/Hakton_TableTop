@@ -4,6 +4,7 @@ import {
   decodeRoomCode,
   encodeInternetCode,
   encodeRoomCode,
+  generateInternetCode,
 } from '../../shared/roomCode.js';
 
 describe('Dual LAN & WebRTC Room Code System (shared/roomCode.js)', () => {
@@ -45,6 +46,20 @@ describe('Dual LAN & WebRTC Room Code System (shared/roomCode.js)', () => {
     assert.equal(decoded.mode, 'webrtc');
     assert.equal(decoded.code, netCode);
     assert.ok(decoded.peerId.startsWith('hakton-net-'));
+    assert.equal(decoded.hostUrl, `webrtc://${decoded.peerId}`);
+  });
+
+  it('generates random 8-char Internet WebRTC room codes (NET-XXXX-XXXX) and round-trips them', () => {
+    const first = generateInternetCode();
+    const second = generateInternetCode();
+    assert.match(first, /^NET-[0-9A-Z]{4}-[0-9A-Z]{4}$/);
+    assert.match(second, /^NET-[0-9A-Z]{4}-[0-9A-Z]{4}$/);
+    assert.notEqual(first, second);
+
+    const decoded = decodeRoomCode(first.toLowerCase());
+    assert.equal(decoded.mode, 'webrtc');
+    assert.equal(decoded.code, first);
+    assert.equal(decoded.peerId, `hakton-net-${first.slice(4).replace(/-/g, '').toLowerCase()}`);
     assert.equal(decoded.hostUrl, `webrtc://${decoded.peerId}`);
   });
 

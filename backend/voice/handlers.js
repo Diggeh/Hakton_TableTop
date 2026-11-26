@@ -104,4 +104,34 @@ export function registerVoiceHandlers(io, socket, { sessionManager, roomFor }) {
     }
     ack?.({ success: true });
   });
+
+  socket.on(EVENTS.VOICE_MEDIA_STATE, (rawPayload, maybeAck) => {
+    const ack = ackFrom(rawPayload, maybeAck);
+    const payload =
+      rawPayload && typeof rawPayload === 'object' && !Array.isArray(rawPayload)
+        ? rawPayload
+        : {};
+
+    const result = sessionManager.updateVoiceMediaState({
+      socketId: socket.id,
+      muted: payload.muted,
+      deafened: payload.deafened,
+      videoEnabled: payload.videoEnabled,
+    });
+
+    if (!result.success) {
+      ack?.({ success: false, code: result.code, error: result.error });
+      return;
+    }
+
+    const room = roomFor(result.session.id);
+    io.to(room).emit(EVENTS.VOICE_MEDIA_STATE, {
+      peerId: result.peerId,
+      playerId: result.participant.id,
+      sessionId: result.session.id,
+      ...result.mediaState,
+    });
+    io.to(room).emit(EVENTS.SESSION_PEERS, result.peers);
+    ack?.({ success: true, peerId: result.peerId, ...result.mediaState });
+  });
 }

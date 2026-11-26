@@ -6,10 +6,13 @@ import { EventEmitter } from 'node:events';
  * because Node has no RTCPeerConnection. The real media plane is exercised by `npm run voice:harness`.
  */
 
-export class FakeTrack {
-  constructor(label) {
-    this.kind = 'audio';
+export class FakeTrack extends EventTarget {
+  constructor(label, { kind = 'audio', deviceId = null } = {}) {
+    super();
+    this.kind = kind;
     this.label = label;
+    this.deviceId = deviceId;
+    this.enabled = true;
     this.readyState = 'live';
   }
 
@@ -19,18 +22,32 @@ export class FakeTrack {
 }
 
 export class FakeStream {
-  constructor(label) {
+  constructor(label, tracks = null) {
     this.id = `stream-${label}`;
     this.label = label;
-    this.tracks = [new FakeTrack(label)];
+    this.tracks = Array.isArray(tracks) ? [...tracks] : [new FakeTrack(label)];
   }
 
   getTracks() {
-    return this.tracks;
+    return [...this.tracks];
   }
 
   getAudioTracks() {
-    return this.tracks;
+    return this.tracks.filter((t) => t.kind === 'audio');
+  }
+
+  getVideoTracks() {
+    return this.tracks.filter((t) => t.kind === 'video');
+  }
+
+  addTrack(track) {
+    if (track && !this.tracks.includes(track)) {
+      this.tracks.push(track);
+    }
+  }
+
+  removeTrack(track) {
+    this.tracks = this.tracks.filter((t) => t !== track);
   }
 
   get active() {
@@ -38,12 +55,32 @@ export class FakeStream {
   }
 }
 
-/** Minimal RTCPeerConnection: state fields + EventTarget. */
+/** Minimal RTCPeerConnection: state fields + EventTarget + mock senders. */
 export class FakePeerConnection extends EventTarget {
   constructor() {
     super();
     this.connectionState = 'new';
     this.iceConnectionState = 'new';
+    this.replacedTracks = [];
+    this.senders = [
+      {
+        track: { kind: 'audio' },
+        replaceTrack: async (nextTrack) => {
+          this.replacedTracks.push({ kind: 'audio', track: nextTrack });
+        },
+      },
+    ];
+  }
+
+  getSenders() {
+    return this.senders;
+  }
+
+  getTransceivers() {
+    return this.senders.map((sender) => ({
+      sender,
+      receiver: { track: sender.track },
+    }));
   }
 
   setStates(connectionState, iceConnectionState) {

@@ -3313,5 +3313,958 @@
   color: #ffadad;
 }
 
+/* Top-Left Combined Toolbar Row (Extension Toolbar + DM Voice Call Bar) */
+.top-left-toolbar-row {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.top-left-toolbar-row > * {
+  pointer-events: auto;
+}
+
+.top-left-toolbar-row .extension-toolbar {
+  position: static;
+  top: auto;
+  left: auto;
+}
+
+/* Floating 4-Button Voice & Video Call Toolbar */
+.voice-call-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(23, 45, 55, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.3);
+  box-shadow: 0 4px 16px rgba(5, 13, 22, 0.45);
+  z-index: 6;
+}
+
+.voice-call-toolbar.is-player-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+}
+
+.hakton-app .voice-call-toolbar .icon-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  color: #d6e7ea;
+}
+
+.hakton-app .voice-call-toolbar .icon-button[aria-pressed='true'] {
+  background: rgba(50, 92, 90, 0.88);
+  color: #adfcf9;
+}
+
+.hakton-app .voice-call-toolbar .icon-button.is-danger {
+  background: rgba(154, 48, 52, 0.85);
+  color: #ffdede;
+}
+
+.hakton-app .voice-call-toolbar .icon-button.is-danger:hover {
+  background: rgba(190, 56, 62, 0.95);
+}
+
+/* Discord-style Split Mic / Camera Device Pickers */
+.voice-split-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.voice-split-control {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(10, 24, 32, 0.45);
+  border: 1px solid rgba(162, 220, 208, 0.14);
+  padding-right: 2px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.voice-split-control:hover,
+.voice-split-control.is-open {
+  background: rgba(12, 30, 40, 0.72);
+  border-color: rgba(173, 252, 249, 0.34);
+}
+
+.hakton-app .voice-split-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #a9c7ce;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.hakton-app .voice-split-chevron:hover {
+  background: rgba(173, 252, 249, 0.12);
+  color: #adfcf9;
+}
+
+.hakton-app .voice-split-chevron svg {
+  width: 13px;
+  height: 13px;
+  transition: transform 0.16s ease;
+}
+
+.hakton-app .voice-split-chevron.is-open svg {
+  transform: rotate(180deg);
+  color: #adfcf9;
+}
+
+.voice-device-popover {
+  position: absolute;
+  left: 0;
+  min-width: 230px;
+  max-width: 290px;
+  background: rgba(11, 23, 31, 0.96);
+  border: 1px solid rgba(116, 198, 184, 0.42);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 25;
+}
+
+.voice-call-toolbar.is-dm-top .voice-device-popover {
+  top: calc(100% + 8px);
+}
+
+.voice-call-toolbar.is-player-bottom .voice-device-popover,
+.voice-call-toolbar.is-popout-bottom .voice-device-popover {
+  bottom: calc(100% + 8px);
+}
+
+.voice-call-toolbar.is-popout-bottom {
+  position: relative;
+  align-self: center;
+}
+
+.voice-call-toolbar.is-popout-bottom .voice-device-popover {
+  max-width: min(280px, calc(100vw - 24px));
+}
+
+.voice-call-toolbar.is-popout-bottom .voice-split-anchor:last-of-type .voice-device-popover {
+  left: auto;
+  right: 0;
+}
+
+.voice-device-header {
+  padding: 2px 6px 4px;
+  border-bottom: 1px solid rgba(116, 198, 184, 0.2);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8eb4be;
+}
+
+.voice-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.hakton-app button.voice-device-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #d6e7ea;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hakton-app button.voice-device-option:hover:not(:disabled) {
+  background: rgba(50, 92, 90, 0.45);
+  color: #ffffff;
+}
+
+.hakton-app button.voice-device-option.is-selected {
+  background: rgba(50, 92, 90, 0.72);
+  color: #adfcf9;
+}
+
+.hakton-app button.voice-device-option:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.voice-device-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-device-check {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #adfcf9;
+}
+
+.voice-device-check svg {
+  width: 14px;
+  height: 14px;
+}
+
+.voice-device-error {
+  padding: 4px 6px 2px;
+  border-top: 1px solid rgba(255, 132, 132, 0.22);
+  font-size: 11px;
+  color: #ff9c9c;
+}
+
+.voice-toolbar-error {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(320px, 82vw);
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(68, 22, 26, 0.94);
+  border: 1px solid rgba(255, 146, 146, 0.45);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.48);
+  color: #ffd9d9;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: normal;
+  z-index: 24;
+}
+
+.voice-call-toolbar.is-dm-top .voice-toolbar-error {
+  top: calc(100% + 8px);
+}
+
+.voice-call-toolbar.is-player-bottom .voice-toolbar-error,
+.voice-call-toolbar.is-popout-bottom .voice-toolbar-error {
+  bottom: calc(100% + 8px);
+}
+
+.hakton-app button.voice-toolbar-error-close {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+/* Opt-In Voice Call Bar inside Players Panel */
+.voice-join-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid #2c434f;
+}
+
+.voice-join-btn {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 7px;
+}
+
+.voice-join-active {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  color: #a8c7cf;
+}
+
+.voice-status-badge.is-connected {
+  color: #8ce5c9;
+  font-weight: 600;
+}
+
+.voice-join-notice {
+  margin: 0;
+  font-size: 11px;
+  color: #f0cf85;
+}
+
+.voice-join-error {
+  margin: 0;
+  font-size: 11px;
+  color: #f39a9a;
+}
+
+.live-participant-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.voice-roster-badge {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(65, 146, 130, 0.35);
+  border: 1px solid rgba(140, 229, 201, 0.4);
+  color: #adfcf9;
+}
+
+.voice-roster-badge.is-cam {
+  background: rgba(58, 124, 165, 0.35);
+  border-color: rgba(120, 185, 225, 0.45);
+}
+
+/* Internet Bridge Status Dot & Toggle */
+.internet-code-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.internet-bridge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6c848f;
+  flex-shrink: 0;
+}
+
+.internet-bridge-dot.is-ready {
+  background: #5de0a8;
+  box-shadow: 0 0 6px rgba(93, 224, 168, 0.65);
+}
+
+.internet-bridge-dot.is-connecting {
+  background: #f0c054;
+}
+
+.internet-bridge-dot.is-error {
+  background: #ef7474;
+}
+
+.hakton-app button.internet-toggle-btn {
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border: 1px solid #355463;
+  background: rgba(14, 29, 38, 0.85);
+  color: #93adb7;
+  cursor: pointer;
+}
+
+.hakton-app button.internet-toggle-btn.is-on {
+  border-color: rgba(93, 224, 168, 0.55);
+  color: #9ff5cd;
+  background: rgba(24, 62, 56, 0.85);
+}
+
+.internet-bridge-error {
+  margin: 0;
+  font-size: 11px;
+  color: #f39a9a;
+}
+
+/* Board Notice Retry & Change Code Actions */
+.board-notice-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.board-notice-actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+/* Collapsible Advanced Network Settings Drawer */
+.network-settings-drawer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(85, 128, 146, 0.28);
+  text-align: left;
+}
+
+.network-settings-drawer.is-compact {
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+.network-settings-toggle {
+  font-size: 11px;
+  color: #97bdc9;
+  padding: 2px 0;
+}
+
+.network-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.network-settings-hint {
+  margin: 0;
+  font-size: 11px;
+  color: #88a7b2;
+}
+
+.network-settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: #b7d2db;
+}
+
+.network-settings-form input {
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #355362;
+  background: #0b1820;
+  color: #e4f4f6;
+}
+
+.network-settings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.network-settings-form label.network-settings-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.network-settings-saved {
+  margin: 0;
+  font-size: 11px;
+  color: #8ce5c9;
+}
+
+.network-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.network-settings-actions button {
+  padding: 5px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
+.session-ended-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  background: rgba(154, 48, 52, 0.24);
+  border: 1px solid rgba(228, 130, 130, 0.45);
+  color: #f6d5d5;
+  font-size: 13px;
+}
+
+.hakton-app .session-ended-banner button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0 4px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Phase 2: Adjustable Floating Video Call Display & Pop-Out Window */
+.video-call-strip {
+  position: absolute;
+  bottom: 14px;
+  right: 16px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: calc(100% - 28px);
+  max-height: calc(100% - 28px);
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(14, 30, 40, 0.86);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.28);
+  box-shadow: 0 8px 24px rgba(4, 10, 18, 0.5);
+  pointer-events: auto;
+  user-select: none;
+}
+
+.video-call-strip.is-positioned {
+  right: auto;
+  bottom: auto;
+}
+
+.video-call-strip.is-dragging {
+  box-shadow: 0 14px 34px rgba(4, 10, 18, 0.68);
+  border-color: rgba(173, 252, 249, 0.55);
+}
+
+.video-call-strip.is-collapsed {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.hakton-app button.video-strip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(23, 45, 55, 0.84);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.32);
+  color: #e4f4f6;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(5, 13, 22, 0.45);
+}
+
+.hakton-app button.video-strip-pill:hover {
+  border-color: #adfcf9;
+}
+
+.video-popout-docked-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  background: rgba(23, 45, 55, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.36);
+  box-shadow: 0 4px 16px rgba(5, 13, 22, 0.45);
+}
+
+.hakton-app button.video-popout-focus-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: #e4f4f6;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.hakton-app button.video-popout-focus-btn:hover {
+  color: #adfcf9;
+}
+
+.hakton-app .video-popout-docked-pill .icon-button {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: #b7d7de;
+}
+
+.video-strip-resize-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  z-index: 3;
+  opacity: 0.45;
+  transition: opacity 120ms ease;
+}
+
+.video-call-strip:hover .video-strip-resize-handle {
+  opacity: 0.9;
+}
+
+.video-strip-resize-handle.is-top-left {
+  top: 2px;
+  left: 2px;
+  cursor: nwse-resize;
+  border-top: 2px solid rgba(173, 252, 249, 0.65);
+  border-left: 2px solid rgba(173, 252, 249, 0.65);
+  border-top-left-radius: 6px;
+}
+
+.video-strip-resize-handle.is-bottom-right {
+  right: 2px;
+  bottom: 2px;
+  cursor: nwse-resize;
+  border-right: 2px solid rgba(173, 252, 249, 0.65);
+  border-bottom: 2px solid rgba(173, 252, 249, 0.65);
+  border-bottom-right-radius: 6px;
+}
+
+.video-strip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 2px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #b7d7de;
+  cursor: grab;
+}
+
+.video-call-strip.is-dragging .video-strip-header {
+  cursor: grabbing;
+}
+
+.video-strip-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.video-strip-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hakton-app .video-strip-header .icon-button,
+.hakton-app button.video-strip-step-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: #b7d7de;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.hakton-app button.video-strip-step-btn {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.hakton-app .video-strip-header .icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.hakton-app .video-strip-header .icon-button:hover:not(:disabled),
+.hakton-app button.video-strip-step-btn:hover:not(:disabled) {
+  background: rgba(173, 252, 249, 0.14);
+  color: #adfcf9;
+}
+
+.hakton-app button.video-strip-step-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.video-speaking-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5b7885;
+  flex-shrink: 0;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.video-speaking-dot.is-active {
+  background: #adfcf9;
+  box-shadow: 0 0 8px rgba(173, 252, 249, 0.85);
+}
+
+.video-strip-tiles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  padding: 2px;
+}
+
+.video-call-strip.is-layout-column .video-strip-tiles {
+  flex-direction: column;
+  align-items: stretch;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: calc(100vh - 140px);
+}
+
+.video-call-strip.is-layout-grid .video-strip-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, var(--video-tile-w, 156px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: calc(100vh - 140px);
+}
+
+.video-tile {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--video-tile-w, 156px);
+  height: var(--video-tile-h, 100px);
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(155deg, #102437 0%, #091529 100%);
+  border: 1px solid rgba(114, 189, 179, 0.28);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.video-tile.is-speaking {
+  border-color: #adfcf9;
+  box-shadow: 0 0 0 2px rgba(173, 252, 249, 0.6), 0 0 14px rgba(173, 252, 249, 0.4);
+}
+
+.video-tile-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.video-tile-media.is-mirrored {
+  transform: scaleX(-1);
+}
+
+.video-tile-avatar {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-tile-avatar span {
+  width: clamp(34px, 26%, 58px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(58, 124, 165, 0.35);
+  border: 1px solid rgba(173, 252, 249, 0.35);
+  color: #adfcf9;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.video-tile-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 12px 6px 4px;
+  background: linear-gradient(to top, rgba(6, 13, 22, 0.88) 0%, transparent 100%);
+}
+
+.video-tile-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #eef8fa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.video-tile-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.video-tile-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: rgba(154, 48, 52, 0.85);
+  color: #ffe5e5;
+}
+
+.video-tile-badge svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* Discord-style Pop-Out Call Window */
+html.hakton-popout-html,
+body.hakton-popout-body,
+.hakton-popout-root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at top, #132c3d 0%, #091521 100%);
+  color: #eef8fa;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.video-popout-shell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.video-popout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: #cbe3ea;
+}
+
+.hakton-popout-body .video-popout-header .icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 0;
+  background: rgba(24, 48, 60, 0.72);
+  color: #c5e0e6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.hakton-popout-body .video-popout-header .icon-button:hover {
+  background: rgba(50, 92, 90, 0.78);
+  color: #adfcf9;
+}
+
+.hakton-popout-body .video-popout-header .icon-button[aria-pressed='true'] {
+  background: rgba(50, 92, 90, 0.92);
+  color: #adfcf9;
+}
+
+.video-popout-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--popout-cols, 2), minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  justify-items: stretch;
+}
+
+.video-popout-grid .video-tile {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.video-popout-grid .video-tile-avatar span {
+  width: 64px;
+  height: 64px;
+  font-size: 20px;
+}
+
+.video-popout-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.hakton-popout-body .voice-call-toolbar .icon-button {
+  border: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.hakton-popout-body .voice-call-toolbar .icon-button:hover:not(:disabled) {
+  background: rgba(173, 252, 249, 0.14);
+}
+
+@media (max-width: 900px) {
+  .video-call-strip:not(.is-positioned) {
+    max-width: calc(100vw - 32px);
+    bottom: 58px;
+    right: 12px;
+  }
+}
+
 
 

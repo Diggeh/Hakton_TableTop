@@ -1,24 +1,38 @@
-import { DEFAULT_PORT, PEER_PATH } from '../../shared/events.js';
+import { DEFAULT_PORT, PEER_PATH, VOICE_SIGNALING_MODE } from '../../shared/events.js';
+import { buildInternetPeerOptions } from './networkConfig.js';
 
 /**
- * PeerJS connection options pointing at the HOST's embedded PeerServer (`<host>:<port>/peerjs`),
- * never the public PeerJS cloud. Host/port come from the live Socket.io target so remote players
- * dial the DM's LAN address instead of their own loopback.
+ * PeerJS connection options for voice/video mesh.
  *
- * ICE servers default to none: Hakton is zero-cloud, and LAN/VPN host candidates are enough. Pass
- * `iceServers` explicitly (e.g. a self-hosted TURN) for players behind NAT across the internet.
+ * - Pure LAN / offline mode: dials the HOST's embedded PeerServer (`<host>:<port>/peerjs`)
+ *   with `iceServers: []`.
+ * - Internet / mixed LAN+Internet mode: dials the shared internet PeerJS signaling server
+ *   (`0.peerjs.com` or custom override) with STUN/TURN ICE servers so DM and remote players
+ *   can discover each other and traverse NAT.
  *
- * Kept dependency-free so a bundler-less harness page can import it.
- *
- * @param {{ socket?: any, host?: string, port?: number|string, secure?: boolean, iceServers?: RTCIceServer[], debug?: number }} [opts]
+ * @param {{ socket?: any, host?: string, port?: number|string, secure?: boolean, iceServers?: RTCIceServer[], debug?: number, signalingMode?: string }} [opts]
  */
-export function resolvePeerOptions({ socket, host, port, secure, iceServers, debug } = {}) {
+export function resolvePeerOptions({
+  socket,
+  host,
+  port,
+  secure,
+  iceServers,
+  debug,
+  signalingMode,
+} = {}) {
   let resolvedHost = host;
   let resolvedPort = port;
   let resolvedSecure = secure;
 
   const uri = socket?.io?.uri;
-  if ((!resolvedHost || !resolvedPort) && typeof uri === 'string') {
+  const isWebRtcTransport = typeof uri === 'string' && /^webrtc:\/\//i.test(uri);
+
+  if (!resolvedHost && !resolvedPort && (signalingMode === VOICE_SIGNALING_MODE.INTERNET || isWebRtcTransport)) {
+    return buildInternetPeerOptions({ iceServers, debug });
+  }
+
+  if ((!resolvedHost || !resolvedPort) && typeof uri === 'string' && !isWebRtcTransport) {
     try {
       const url = new URL(uri);
       resolvedHost ||= url.hostname;
