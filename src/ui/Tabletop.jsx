@@ -2,8 +2,9 @@ import { useId, useRef, useState } from 'react';
 import { DICE_VISIBILITY } from '../../shared/dice/constants.js';
 import { ROLES } from '../../shared/events.js';
 import { rollFormula } from '../../shared/dice/roller.js';
-import { disconnect, emitDiceRoll } from '../net/socket.js';
+import { disconnect, emitDiceRoll, resolveAssetUrl } from '../net/socket.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
+import { useAssets } from '../store/assetStore.js';
 import { useSoundboard } from '../audio/useSoundboard.js';
 import { autosave } from '../autosave/index.js';
 import {
@@ -74,6 +75,7 @@ export default function Tabletop({
   const characters = useSession((state) => state.characters);
   const dmRecords = useSession((state) => state.dmRecords);
   const currentUser = useSession((state) => state.currentUser);
+  const storeAssets = useAssets((state) => state.assets);
   const soundboard = useSoundboard(false);
 
   const notesRecordId = dmNotesRecordId(campaign?.id ?? 'default');
@@ -388,15 +390,49 @@ export default function Tabletop({
                 onHpChange={(value) => handleHpChange(person, value)}
               />
             ) : (
-              <>
-                <p className="notice">Sample asset</p>
-                <dl>
-                  <div>
-                    <dt>Category</dt>
-                    <dd>{inspected.category}</dd>
-                  </div>
-                </dl>
-              </>
+              (() => {
+                const lowerName = (inspected?.name || '').toLowerCase();
+                const lowerCat = (inspected?.category || '').toLowerCase();
+                const matchedAsset =
+                  storeAssets.find(
+                    (a) =>
+                      (a.name || '').toLowerCase() === lowerName &&
+                      (!lowerCat || (a.category || '').toLowerCase() === lowerCat),
+                  ) ||
+                  storeAssets.find((a) => (a.name || '').toLowerCase() === lowerName);
+                const rawUrl =
+                  matchedAsset?.url ||
+                  (matchedAsset?.id
+                    ? `/assets/${encodeURIComponent(matchedAsset.id)}/file`
+                    : null);
+                const previewSrc = rawUrl ? resolveAssetUrl(rawUrl) : null;
+
+                return (
+                  <>
+                    {previewSrc ? (
+                      <div className="asset-inspect-preview">
+                        <img src={previewSrc} alt={inspected.name} />
+                      </div>
+                    ) : (
+                      <p className="notice">Sample asset</p>
+                    )}
+                    <dl>
+                      <div>
+                        <dt>Category</dt>
+                        <dd>{inspected.category}</dd>
+                      </div>
+                      {matchedAsset?.width && matchedAsset?.height && (
+                        <div>
+                          <dt>Dimensions</dt>
+                          <dd>
+                            {matchedAsset.width} × {matchedAsset.height} px
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                  </>
+                );
+              })()
             ))}
         </Modal>
       )}

@@ -16,9 +16,22 @@ export function Mark() {
     </svg>
   );
 }
-export function IconButton({ label, children, ...props }) {
+export function IconButton({
+  label,
+  children,
+  className = '',
+  type = 'button',
+  ...props
+}) {
+  const classes = ['icon-button', className].filter(Boolean).join(' ');
   return (
-    <button className="icon-button" title={label} aria-label={label} {...props}>
+    <button
+      type={type}
+      className={classes}
+      title={label}
+      aria-label={label}
+      {...props}
+    >
       {children}
     </button>
   );

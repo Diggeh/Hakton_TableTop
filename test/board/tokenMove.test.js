@@ -235,4 +235,105 @@ describe('token:move realtime pipeline', () => {
     assert.equal(deletedWire.id, created.token.id);
     assert.equal(repos.tokens.get(created.token.id), null);
   });
+
+  it('persists and broadcasts map tiles (isMap/imageUrl/width/height) and token light toggles', async () => {
+    const mapNotice = waitForEvent(player, EVENTS.TOKEN_CREATED);
+    const mapAck = await emitWithAck(dm, EVENTS.TOKEN_CREATE, {
+      label: 'Dungeon Map',
+      color: '#8fd2c5',
+      x: 500,
+      y: 400,
+      isMap: true,
+      imageUrl: '/assets/map-1/file',
+      width: 1200,
+      height: 800,
+    });
+    const mapWire = await mapNotice;
+
+    assert.equal(mapAck.ok, true);
+    assert.equal(mapAck.token.isMap, true);
+    assert.equal(mapAck.token.imageUrl, '/assets/map-1/file');
+    assert.equal(mapAck.token.width, 1200);
+    assert.equal(mapAck.token.height, 800);
+    assert.equal(mapWire.isMap, true);
+    assert.equal(mapWire.imageUrl, '/assets/map-1/file');
+
+    const lightNotice = waitForEvent(dm, EVENTS.TOKEN_UPDATED);
+    const lightAck = await emitWithAck(player, EVENTS.TOKEN_UPDATE, {
+      id: 'tok-free',
+      light: {
+        enabled: true,
+        type: 'torch',
+        range: 40,
+        angle: 90,
+        rotation: 0,
+      },
+    });
+    const lightWire = await lightNotice;
+
+    assert.equal(lightAck.ok, true);
+    assert.deepEqual(lightAck.token.light, {
+      enabled: true,
+      type: 'torch',
+      range: 40,
+      angle: 90,
+      rotation: 0,
+    });
+    assert.deepEqual(lightWire.light, lightAck.token.light);
+
+    const forbiddenMapChange = await emitWithAck(player, EVENTS.TOKEN_UPDATE, {
+      id: 'tok-free',
+      isMap: true,
+    });
+    assert.equal(forbiddenMapChange.ok, false);
+    assert.equal(forbiddenMapChange.reason, 'forbidden');
+  });
+
+  it('allows creating, moving, and rotating tokens across the extended full-screen canvas', async () => {
+    const extendedCreate = await emitWithAck(dm, EVENTS.TOKEN_CREATE, {
+      label: 'Scout',
+      x: -245,
+      y: 2100,
+      rotation: 90,
+    });
+    assert.equal(extendedCreate.ok, true);
+    assert.equal(extendedCreate.token.x, -245);
+    assert.equal(extendedCreate.token.y, 2100);
+    assert.equal(extendedCreate.token.rotation, 90);
+
+    const moveAck = await emitWithAck(player, EVENTS.TOKEN_MOVE, {
+      id: 'tok-free',
+      x: -350,
+      y: 2450,
+    });
+    assert.equal(moveAck.ok, true);
+    assert.equal(moveAck.token.x, -350);
+    assert.equal(moveAck.token.y, 2450);
+
+    const playerRotateNotice = waitForEvent(dm, EVENTS.TOKEN_UPDATED);
+    const playerRotateAck = await emitWithAck(player, EVENTS.TOKEN_UPDATE, {
+      id: 'tok-free',
+      rotation: 225,
+      light: {
+        enabled: true,
+        type: 'vision',
+        range: 30,
+        angle: 90,
+        rotation: 225,
+      },
+    });
+    const broadcastRotated = await playerRotateNotice;
+    assert.equal(playerRotateAck.ok, true);
+    assert.equal(playerRotateAck.token.rotation, 225);
+    assert.equal(broadcastRotated.rotation, 225);
+    assert.equal(repos.tokens.get('tok-free').rotation, 225);
+
+    const dmRotateAck = await emitWithAck(dm, EVENTS.TOKEN_UPDATE, {
+      id: extendedCreate.token.id,
+      rotation: -45,
+    });
+    assert.equal(dmRotateAck.ok, true);
+    assert.equal(dmRotateAck.token.rotation, 315);
+    assert.equal(repos.tokens.get(extendedCreate.token.id).rotation, 315);
+  });
 });

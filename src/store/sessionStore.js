@@ -28,6 +28,11 @@ function normalizeToken(token) {
           rotation: Number(token.light.rotation) || 0,
         }
       : null,
+    rotation: Number.isFinite(Number(token.rotation))
+      ? ((Number(token.rotation) % 360) + 360) % 360
+      : Number.isFinite(Number(token.light?.rotation))
+        ? ((Number(token.light.rotation) % 360) + 360) % 360
+        : 0,
   };
 }
 

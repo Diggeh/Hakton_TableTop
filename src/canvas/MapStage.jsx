@@ -225,8 +225,19 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
 
       if (fogTool === 'door') {
         const store = canvasStore.getState();
+        const nearExistingDoor = store.walls.some(
+          (w) =>
+            w.isDoor &&
+            Math.hypot(
+              mapPt.x - (w.p1.x + w.p2.x) / 2,
+              mapPt.y - (w.p1.y + w.p2.y) / 2,
+            ) <= 14,
+        );
+        if (nearExistingDoor) return;
+
         const allWalls = getAllCollisionWalls(store.walls, store.fogShapes);
-        const nearest = findNearestWallSegment(mapPt, allWalls, 48);
+        const solidWalls = allWalls.filter((w) => !w.isDoor);
+        const nearest = findNearestWallSegment(mapPt, solidWalls, 48);
         if (nearest) {
           const p1 = { x: Math.round(nearest.point.x), y: Math.round(nearest.point.y) };
           setDraftShape({
@@ -486,6 +497,16 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       <Layer listening={false}>
         <MapLayer map={map} />
       </Layer>
+      <Layer>
+        <TokenLayer
+          map={map}
+          gridSize={gridSize}
+          role={role}
+          panMode={panMode || Boolean(fogTool)}
+          onCursor={setCursor}
+          filter="maps"
+        />
+      </Layer>
       <Layer listening={false}>
         {gridVisible && <GridLayer map={map} gridSize={gridSize} />}
       </Layer>
@@ -496,6 +517,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
           role={role}
           panMode={panMode || Boolean(fogTool)}
           onCursor={setCursor}
+          filter="tokens"
         />
       </Layer>
       <Layer>

@@ -10,6 +10,12 @@ import { SessionManager, sanitizeParticipant } from '../session/sessionManager.j
 import { announceVoicePeerLeft, registerVoiceHandlers } from '../voice/handlers.js';
 
 const registeredServers = new WeakSet();
+const CANVAS_COORD_LIMIT = 100000;
+
+function sanitizeRotation(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? ((n % 360) + 360) % 360 : 0;
+}
 
 /**
  * Returns the Socket.IO room name for a given session ID.
@@ -17,6 +23,32 @@ const registeredServers = new WeakSet();
  */
 export function getSessionRoom(sessionId) {
   return `session:${sessionId}`;
+}
+
+function sanitizeLight(light) {
+  if (!light || typeof light !== 'object') return null;
+  const range = Number(light.range);
+  const angle = Number(light.angle);
+  const rotation = Number(light.rotation);
+  return {
+    enabled: Boolean(light.enabled),
+    type: light.type === 'vision' ? 'vision' : 'torch',
+    range: Number.isFinite(range) ? Math.max(5, Math.min(300, range)) : 30,
+    angle: Number.isFinite(angle) ? Math.max(15, Math.min(360, angle)) : 90,
+    rotation: Number.isFinite(rotation) ? rotation : 0,
+  };
+}
+
+function parseTokenLight(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return sanitizeLight(JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
+  return sanitizeLight(raw);
 }
 
 /** Convert a SQLite token row into the wire shape consumed by the renderer. */
@@ -35,11 +67,8 @@ export function tokenToWire(token) {
     imageUrl: token.image_url ?? token.imageUrl ?? null,
     width: token.width ?? null,
     height: token.height ?? null,
-    light: token.light
-      ? typeof token.light === 'string'
-        ? JSON.parse(token.light)
-        : token.light
-      : null,
+    light: parseTokenLight(token.light),
+    rotation: sanitizeRotation(token.rotation),
   };
 }
 
@@ -383,10 +412,8 @@ export function registerSocketRouter(io, repos, opts = {}) {
       }
 
       const map = currentMap();
-      const maxX = map?.width ?? Number.POSITIVE_INFINITY;
-      const maxY = map?.height ?? Number.POSITIVE_INFINITY;
-      const nextX = clamp(x, 0, maxX);
-      const nextY = clamp(y, 0, maxY);
+      const nextX = clamp(x, -CANVAS_COORD_LIMIT, CANVAS_COORD_LIMIT);
+      const nextY = clamp(y, -CANVAS_COORD_LIMIT, CANVAS_COORD_LIMIT);
 
       if (!repos.tokens.move(id, nextX, nextY)) {
         respond({ ok: false, reason: 'move_failed' });
@@ -432,19 +459,21 @@ export function registerSocketRouter(io, repos, opts = {}) {
           : 'Token';
       const x = clamp(
         Number.isFinite(payload.x) ? payload.x : cellCentre(map.width / 2, grid),
-        0,
-        map.width,
+        -CANVAS_COORD_LIMIT,
+        CANVAS_COORD_LIMIT,
       );
       const y = clamp(
         Number.isFinite(payload.y) ? payload.y : cellCentre(map.height / 2, grid),
-        0,
-        map.height,
+        -CANVAS_COORD_LIMIT,
+        CANVAS_COORD_LIMIT,
       );
       const ownerId =
         typeof payload.ownerId === 'string' && payload.ownerId
           ? payload.ownerId
           : null;
 
+      const widthNum = Number(payload.width);
+      const heightNum = Number(payload.height);
       const token = repos.tokens.create({
         id: crypto.randomUUID(),
         mapId: map.id,
@@ -454,6 +483,15 @@ export function registerSocketRouter(io, repos, opts = {}) {
         ownerId,
         locked: Boolean(payload.locked),
         color: normalizeColor(payload.color),
+        isMap: Boolean(payload.isMap),
+        imageUrl:
+          typeof payload.imageUrl === 'string' && payload.imageUrl.trim()
+            ? payload.imageUrl.trim()
+            : null,
+        width: Number.isFinite(widthNum) && widthNum > 0 ? widthNum : null,
+        height: Number.isFinite(heightNum) && heightNum > 0 ? heightNum : null,
+        light: sanitizeLight(payload.light),
+        rotation: sanitizeRotation(payload.rotation),
       });
       markBoardDirty(map, socket.data.playerId);
 
@@ -475,9 +513,12 @@ export function registerSocketRouter(io, repos, opts = {}) {
       const playerAllowed =
         !isDM() &&
         !('locked' in payload) &&
+        !('ownerId' in payload) &&
+        !('isMap' in payload) &&
         (
           (typeof payload.label === 'string' && payload.label.trim().length > 0) ||
-          'light' in payload
+          'light' in payload ||
+          'rotation' in payload
         );
       if (!isJoined() || (!isDM() && !playerAllowed)) {
         respond({ ok: false, reason: 'forbidden' });
@@ -500,11 +541,23 @@ export function registerSocketRouter(io, repos, opts = {}) {
       }
       if ('locked' in payload) patch.locked = Boolean(payload.locked);
       if ('color' in payload) patch.color = normalizeColor(payload.color);
-      if ('light' in payload) patch.light = payload.light;
-      if ('isMap' in payload) patch.isMap = payload.isMap;
-      if ('imageUrl' in payload) patch.imageUrl = payload.imageUrl;
-      if ('width' in payload) patch.width = payload.width;
-      if ('height' in payload) patch.height = payload.height;
+      if ('light' in payload) patch.light = sanitizeLight(payload.light);
+      if ('rotation' in payload) patch.rotation = sanitizeRotation(payload.rotation);
+      if ('isMap' in payload) patch.isMap = Boolean(payload.isMap);
+      if ('imageUrl' in payload) {
+        patch.imageUrl =
+          typeof payload.imageUrl === 'string' && payload.imageUrl.trim()
+            ? payload.imageUrl.trim()
+            : null;
+      }
+      if ('width' in payload) {
+        const w = Number(payload.width);
+        patch.width = Number.isFinite(w) && w > 0 ? w : null;
+      }
+      if ('height' in payload) {
+        const h = Number(payload.height);
+        patch.height = Number.isFinite(h) && h > 0 ? h : null;
+      }
 
       const token = repos.tokens.update(payload.id, patch);
       if (!token) {
