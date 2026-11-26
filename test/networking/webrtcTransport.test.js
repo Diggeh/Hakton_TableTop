@@ -14,6 +14,9 @@ import { resolveTargetUrl } from '../../src/net/socket.js';
 import { WebRtcHostBridge } from '../../src/net/webrtcHostBridge.js';
 import { createWebRtcSocket } from '../../src/net/webrtcClientAdapter.js';
 import { sessionStore } from '../../src/store/sessionStore.js';
+import { createVoiceStore, VOICE_STATUS } from '../../src/store/voiceStore.js';
+import { VoiceMeshManager } from '../../src/net/voiceMesh.js';
+import { FakeDocument, FakePeerNetwork, FakeStream } from './voiceFakes.js';
 import { CHAT_EVENTS } from '../../shared/chatEvents.js';
 
 class FakeDataConnection extends EventEmitter {
@@ -305,6 +308,10 @@ describe('PeerJS WebRTC Internet Transport (Host Bridge + Client Adapter)', () =
       /Invalid or forbidden/i,
     );
 
+    // Security: remote internet player cannot end the host session
+    const illegalEnd = await emitWithAck(client, EVENTS.SESSION_END, {});
+    assert.equal(illegalEnd.ok, false);
+
     // Host intentional stop triggers SERVER_SHUTDOWN and halts retries immediately
     const shutdownPromise = onceEvent(client, EVENTS.SERVER_SHUTDOWN);
     await bridge.stop({ reason: 'Host ended the session.' });
@@ -312,6 +319,90 @@ describe('PeerJS WebRTC Internet Transport (Host Bridge + Client Adapter)', () =
     assert.equal(shutdownInfo.reason, 'Host ended the session.');
     assert.equal(client.active, false);
     assert.equal(sessionStore.getState().internetBridge.status, 'offline');
+  });
+
+  it('tears down voice calls between remote WebRTC players when DM ends the session', async () => {
+    const targetUrl = `webrtc://${bridge.peerId}`;
+    const p1 = createWebRtcSocket(targetUrl, {
+      createPeer: fakeNet.createClientPeer,
+      reconnectionAttempts: 1,
+      reconnectionDelay: 20,
+    });
+    const p2 = createWebRtcSocket(targetUrl, {
+      createPeer: fakeNet.createClientPeer,
+      reconnectionAttempts: 1,
+      reconnectionDelay: 20,
+    });
+
+    await Promise.all([
+      new Promise((resolve, reject) => {
+        p1.once('connect', resolve);
+        p1.once('connect_error', reject);
+        p1.connect();
+      }),
+      new Promise((resolve, reject) => {
+        p2.once('connect', resolve);
+        p2.once('connect_error', reject);
+        p2.connect();
+      }),
+    ]);
+
+    assert.equal((await emitWithAck(p1, EVENTS.SESSION_JOIN, { displayName: 'WebPlayer1' })).success, true);
+    assert.equal((await emitWithAck(p2, EVENTS.SESSION_JOIN, { displayName: 'WebPlayer2' })).success, true);
+
+    const mediaNet = new FakePeerNetwork();
+    const doc1 = new FakeDocument();
+    const doc2 = new FakeDocument();
+    const store1 = createVoiceStore();
+    const store2 = createVoiceStore();
+    const mic1 = new FakeStream('wp1');
+    const mic2 = new FakeStream('wp2');
+
+    const voice1 = new VoiceMeshManager({
+      socket: p1,
+      createPeer: mediaNet.createPeer,
+      getUserMedia: async () => mic1,
+      documentRef: doc1,
+      store: store1,
+      logger: null,
+    });
+    const voice2 = new VoiceMeshManager({
+      socket: p2,
+      createPeer: mediaNet.createPeer,
+      getUserMedia: async () => mic2,
+      documentRef: doc2,
+      store: store2,
+      logger: null,
+    });
+
+    assert.equal((await voice1.join({ peerId: 'wp-1' })).success, true);
+    assert.equal((await voice2.join({ peerId: 'wp-2' })).success, true);
+    await Promise.all([voice1.waitForStreams(1), voice2.waitForStreams(1)]);
+    assert.equal(doc1.audioElements().length, 1);
+    assert.equal(doc2.audioElements().length, 1);
+
+    const s1 = onceEvent(p1, EVENTS.SERVER_SHUTDOWN);
+    const s2 = onceEvent(p2, EVENTS.SERVER_SHUTDOWN);
+
+    const endRes = await emitWithAck(dmSocket, EVENTS.SESSION_END, {
+      reason: 'Host ended the session.',
+    });
+    assert.equal(endRes.ok, true);
+    await bridge.stop({ reason: 'Host ended the session.' });
+
+    const [shut1, shut2] = await Promise.all([s1, s2]);
+    assert.equal(shut1.reason, 'Host ended the session.');
+    assert.equal(shut2.reason, 'Host ended the session.');
+
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(voice1.connections.size, 0);
+    assert.equal(voice2.connections.size, 0);
+    assert.equal(doc1.audioElements().length, 0);
+    assert.equal(doc2.audioElements().length, 0);
+    assert.equal(store1.getState().status, VOICE_STATUS.DISCONNECTED);
+    assert.equal(store2.getState().status, VOICE_STATUS.DISCONNECTED);
+    assert.equal(mic1.tracks[0].readyState, 'ended');
+    assert.equal(mic2.tracks[0].readyState, 'ended');
   });
 
   it('reports human-readable peer-unavailable errors and stops after bounded retries', async () => {

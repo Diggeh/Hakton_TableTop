@@ -153,6 +153,7 @@ export const sessionStore = createStore((set) => ({
   session: null,
   currentUser: null,
   participants: [],
+  sessionEndedReason: null,
   voiceSignalingMode: VOICE_SIGNALING_MODE.LOCAL,
   internetBridge: {
     enabled: true,
@@ -186,6 +187,11 @@ export const sessionStore = createStore((set) => ({
 
   setConnection: (connection, connectionError = null) =>
     set({ connection, connectionError }),
+
+  setSessionEnded: (reason) =>
+    set({ sessionEndedReason: reason || 'Host ended the session.' }),
+
+  clearSessionEnded: () => set({ sessionEndedReason: null }),
 
   setVoiceSignalingMode: (voiceSignalingMode) =>
     set({

@@ -1,5 +1,6 @@
 import { EVENTS, MAX_VOICE_PEERS } from '../../shared/events.js';
 import { VOICE_STATUS, voiceStore } from '../store/voiceStore.js';
+import { SpeakingDetector } from './speakingDetector.js';
 
 /** Id of the hidden container that owns every remote `<audio>` element. */
 export const VOICE_SINK_ID = 'hakton-voice-audio-sink';
@@ -106,6 +107,8 @@ export class VoiceMeshManager {
     peerOptions = {},
     getUserMedia = defaultGetUserMedia,
     createSilentStream = defaultCreateSilentStream,
+    speakingDetector = null,
+    audioContextFactory = undefined,
     documentRef = globalThis.document ?? null,
     store = voiceStore,
     logger = (line) => console.log(line),
@@ -146,6 +149,20 @@ export class VoiceMeshManager {
     this.deafened = false;
     this.videoEnabled = false;
     this.preDeafenMuted = false;
+    this.teardownGeneration = 0;
+    this.speakingDetector =
+      speakingDetector ??
+      new SpeakingDetector({
+        audioContextFactory,
+        onSpeakingChange: (key, speaking) => {
+          const storeApi = this.store.getState();
+          if (key === 'local') {
+            storeApi.setLocalSpeaking(speaking);
+          } else if (this.connections.has(key) || storeApi.peers[key]) {
+            storeApi.upsertPeer(key, { speaking });
+          }
+        },
+      });
   }
 
   // ---------------------------------------------------------------- public API
@@ -213,7 +230,9 @@ export class VoiceMeshManager {
     for (const track of this.localStream.getAudioTracks?.() ?? []) {
       track.enabled = !next;
     }
+    this.speakingDetector.setSuppressed('local', this.audioMuted || this.listenOnly);
     this.store.getState().setLocalAudioMuted(next);
+    this.#broadcastMediaState();
     this.#log('media', next ? 'microphone muted' : 'microphone unmuted');
     return next;
   }
@@ -255,7 +274,37 @@ export class VoiceMeshManager {
       store.setLocalAudioMuted(restoredMuted);
       this.#log('media', 'undeafened voice audio');
     }
+    this.speakingDetector.setSuppressed('local', this.audioMuted || this.listenOnly);
+    for (const peerId of this.connections.keys()) {
+      this.speakingDetector.setSuppressed(peerId, this.deafened);
+    }
+    this.#broadcastMediaState();
     return this.deafened;
+  }
+
+  #findVideoSender(pc) {
+    if (!pc) return null;
+    const senders = pc.getSenders?.() ?? [];
+    const direct = senders.find((s) => s?.track?.kind === 'video');
+    if (direct) return direct;
+    const transceivers = pc.getTransceivers?.() ?? [];
+    const videoTransceiver = transceivers.find(
+      (t) => t?.receiver?.track?.kind === 'video' || t?.sender?.track?.kind === 'video',
+    );
+    return videoTransceiver?.sender ?? null;
+  }
+
+  #broadcastMediaState() {
+    if (!this.registered || this.socket.connected === false) return;
+    try {
+      this.socket.emit(EVENTS.VOICE_MEDIA_STATE, {
+        muted: Boolean(this.audioMuted),
+        deafened: Boolean(this.deafened),
+        videoEnabled: Boolean(this.videoEnabled),
+      });
+    } catch {
+      // Best-effort sync; transport drops will re-sync on welcome.
+    }
   }
 
   /**
@@ -304,10 +353,11 @@ export class VoiceMeshManager {
       this.videoEnabled = true;
       store.setLocalVideoEnabled(true);
       store.setLocalStream(this.localStream);
+      store.bumpLocalStreamRevision();
+      this.#broadcastMediaState();
 
       for (const [peerId, rec] of [...this.connections.entries()]) {
-        const senders = rec.call?.peerConnection?.getSenders?.() ?? [];
-        const videoSender = senders.find((s) => s.track?.kind === 'video');
+        const videoSender = this.#findVideoSender(rec.call?.peerConnection);
         if (videoSender?.replaceTrack) {
           try {
             await videoSender.replaceTrack(videoTrack);
@@ -351,8 +401,7 @@ export class VoiceMeshManager {
       }
     }
     for (const rec of this.connections.values()) {
-      const senders = rec.call?.peerConnection?.getSenders?.() ?? [];
-      const videoSender = senders.find((s) => s.track?.kind === 'video');
+      const videoSender = this.#findVideoSender(rec.call?.peerConnection);
       if (videoSender?.replaceTrack) {
         try {
           await videoSender.replaceTrack(null);
@@ -364,6 +413,8 @@ export class VoiceMeshManager {
     this.videoEnabled = false;
     store.setLocalVideoEnabled(false);
     store.setLocalStream(this.localStream);
+    store.bumpLocalStreamRevision();
+    this.#broadcastMediaState();
     this.#log('media', 'camera disabled');
     return { ok: true, enabled: false };
   }
@@ -453,24 +504,38 @@ export class VoiceMeshManager {
       // A retry after an error/reconnect must not leak the previous mic, peer, or listeners.
       this.#teardown();
       store.resetMesh();
+      const joinGen = this.teardownGeneration;
 
       store.setStatus(VOICE_STATUS.ACQUIRING_MEDIA);
       this.#log('media', 'requesting microphone');
       this.localStream = await this.#acquireMicrophone(options.audio);
+      if (joinGen !== this.teardownGeneration || this.socket.connected === false) {
+        this.#teardown();
+        store.resetMesh();
+        return { success: false, code: 'E_NOT_CONNECTED', error: 'Session closed while joining call.' };
+      }
       store.setLocalStream(this.localStream);
       store.setLocalStreamActive(true);
+      this.speakingDetector.track('local', this.localStream);
+      this.speakingDetector.setSuppressed('local', this.listenOnly || this.audioMuted);
       this.#log('media', `microphone ready (${this.localStream.getAudioTracks?.().length ?? '?'} track)`);
 
       store.setStatus(VOICE_STATUS.SIGNALING);
       // Bind Socket.io listeners BEFORE registering: a newcomer may be announced mid-handshake.
       this.#bindSocket();
       this.peer = await this.#openPeer(options.peerId);
+      if (joinGen !== this.teardownGeneration || this.socket.connected === false) {
+        this.#teardown();
+        store.resetMesh();
+        return { success: false, code: 'E_NOT_CONNECTED', error: 'Session closed while joining call.' };
+      }
       store.setPeerId(this.peer.id);
       this.#log('peer', `PeerServer registered id ${this.peer.id}`);
 
       const ack = await this.#registerWithHost();
       if (!ack.success) throw coded(ack.error || 'Host rejected voice join.', ack.code);
       this.registered = true;
+      this.#broadcastMediaState();
 
       store.setStatus(VOICE_STATUS.CONNECTED);
       this.#log(
@@ -597,19 +662,32 @@ export class VoiceMeshManager {
     const onJoined = (payload) => this.#onPeerJoined(payload);
     const onLeft = (payload) => this.#onPeerLeft(payload);
     const onRoster = (peers) => this.#onRoster(peers);
+    const onMediaState = (payload) => this.#onPeerMediaState(payload);
     const onDisconnect = (reason) => {
-      if (reason === 'io client disconnect') {
-        // socket.js `disconnect()` was called on purpose: the table is closed, so is the mic.
+      if (reason === 'io client disconnect' || reason === 'io server disconnect') {
+        // Intentional close or explicit host kick: tear down the P2P call immediately.
         this.leave({ notifyHost: false });
         return;
       }
       if (!this.registered) return;
+      // Close active peer media immediately so audio stops on the spot even while Socket.IO retries.
+      for (const peerId of [...this.connections.keys()]) {
+        this.#closeConnection(peerId, `socket dropped (${reason})`);
+      }
       // Transport drop: the host frees our slot (everyone hangs up). Keep mic + peer; re-register
       // once the session identity is restored (`session:welcome`).
       this.registered = false;
       this.needsReregister = true;
       this.store.getState().setStatus(VOICE_STATUS.RECONNECTING);
       this.#log('signal', `socket dropped (${reason}); will re-register after rejoin`, null, 'warn');
+    };
+    const onShutdown = () => {
+      this.#log('signal', 'host ended session; leaving voice mesh');
+      this.leave({ notifyHost: false });
+    };
+    const onReconnectFailed = () => {
+      this.#log('signal', 'session reconnect failed; leaving voice mesh', null, 'warn');
+      this.leave({ notifyHost: false });
     };
     const onWelcome = () => {
       if (!this.needsReregister || !this.peer) return;
@@ -618,6 +696,7 @@ export class VoiceMeshManager {
         if (ack.success) {
           this.registered = true;
           this.store.getState().setStatus(VOICE_STATUS.CONNECTED);
+          this.#broadcastMediaState();
           this.#log('signal', 're-registered after socket reconnect');
         } else {
           this.store.getState().setStatus(VOICE_STATUS.ERROR, ack.error);
@@ -629,18 +708,28 @@ export class VoiceMeshManager {
     this.socket.on(EVENTS.VOICE_PEER_JOINED, onJoined);
     this.socket.on(EVENTS.VOICE_PEER_LEFT, onLeft);
     this.socket.on(EVENTS.SESSION_PEERS, onRoster);
+    this.socket.on(EVENTS.VOICE_MEDIA_STATE, onMediaState);
     this.socket.on('disconnect', onDisconnect);
+    this.socket.on(EVENTS.SERVER_SHUTDOWN, onShutdown);
     this.socket.on(EVENTS.SESSION_WELCOME, onWelcome);
+    this.socket.io?.on?.('reconnect_failed', onReconnectFailed);
     this.socketBindings = [
       [EVENTS.VOICE_PEER_JOINED, onJoined],
       [EVENTS.VOICE_PEER_LEFT, onLeft],
       [EVENTS.SESSION_PEERS, onRoster],
+      [EVENTS.VOICE_MEDIA_STATE, onMediaState],
       ['disconnect', onDisconnect],
+      [EVENTS.SERVER_SHUTDOWN, onShutdown],
       [EVENTS.SESSION_WELCOME, onWelcome],
     ];
+    this.ioReconnectFailedHandler = onReconnectFailed;
   }
 
   #unbindSocket() {
+    if (this.ioReconnectFailedHandler) {
+      this.socket.io?.off?.('reconnect_failed', this.ioReconnectFailedHandler);
+      this.ioReconnectFailedHandler = null;
+    }
     if (!this.socketBindings) return;
     for (const [event, handler] of this.socketBindings) this.socket.off(event, handler);
     this.socketBindings = null;
@@ -689,15 +778,44 @@ export class VoiceMeshManager {
     this.#closeConnection(remoteId, 'player_left');
   }
 
-  /** `session:peers`: drop any call whose owner is no longer on the authoritative roster. */
+  /** `session:peers`: drop any call whose owner is no longer on the authoritative roster, and sync media flags. */
   #onRoster(peers) {
     const roster = Array.isArray(peers) ? peers : [];
-    this.store.getState().setRoster(roster);
+    const store = this.store.getState();
+    store.setRoster(roster);
+    for (const entry of roster) {
+      if (!entry?.peerId || entry.peerId === this.peerId) continue;
+      if (store.peers[entry.peerId]) {
+        const muted = Boolean(entry.muted);
+        store.upsertPeer(entry.peerId, {
+          ...(entry.playerId ? { playerId: entry.playerId } : {}),
+          ...(entry.displayName ? { displayName: entry.displayName } : {}),
+          muted,
+          deafened: Boolean(entry.deafened),
+          hasVideo: Boolean(entry.videoEnabled),
+          ...(muted ? { speaking: false } : {}),
+        });
+      }
+    }
     if (!this.registered) return;
     const live = new Set(roster.map((p) => p.peerId));
     for (const peerId of [...this.connections.keys()]) {
       if (!live.has(peerId)) this.#closeConnection(peerId, 'absent from roster');
     }
+  }
+
+  #onPeerMediaState(payload) {
+    const remoteId = payload?.peerId;
+    if (typeof remoteId !== 'string' || !remoteId || remoteId === this.peerId) return;
+    const muted = payload.muted !== undefined ? Boolean(payload.muted) : undefined;
+    this.store.getState().upsertPeer(remoteId, {
+      ...(payload.playerId ? { playerId: payload.playerId } : {}),
+      ...(muted !== undefined ? { muted } : {}),
+      ...(payload.deafened !== undefined ? { deafened: Boolean(payload.deafened) } : {}),
+      ...(payload.videoEnabled !== undefined ? { hasVideo: Boolean(payload.videoEnabled) } : {}),
+      ...(muted ? { speaking: false } : {}),
+      mediaStateSynced: true,
+    });
   }
 
   // -------------------------------------------------------------- media connections
@@ -735,10 +853,17 @@ export class VoiceMeshManager {
 
     const record = { call, direction, stream: null, pc: null };
     this.connections.set(peerId, record);
-    this.store.getState().upsertPeer(peerId, {
+    const store = this.store.getState();
+    const existing = store.peers[peerId];
+    const rosterEntry = store.roster.find((p) => p.peerId === peerId);
+    store.upsertPeer(peerId, {
       direction,
-      playerId: info?.playerId ?? null,
-      displayName: info?.displayName ?? null,
+      playerId: info?.playerId ?? existing?.playerId ?? rosterEntry?.playerId ?? null,
+      displayName: info?.displayName ?? existing?.displayName ?? rosterEntry?.displayName ?? null,
+      muted: existing?.muted ?? Boolean(rosterEntry?.muted),
+      deafened: existing?.deafened ?? Boolean(rosterEntry?.deafened),
+      hasVideo: existing?.hasVideo ?? Boolean(rosterEntry?.videoEnabled),
+      speaking: existing?.speaking ?? false,
       streamActive: false,
       connectionState: 'new',
       iceConnectionState: 'new',
@@ -785,8 +910,16 @@ export class VoiceMeshManager {
     if (this.connections.get(peerId) !== record) return;
     record.stream = stream;
     this.#watchRtc(peerId, record);
-    const hasVideo = (stream?.getVideoTracks?.() ?? []).some((t) => t.readyState !== 'ended');
-    this.store.getState().upsertPeer(peerId, { streamActive: true, hasVideo, stream });
+    const store = this.store.getState();
+    const existing = store.peers[peerId];
+    const rosterEntry = store.roster.find((p) => p.peerId === peerId);
+    const streamHasVideo = (stream?.getVideoTracks?.() ?? []).some((t) => t.readyState !== 'ended');
+    const hasVideo = existing?.mediaStateSynced
+      ? Boolean(existing.hasVideo)
+      : Boolean(rosterEntry?.videoEnabled || streamHasVideo);
+    store.upsertPeer(peerId, { streamActive: true, hasVideo, stream });
+    this.speakingDetector.track(peerId, stream);
+    this.speakingDetector.setSuppressed(peerId, this.deafened);
     const audio = this.#attachAudio(peerId, stream);
     this.#log(
       'media',
@@ -798,6 +931,7 @@ export class VoiceMeshManager {
   #onCallClosed(peerId, record) {
     if (this.connections.get(peerId) !== record) return;
     this.connections.delete(peerId);
+    this.speakingDetector.untrack(peerId);
     this.#removeAudio(peerId);
     this.store.getState().removePeer(peerId);
     this.#log('webrtc', `call with ${peerId} closed`);
@@ -807,6 +941,7 @@ export class VoiceMeshManager {
     const record = this.connections.get(peerId);
     if (!record) return;
     this.connections.delete(peerId);
+    this.speakingDetector.untrack(peerId);
     this.#removeAudio(peerId);
     this.store.getState().removePeer(peerId);
     this.#safeClose(record.call);
@@ -878,7 +1013,9 @@ export class VoiceMeshManager {
   // ----------------------------------------------------------------------- teardown
 
   #teardown() {
+    this.teardownGeneration += 1;
     this.#unbindSocket();
+    this.speakingDetector.destroy();
     for (const peerId of [...this.connections.keys()]) this.#closeConnection(peerId, 'teardown');
     for (const peerId of [...this.audioEls.keys()]) this.#removeAudio(peerId);
 

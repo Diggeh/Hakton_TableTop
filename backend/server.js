@@ -490,33 +490,51 @@ export function startServer({
             // Shutdown must not be blocked by a failed checkpoint.
           }
 
+          const hasActiveClients =
+            openSockets.size > 0 || (io.engine?.clientsCount ?? 0) > 0;
+
           try {
             io.emit?.(EVENTS.SERVER_SHUTDOWN, {
               reason: 'Host server is shutting down.',
               timestamp: new Date().toISOString(),
             });
-            io.disconnectSockets?.(true);
           } catch {
-            // Ignore emit/disconnect errors during shutdown
+            // Ignore emit errors during shutdown
           }
 
-          sessionManager.clear();
-
-          for (const rawSocket of openSockets) {
+          const finishClose = () => {
             try {
-              rawSocket.destroy();
+              io.disconnectSockets?.(true);
             } catch {
-              // Ignore socket destroy errors
+              // Ignore disconnect errors during shutdown
             }
-          }
-          openSockets.clear();
 
-          io.close(() => {
-            if (activeServer === serverHandle) {
-              activeServer = null;
+            sessionManager.clear();
+
+            for (const rawSocket of openSockets) {
+              try {
+                rawSocket.destroy();
+              } catch {
+                // Ignore socket destroy errors
+              }
             }
-            done();
-          });
+            openSockets.clear();
+
+            io.close(() => {
+              if (activeServer === serverHandle) {
+                activeServer = null;
+              }
+              done();
+            });
+          };
+
+          if (hasActiveClients) {
+            // Briefly yield so WebSocket frames carrying SERVER_SHUTDOWN flush before sockets are destroyed.
+            const flushTimer = setTimeout(finishClose, 30);
+            flushTimer.unref?.();
+          } else {
+            finishClose();
+          }
         });
 
         return closingPromise;

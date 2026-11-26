@@ -62,6 +62,8 @@ export default function ToolIcon({ name }) {
     wifi: 'M5 12.55a11 11 0 0 1 14.08 0 M1.42 9a16 16 0 0 1 21.16 0 M8.53 16.11a6 6 0 0 1 6.95 0 M12 20h.01',
     refresh:
       'M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
+    chevronDown: 'M6 9l6 6 6-6',
+    chevronUp: 'M18 15l-6-6-6 6',
   };
   return (
     <svg

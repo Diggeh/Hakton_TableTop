@@ -24,6 +24,7 @@ import AddTokenDialog from './AddTokenDialog.jsx';
 import { useUploadedCategoryAssetEntries } from './AssetsPanel.jsx';
 import { IconButton } from './Primitives.jsx';
 import VoiceCallToolbar from './VoiceCallToolbar.jsx';
+import VideoCallStrip from './VideoCallStrip.jsx';
 
 const MapStage = lazy(() => import('../canvas/MapStage.jsx'));
 
@@ -862,6 +863,7 @@ export default function Board({
       </div>
 
       {!isDM && <VoiceCallToolbar role={role} />}
+      <VideoCallStrip />
 
       {/* DM Fog of War & Walls Top Horizontal Bar */}
       {isDM && fogMenuOpen && (

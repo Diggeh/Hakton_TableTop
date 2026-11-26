@@ -1,7 +1,7 @@
 import { sessionStore } from '../store/sessionStore.js';
 import { voiceStore } from '../store/voiceStore.js';
 import { resolvePeerOptions } from './peerOptions.js';
-import { getSocket } from './socket.js';
+import { getSocket, registerDisconnectHook } from './socket.js';
 import { VoiceMeshManager } from './voiceMesh.js';
 
 export { resolvePeerOptions } from './peerOptions.js';
@@ -74,10 +74,12 @@ export async function joinVoiceMesh(options = {}) {
   return manager.join({ peerId: options.peerId, audio: options.audio });
 }
 
-/** Leave the voice mesh (keeps the Socket.io session). */
-export function leaveVoiceMesh() {
-  manager?.leave();
+/** Leave the voice mesh (keeps the Socket.io session unless called during disconnect). */
+export function leaveVoiceMesh(options) {
+  manager?.leave(options);
 }
+
+registerDisconnectHook(() => leaveVoiceMesh({ notifyHost: false }));
 
 export function setAudioMuted(muted) {
   return manager?.setAudioMuted(muted) ?? false;

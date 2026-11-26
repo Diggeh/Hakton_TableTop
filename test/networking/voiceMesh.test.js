@@ -11,6 +11,7 @@ import {
   ROLES,
 } from '../../shared/events.js';
 import { VOICE_SINK_ID, VoiceMeshManager } from '../../src/net/voiceMesh.js';
+import { SpeakingDetector } from '../../src/net/speakingDetector.js';
 import { resolvePeerOptions } from '../../src/net/peerOptions.js';
 import { createVoiceStore, VOICE_STATUS } from '../../src/store/voiceStore.js';
 import { FakeDocument, FakePeerNetwork, FakeStream } from './voiceFakes.js';
@@ -565,5 +566,244 @@ describe('P2P voice mesh over the real host signaling (Socket.io + fake WebRTC)'
       signalingMode: 'internet',
     });
     assert.ok(mixedLanOpts.config.iceServers.length >= 1);
+  });
+
+  it('automatically tears down all player-to-player voice calls when the DM ends the session', TIMEOUT, async () => {
+    const dm = await makeClient('DM', { dm: true });
+    const a = await makeClient('A');
+    const b = await makeClient('B');
+
+    await a.manager.join({ peerId: 'peer-a' });
+    await b.manager.join({ peerId: 'peer-b' });
+    await Promise.all([a.manager.waitForStreams(1), b.manager.waitForStreams(1)]);
+    assert.equal(a.doc.audioElements().length, 1);
+    assert.equal(b.doc.audioElements().length, 1);
+
+    // Non-DM players cannot end the session.
+    const playerAttempt = await emitAck(a.socket, EVENTS.SESSION_END, {});
+    assert.equal(playerAttempt.ok, false);
+
+    const shutdownOnA = onceEvent(a.socket, EVENTS.SERVER_SHUTDOWN);
+    const shutdownOnB = onceEvent(b.socket, EVENTS.SERVER_SHUTDOWN);
+
+    const dmEnd = await emitAck(dm.socket, EVENTS.SESSION_END, {
+      reason: 'Host ended the session.',
+    });
+    assert.equal(dmEnd.ok, true);
+
+    const [infoA, infoB] = await Promise.all([shutdownOnA, shutdownOnB]);
+    assert.equal(infoA.reason, 'Host ended the session.');
+    assert.equal(infoB.reason, 'Host ended the session.');
+
+    await waitFor(
+      () =>
+        a.manager.connections.size === 0 &&
+        b.manager.connections.size === 0 &&
+        a.store.getState().status === VOICE_STATUS.DISCONNECTED &&
+        b.store.getState().status === VOICE_STATUS.DISCONNECTED,
+      'both players to leave the voice call on host session end',
+    );
+
+    assert.equal(a.doc.audioElements().length, 0);
+    assert.equal(b.doc.audioElements().length, 0);
+    assert.equal(a.mic.tracks[0].readyState, 'ended');
+    assert.equal(b.mic.tracks[0].readyState, 'ended');
+  });
+
+  it('syncs mute/deafen/camera state across peers, reuses cleared video transceivers, and detects speaking activity', TIMEOUT, async () => {
+    const a = await makeClient('A');
+    const b = await makeClient('B');
+    await a.manager.join({ peerId: 'peer-a' });
+    await b.manager.join({ peerId: 'peer-b' });
+    await Promise.all([a.manager.waitForStreams(1), b.manager.waitForStreams(1)]);
+
+    // 1. Mute and Deafen broadcast over VOICE_MEDIA_STATE
+    a.manager.setAudioMuted(true);
+    await waitFor(
+      () => b.store.getState().peers['peer-a']?.muted === true,
+      'B to observe A muted',
+    );
+    a.manager.setDeafened(true);
+    await waitFor(
+      () => b.store.getState().peers['peer-a']?.deafened === true,
+      'B to observe A deafened',
+    );
+    a.manager.setDeafened(false);
+    a.manager.setAudioMuted(false);
+    await waitFor(
+      () =>
+        b.store.getState().peers['peer-a']?.deafened === false &&
+        b.store.getState().peers['peer-a']?.muted === false,
+      'B to observe A unmuted/undeafened',
+    );
+
+    // 2. Camera ON -> OFF -> ON reuses existing video transceiver even after replaceTrack(null)
+    const replacedTracks = [];
+    const fakeVideoSender = {
+      track: null,
+      async replaceTrack(track) {
+        this.track = track;
+        replacedTracks.push(track);
+      },
+    };
+    const connRecord = a.manager.connections.get('peer-b');
+    connRecord.call.peerConnection.getSenders = () => [];
+    connRecord.call.peerConnection.getTransceivers = () => [
+      { receiver: { track: { kind: 'video' } }, sender: fakeVideoSender },
+    ];
+    a.manager.localStream.getVideoTracks = () => (a.manager._videoTracks ??= []);
+    a.manager.localStream.addTrack = (t) => a.manager._videoTracks.push(t);
+    a.manager.localStream.removeTrack = (t) => {
+      a.manager._videoTracks = a.manager._videoTracks.filter((x) => x !== t);
+    };
+    let camSeq = 0;
+    a.manager.getUserMedia = async () => ({
+      getVideoTracks: () => [
+        { id: `cam-${++camSeq}`, kind: 'video', readyState: 'live', enabled: true, stop() { this.readyState = 'ended'; } },
+      ],
+    });
+
+    await a.manager.setCameraEnabled(true);
+    await waitFor(
+      () => b.store.getState().peers['peer-a']?.hasVideo === true,
+      'B to see A camera ON',
+    );
+    await a.manager.setCameraEnabled(false);
+    await waitFor(
+      () => b.store.getState().peers['peer-a']?.hasVideo === false,
+      'B to see A camera OFF immediately',
+    );
+    await a.manager.setCameraEnabled(true);
+    await waitFor(
+      () => b.store.getState().peers['peer-a']?.hasVideo === true,
+      'B to see A camera ON a second time',
+    );
+    assert.equal(replacedTracks.length, 3);
+    assert.equal(replacedTracks[0].id, 'cam-1');
+    assert.equal(replacedTracks[1], null);
+    assert.equal(replacedTracks[2].id, 'cam-2');
+
+    // 3. Late joiner C sees A's current videoEnabled state in session:peers
+    const c = await makeClient('C');
+    const cJoin = await c.manager.join({ peerId: 'peer-c' });
+    assert.equal(cJoin.success, true);
+    const aInRoster = cJoin.peers.find((p) => p.peerId === 'peer-a');
+    assert.equal(aInRoster?.videoEnabled, true);
+
+    // 4. SpeakingDetector RMS threshold, hold hysteresis, and suppression
+    let nowMs = 1000;
+    let currentSample = 128; // silence (128 = 0 amplitude)
+    const transitions = [];
+    const detector = new SpeakingDetector({
+      now: () => nowMs,
+      pollIntervalMs: 60_000,
+      threshold: 0.05,
+      holdMs: 300,
+      onSpeakingChange: (key, speaking) => transitions.push({ key, speaking }),
+      audioContextFactory: () => ({
+        state: 'running',
+        createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
+        createAnalyser: () => ({
+          fftSize: 16,
+          smoothingTimeConstant: 0.5,
+          getByteTimeDomainData(buf) {
+            buf.fill(currentSample);
+          },
+          disconnect() {},
+        }),
+        close() {},
+      }),
+    });
+
+    assert.equal(detector.track('local', new FakeStream('mic')), true);
+    detector.sample();
+    assert.deepEqual(transitions, []);
+
+    currentSample = 200; // loud speech
+    detector.sample();
+    assert.deepEqual(transitions, [{ key: 'local', speaking: true }]);
+
+    // Hold time keeps speaking=true briefly after silence
+    currentSample = 128;
+    nowMs += 150;
+    detector.sample();
+    assert.equal(transitions.length, 1);
+
+    // After holdMs expires, speaking drops to false
+    nowMs += 250;
+    detector.sample();
+    assert.deepEqual(transitions, [
+      { key: 'local', speaking: true },
+      { key: 'local', speaking: false },
+    ]);
+
+    // Suppression forces speaking=false immediately
+    currentSample = 200;
+    detector.sample();
+    assert.equal(transitions[2].speaking, true);
+    detector.setSuppressed('local', true);
+    assert.equal(transitions[3].speaking, false);
+    detector.destroy();
+  });
+
+  it('tears down all voice connections and delivers SERVER_SHUTDOWN on abrupt host stopServer()', TIMEOUT, async () => {
+    const a = await makeClient('Aria');
+    const b = await makeClient('Bram');
+
+    await a.manager.join({ peerId: 'peer-a' });
+    await b.manager.join({ peerId: 'peer-b' });
+    await Promise.all([a.manager.waitForStreams(1), b.manager.waitForStreams(1)]);
+
+    assert.equal(a.doc.audioElements().length, 1);
+    assert.equal(b.doc.audioElements().length, 1);
+
+    const aShutdown = onceEvent(a.socket, EVENTS.SERVER_SHUTDOWN);
+    const bShutdown = onceEvent(b.socket, EVENTS.SERVER_SHUTDOWN);
+
+    await stopServer();
+
+    const [aPayload, bPayload] = await Promise.all([aShutdown, bShutdown]);
+    assert.ok(aPayload?.reason);
+    assert.ok(bPayload?.reason);
+
+    await waitFor(
+      () =>
+        a.store.getState().status === VOICE_STATUS.DISCONNECTED &&
+        b.store.getState().status === VOICE_STATUS.DISCONNECTED,
+      'both players to leave voice mesh after abrupt server stop',
+    );
+
+    assert.equal(a.manager.connections.size, 0);
+    assert.equal(b.manager.connections.size, 0);
+    assert.equal(a.doc.audioElements().length, 0);
+    assert.equal(b.doc.audioElements().length, 0);
+    assert.equal(a.mic.tracks[0].readyState, 'ended');
+    assert.equal(b.mic.tracks[0].readyState, 'ended');
+    assert.equal(network.peers.has('peer-a'), false);
+    assert.equal(network.peers.has('peer-b'), false);
+  });
+
+  it('closes active peer connections immediately during transport close before reconnect completes', TIMEOUT, async () => {
+    const a = await makeClient('Aria');
+    const b = await makeClient('Bram', { reconnection: true });
+
+    await a.manager.join({ peerId: 'peer-a' });
+    await b.manager.join({ peerId: 'peer-b' });
+    await Promise.all([a.manager.waitForStreams(1), b.manager.waitForStreams(1)]);
+
+    assert.equal(b.manager.connections.size, 1);
+    assert.equal(b.doc.audioElements().length, 1);
+
+    b.socket.io.engine.close();
+
+    await waitFor(
+      () => b.store.getState().status === VOICE_STATUS.RECONNECTING,
+      'client B to enter RECONNECTING state after transport close',
+    );
+
+    assert.equal(b.manager.connections.size, 0, 'ghost P2P audio connections close immediately on drop');
+    assert.equal(Object.keys(b.store.getState().peers).length, 0);
+    assert.equal(b.doc.audioElements().length, 0);
+    assert.equal(b.mic.tracks[0].readyState, 'live', 'mic stays open while reconnecting');
   });
 });

@@ -3589,5 +3589,230 @@
   border-radius: 6px;
 }
 
+.session-ended-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  background: rgba(154, 48, 52, 0.24);
+  border: 1px solid rgba(228, 130, 130, 0.45);
+  color: #f6d5d5;
+  font-size: 13px;
+}
+
+.hakton-app .session-ended-banner button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0 4px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Phase 2: Collapsible Floating Video Call Strip (Bottom-Right) */
+.video-call-strip {
+  position: absolute;
+  bottom: 14px;
+  right: 16px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: min(560px, calc(100vw - 380px));
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(14, 30, 40, 0.84);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.28);
+  box-shadow: 0 8px 24px rgba(4, 10, 18, 0.5);
+  pointer-events: auto;
+}
+
+.video-call-strip.is-collapsed {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.hakton-app button.video-strip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(23, 45, 55, 0.84);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.32);
+  color: #e4f4f6;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(5, 13, 22, 0.45);
+}
+
+.hakton-app button.video-strip-pill:hover {
+  border-color: #adfcf9;
+}
+
+.video-strip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #b7d7de;
+}
+
+.video-strip-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hakton-app .video-strip-header .icon-button {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: #b7d7de;
+}
+
+.video-speaking-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5b7885;
+  flex-shrink: 0;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.video-speaking-dot.is-active {
+  background: #adfcf9;
+  box-shadow: 0 0 8px rgba(173, 252, 249, 0.85);
+}
+
+.video-strip-tiles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 2px;
+}
+
+.video-tile {
+  position: relative;
+  flex: 0 0 auto;
+  width: 144px;
+  height: 92px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(155deg, #102437 0%, #091529 100%);
+  border: 1px solid rgba(114, 189, 179, 0.28);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.video-tile.is-speaking {
+  border-color: #adfcf9;
+  box-shadow: 0 0 0 2px rgba(173, 252, 249, 0.6), 0 0 14px rgba(173, 252, 249, 0.4);
+}
+
+.video-tile-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.video-tile-media.is-mirrored {
+  transform: scaleX(-1);
+}
+
+.video-tile-avatar {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-tile-avatar span {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(58, 124, 165, 0.35);
+  border: 1px solid rgba(173, 252, 249, 0.35);
+  color: #adfcf9;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.video-tile-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 12px 6px 4px;
+  background: linear-gradient(to top, rgba(6, 13, 22, 0.88) 0%, transparent 100%);
+}
+
+.video-tile-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #eef8fa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.video-tile-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.video-tile-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: rgba(154, 48, 52, 0.85);
+  color: #ffe5e5;
+}
+
+.video-tile-badge svg {
+  width: 11px;
+  height: 11px;
+}
+
+@media (max-width: 900px) {
+  .video-call-strip {
+    max-width: calc(100vw - 32px);
+    bottom: 58px;
+    right: 12px;
+  }
+}
+
 
 

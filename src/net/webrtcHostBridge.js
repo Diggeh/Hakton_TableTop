@@ -293,8 +293,8 @@ export class WebRtcHostBridge {
       const event = msg.event;
       if (typeof event !== 'string' || !event) return;
 
-      // Never allow remote internet peers to spoof DM hostToken or flip host network mode
-      if (event === EVENTS.SESSION_NETWORK_MODE) {
+      // Never allow remote internet peers to spoof DM hostToken, flip network mode, or end the session
+      if (event === EVENTS.SESSION_NETWORK_MODE || event === EVENTS.SESSION_END) {
         if (msg.ackId != null) {
           this.#send(conn, {
             t: 'ack',
@@ -458,6 +458,19 @@ export class WebRtcHostBridge {
     }
   }
 
+  notifyShutdownSync(reason = 'Host ended the session.') {
+    if (this.stopped) return;
+    for (const entry of this.activePeers.values()) {
+      if (entry?.conn && entry.conn.open !== false) {
+        try {
+          this.#send(entry.conn, { t: 'shutdown', reason });
+        } catch {
+          // Ignore send errors during synchronous page unload
+        }
+      }
+    }
+  }
+
   async stop({ reason = 'Host ended the session.' } = {}) {
     if (this.stopped) return;
     this.stopped = true;
@@ -533,4 +546,8 @@ export async function stopInternetHostBridge(opts) {
   const bridge = activeBridge;
   activeBridge = null;
   await bridge.stop(opts);
+}
+
+export function notifyInternetHostShutdownSync(reason) {
+  activeBridge?.notifyShutdownSync(reason);
 }

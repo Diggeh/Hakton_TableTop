@@ -180,6 +180,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
     });
     socket.removeAllListeners(EVENTS.SESSION_JOIN);
     socket.removeAllListeners(EVENTS.SESSION_LEAVE);
+    socket.removeAllListeners(EVENTS.SESSION_END);
     socket.removeAllListeners(EVENTS.TOKEN_MOVE);
     socket.removeAllListeners(EVENTS.TOKEN_CREATE);
     socket.removeAllListeners(EVENTS.TOKEN_UPDATE);
@@ -361,6 +362,74 @@ export function registerSocketRouter(io, repos, opts = {}) {
       if (ack) {
         ack({ success: true });
       }
+    });
+
+    socket.on(EVENTS.SESSION_END, (payload = {}, maybeAck) => {
+      const ack =
+        typeof payload === 'function'
+          ? payload
+          : typeof maybeAck === 'function'
+            ? maybeAck
+            : null;
+      const respond = (res) => {
+        if (ack) ack(res);
+      };
+
+      if (!isJoined() || !isDM()) {
+        respond({ ok: false, error: 'Only the Dungeon Master can end the session.' });
+        return;
+      }
+
+      const rawReason = typeof payload?.reason === 'string' ? payload.reason.trim() : '';
+      const reason = rawReason ? rawReason.slice(0, 160) : 'Host ended the session.';
+      const sessionId = socket.data.sessionId;
+      const room = getSessionRoom(sessionId);
+      const shutdownPayload = {
+        reason,
+        endedByHost: true,
+        timestamp: new Date().toISOString(),
+      };
+
+      for (const peerSocket of [...io.sockets.sockets.values()]) {
+        if (peerSocket.id === socket.id) continue;
+        if (peerSocket.data?.sessionId !== sessionId) continue;
+
+        peerSocket.emit(EVENTS.SERVER_SHUTDOWN, shutdownPayload);
+        const peerLeave = sessionManager.leaveSession(peerSocket.id);
+        if (peerLeave) {
+          announceVoicePeerLeft(
+            io,
+            { sessionManager, roomFor: getSessionRoom },
+            peerLeave,
+          );
+        }
+        peerSocket.leave(room);
+        peerSocket.data.playerId = null;
+        peerSocket.data.sessionId = null;
+        peerSocket.data.role = null;
+        setTimeout(() => {
+          try {
+            peerSocket.disconnect(true);
+          } catch {
+            // Already disconnected.
+          }
+        }, 25);
+      }
+
+      const hostLeave = sessionManager.leaveSession(socket.id);
+      if (hostLeave) {
+        announceVoicePeerLeft(
+          io,
+          { sessionManager, roomFor: getSessionRoom },
+          hostLeave,
+        );
+      }
+      socket.leave(room);
+      socket.data.playerId = null;
+      socket.data.sessionId = null;
+      socket.data.role = null;
+
+      respond({ ok: true });
     });
 
     socket.on(EVENTS.SESSION_NETWORK_MODE, (payload = {}, maybeAck) => {

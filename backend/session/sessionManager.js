@@ -714,6 +714,7 @@ export class SessionManager {
       const now = new Date().toISOString();
       previousPeerId = participant.peerId ?? null;
       participant.peerId = null;
+      participant.voiceMedia = null;
       participant.connected = false;
       participant.socketId = null;
       participant.disconnectedAt = now;
@@ -750,6 +751,7 @@ export class SessionManager {
     if (!participant) return null;
 
     const previousPeerId = participant.peerId ?? null;
+    participant.voiceMedia = null;
     session.participants.delete(ref.playerId);
     if (session.hostPlayerId === ref.playerId) {
       session.hostPlayerId = null;
@@ -801,6 +803,9 @@ export class SessionManager {
         playerId: p.id,
         displayName: p.displayName,
         role: p.role,
+        muted: Boolean(p.voiceMedia?.muted),
+        deafened: Boolean(p.voiceMedia?.deafened),
+        videoEnabled: Boolean(p.voiceMedia?.videoEnabled),
       }));
   }
 
@@ -849,6 +854,9 @@ export class SessionManager {
 
     const previousPeerId = participant.peerId ?? null;
     participant.peerId = nextPeerId;
+    if (previousPeerId !== nextPeerId || !participant.voiceMedia) {
+      participant.voiceMedia = { muted: false, deafened: false, videoEnabled: false };
+    }
 
     return {
       success: true,
@@ -856,6 +864,38 @@ export class SessionManager {
       previousPeerId,
       session,
       participant: sanitizeParticipant(participant),
+      peers: this.getVoicePeers(session.id),
+    };
+  }
+
+  /**
+   * Updates the caller's live voice/video media flags (`muted`, `deafened`, `videoEnabled`).
+   * @param {{ socketId: string, muted?: boolean, deafened?: boolean, videoEnabled?: boolean }} [request]
+   */
+  updateVoiceMediaState({ socketId, muted, deafened, videoEnabled } = {}) {
+    const active = this.getActiveParticipant(socketId);
+    if (!active || !active.participant.peerId) {
+      return {
+        success: false,
+        code: ERROR_CODES.NOT_JOINED,
+        error: 'Join voice before updating media state.',
+      };
+    }
+    const { session, participant } = active;
+    const prev = participant.voiceMedia ?? { muted: false, deafened: false, videoEnabled: false };
+    const next = {
+      muted: muted !== undefined ? Boolean(muted) : Boolean(prev.muted),
+      deafened: deafened !== undefined ? Boolean(deafened) : Boolean(prev.deafened),
+      videoEnabled:
+        videoEnabled !== undefined ? Boolean(videoEnabled) : Boolean(prev.videoEnabled),
+    };
+    participant.voiceMedia = next;
+    return {
+      success: true,
+      session,
+      participant: sanitizeParticipant(participant),
+      peerId: participant.peerId,
+      mediaState: { ...next },
       peers: this.getVoicePeers(session.id),
     };
   }
@@ -871,6 +911,7 @@ export class SessionManager {
     const { session, participant } = active;
     const previousPeerId = participant.peerId;
     participant.peerId = null;
+    participant.voiceMedia = null;
     return {
       session,
       participant: sanitizeParticipant(participant),

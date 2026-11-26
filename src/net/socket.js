@@ -14,7 +14,11 @@ import { autosave } from '../autosave/index.js';
 import { setAutosaveTransport } from '../autosave/transport.js';
 import { clearIdentity, loadIdentity, saveIdentity } from './identity.js';
 import { createWebRtcSocket } from './webrtcClientAdapter.js';
-import { startInternetHostBridge, stopInternetHostBridge } from './webrtcHostBridge.js';
+import {
+  notifyInternetHostShutdownSync,
+  startInternetHostBridge,
+  stopInternetHostBridge,
+} from './webrtcHostBridge.js';
 import { clearWebRtcAssetCache, isWebRtcUrl } from './webrtcAssets.js';
 
 let socket = null;
@@ -23,6 +27,22 @@ let pendingConnectContext = null;
 let lastConnectOptions = null;
 let lastResyncAt = 0;
 let resyncBound = false;
+const disconnectHooks = new Set();
+
+export function registerDisconnectHook(fn) {
+  if (typeof fn === 'function') disconnectHooks.add(fn);
+  return () => disconnectHooks.delete(fn);
+}
+
+function runDisconnectHooks() {
+  for (const fn of disconnectHooks) {
+    try {
+      fn();
+    } catch {
+      // Never let a disconnect hook block teardown.
+    }
+  }
+}
 
 /** moveId -> { started: performance.now() } for the sync-latency readout. */
 const pendingMoves = new Map();
@@ -161,6 +181,7 @@ export function getSocket() {
  * @param {{ forgetIdentity?: boolean }} [options]
  */
 export function disconnect({ forgetIdentity = false } = {}) {
+  runDisconnectHooks();
   unbindChat();
   stopInternetHostBridge({ reason: 'Host ended the session.' }).catch(() => {});
   clearWebRtcAssetCache();
@@ -233,6 +254,45 @@ export async function toggleInternetBridge(enabled) {
     store.setVoiceSignalingMode(VOICE_SIGNALING_MODE.LOCAL);
   }
   return { ok: true, enabled: false };
+}
+
+/**
+ * Ends the active session as Dungeon Master: notifies all connected LAN and
+ * Internet players with `SERVER_SHUTDOWN` so they leave voice and return to
+ * the main menu, stops the Internet bridge, and disconnects locally.
+ *
+ * @param {string} [reason]
+ */
+export function notifyHostExitSync(reason = 'Host ended the session.') {
+  try {
+    if (socket?.connected) {
+      socket.emit(EVENTS.SESSION_END, { reason });
+    }
+  } catch {
+    // Ignore socket emit errors during unload
+  }
+  notifyInternetHostShutdownSync(reason);
+  runDisconnectHooks();
+}
+
+export async function endHostSession(reason = 'Host ended the session.') {
+  const active = socket;
+  if (active?.connected) {
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 350);
+      try {
+        active.emit(EVENTS.SESSION_END, { reason }, () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      } catch {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+  }
+  await stopInternetHostBridge({ reason }).catch(() => {});
+  disconnect({ forgetIdentity: true });
 }
 
 /**
@@ -425,6 +485,7 @@ export async function connect(options) {
         : {};
 
   const store = sessionStore.getState();
+  store.clearSessionEnded();
 
   let target = resolveTargetUrl(opts);
   let hostToken = opts.hostToken;
@@ -603,6 +664,7 @@ export async function connect(options) {
     });
 
     socket.io.on('reconnect_failed', () => {
+      runDisconnectHooks();
       const storeState = sessionStore.getState();
       const prevErr = storeState.connectionError;
       const message =
@@ -644,12 +706,16 @@ export async function connect(options) {
     s.setConnection(s.connection, errPayload?.error || 'Session error occurred.');
   });
 
+  let handlingShutdown = false;
   socket.on(EVENTS.SERVER_SHUTDOWN, (info) => {
+    if (handlingShutdown) return;
+    handlingShutdown = true;
+    const reason = info?.reason || 'Host ended the session.';
+    runDisconnectHooks();
     const s = sessionStore.getState();
-    s.setConnection(
-      CONNECTION_STATUS.DISCONNECTED,
-      info?.reason || 'Host server has shut down.',
-    );
+    s.setSessionEnded(reason);
+    disconnect({ forgetIdentity: true });
+    sessionStore.getState().setConnection(CONNECTION_STATUS.DISCONNECTED, reason);
   });
 
   // Existing board state listeners

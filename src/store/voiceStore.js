@@ -20,11 +20,13 @@ const initialMesh = () => ({
   peerId: null,
   localStreamActive: false,
   localStream: null,
+  localStreamRevision: 0,
   localAudioMuted: false,
   localDeafened: false,
   localVideoEnabled: false,
+  localSpeaking: false,
   listenOnly: false,
-  /** peerId -> { peerId, playerId, displayName, direction, connectionState, iceConnectionState, streamActive, hasVideo, stream, connectedAt } */
+  /** peerId -> { peerId, playerId, displayName, direction, connectionState, iceConnectionState, streamActive, hasVideo, muted, deafened, speaking, stream, connectedAt } */
   peers: {},
   /** Authoritative `session:peers` roster from the host (includes this client). */
   roster: [],
@@ -46,9 +48,12 @@ export const createVoiceStore = () =>
   setPeerId: (peerId) => set({ peerId }),
   setLocalStreamActive: (localStreamActive) => set({ localStreamActive }),
   setLocalStream: (localStream) => set({ localStream: localStream ?? null }),
+  bumpLocalStreamRevision: () =>
+    set((state) => ({ localStreamRevision: state.localStreamRevision + 1 })),
   setLocalAudioMuted: (localAudioMuted) => set({ localAudioMuted: Boolean(localAudioMuted) }),
   setLocalDeafened: (localDeafened) => set({ localDeafened: Boolean(localDeafened) }),
   setLocalVideoEnabled: (localVideoEnabled) => set({ localVideoEnabled: Boolean(localVideoEnabled) }),
+  setLocalSpeaking: (localSpeaking) => set({ localSpeaking: Boolean(localSpeaking) }),
   setListenOnly: (listenOnly) => set({ listenOnly: Boolean(listenOnly) }),
   setRoster: (roster) => set({ roster: Array.isArray(roster) ? roster : [] }),
 
@@ -65,6 +70,9 @@ export const createVoiceStore = () =>
           iceConnectionState: 'new',
           streamActive: false,
           hasVideo: false,
+          muted: false,
+          deafened: false,
+          speaking: false,
           stream: null,
           connectedAt: null,
           ...state.peers[peerId],

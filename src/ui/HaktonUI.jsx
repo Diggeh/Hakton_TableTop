@@ -135,6 +135,7 @@ export default function HaktonUI() {
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [roomCodeError, setRoomCodeError] = useState('');
   const [joinTarget, setJoinTarget] = useState(null);
+  const [hostNotice, setHostNotice] = useState('');
 
   // Campaign editing state
   const [editDraft, setEditDraft] = useState({
@@ -250,6 +251,11 @@ export default function HaktonUI() {
           onLeave={() =>
             setScreen(role === 'Player' ? 'join-code' : 'campaigns')
           }
+          onHostEnded={(reason) => {
+            setJoinTarget(null);
+            setHostNotice(reason || 'Host ended the session.');
+            setScreen('home');
+          }}
         />
       ) : screen === 'account' ? (
         <main className="account-screen" aria-label="Account setup">
@@ -364,10 +370,23 @@ export default function HaktonUI() {
                 <Mark />
                 <span>Hakton</span>
               </h1>
+              {hostNotice && (
+                <div className="session-ended-banner" role="status">
+                  <span>{hostNotice}</span>
+                  <button
+                    type="button"
+                    aria-label="Dismiss notice"
+                    onClick={() => setHostNotice('')}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
               <nav className="start-actions" aria-label="Start menu">
                 <button
                   className="primary"
                   onClick={() => {
+                    setHostNotice('');
                     setRole('DM');
                     setScreen('campaigns');
                   }}
@@ -376,6 +395,7 @@ export default function HaktonUI() {
                 </button>
                 <button
                   onClick={() => {
+                    setHostNotice('');
                     setRole('Player');
                     setRoomCodeError('');
                     setScreen('join-code');
