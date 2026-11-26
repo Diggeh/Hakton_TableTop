@@ -336,4 +336,44 @@ describe('token:move realtime pipeline', () => {
     assert.equal(dmRotateAck.token.rotation, 315);
     assert.equal(repos.tokens.get(extendedCreate.token.id).rotation, 315);
   });
+
+  it('persists resizing, rotating, and locking placed map/scene images', async () => {
+    const mapCreate = await emitWithAck(dm, EVENTS.TOKEN_CREATE, {
+      label: 'Imported Courtyard',
+      x: 700,
+      y: 490,
+      isMap: true,
+      imageUrl: '/assets/courtyard/file',
+      width: 1000,
+      height: 700,
+      rotation: 0,
+    });
+    assert.equal(mapCreate.ok, true);
+    const mapId = mapCreate.token.id;
+
+    const resizeRotateLockNotice = waitForEvent(player, EVENTS.TOKEN_UPDATED);
+    const updateAck = await emitWithAck(dm, EVENTS.TOKEN_UPDATE, {
+      id: mapId,
+      width: 1450,
+      height: 1015,
+      rotation: 90,
+      locked: true,
+    });
+    const broadcasted = await resizeRotateLockNotice;
+
+    assert.equal(updateAck.ok, true);
+    assert.equal(updateAck.token.width, 1450);
+    assert.equal(updateAck.token.height, 1015);
+    assert.equal(updateAck.token.rotation, 90);
+    assert.equal(updateAck.token.locked, true);
+    assert.equal(broadcasted.width, 1450);
+    assert.equal(broadcasted.rotation, 90);
+    assert.equal(broadcasted.locked, true);
+
+    const stored = repos.tokens.get(mapId);
+    assert.equal(stored.width, 1450);
+    assert.equal(stored.height, 1015);
+    assert.equal(stored.rotation, 90);
+    assert.equal(stored.locked, 1);
+  });
 });

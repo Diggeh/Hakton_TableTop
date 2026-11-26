@@ -69,6 +69,7 @@ export default function Board({
   const selectedIds = useCanvas((s) => s.selectedIds);
   const draggingIds = useCanvas((s) => s.draggingIds);
   const draggingRotations = useCanvas((s) => s.draggingRotations);
+  const draggingTransforms = useCanvas((s) => s.draggingTransforms);
   const fogTool = useCanvas((s) => s.fogTool);
   const playerVisionPreview = useCanvas((s) => s.playerVisionPreview);
 
@@ -223,6 +224,13 @@ export default function Board({
     );
   }
 
+  async function handleToggleSingleLock(token) {
+    if (!token) return;
+    const next = !token.locked;
+    sessionStore.getState().upsertToken({ ...token, locked: next });
+    await updateToken(token.id, { locked: next });
+  }
+
   async function handleRenameSubmit(e) {
     e.preventDefault();
     if (!singleSelectedToken) return;
@@ -232,57 +240,94 @@ export default function Board({
     setRenamingTokenId(null);
   }
 
-  function handleSelectScene(newSceneName) {
+  async function handleSelectScene(newSceneName, assetHint = null) {
     if (!newSceneName) return;
     const currentSceneName = scene || map?.name || 'Active Scene';
+    const nextKey = String(newSceneName).trim().toLowerCase();
+    const currKey = String(currentSceneName).trim().toLowerCase();
+    if (nextKey === currKey) return;
+
+    canvasStore.getState().clearSelection();
     sessionStore.getState().saveSceneSnapshot(currentSceneName);
     sessionStore.getState().loadSceneAssets(newSceneName);
 
-    const key = String(newSceneName).trim().toLowerCase();
-    const saved = sessionStore.getState().sceneAssets?.[key];
+    const saved = sessionStore.getState().sceneAssets?.[nextKey];
 
-    if (!saved?.map || !saved.map.imageUrl) {
+    if (!saved) {
       const storeAssets = assetStore.getState().assets;
-      const matchingAsset = storeAssets.find(
-        (a) =>
-          a.name.toLowerCase() === newSceneName.toLowerCase() &&
-          ((a.category || '').toLowerCase() === 'scenes' ||
-            (a.category || '').toLowerCase() === 'maps' ||
-            a.type === 'map'),
-      );
+      const matchingAsset =
+        (assetHint?.id ? storeAssets.find((a) => a.id === assetHint.id) : null) ||
+        storeAssets.find(
+          (a) =>
+            (a.category || '').toLowerCase() === 'scenes' &&
+            (a.name || '').toLowerCase() === nextKey,
+        ) ||
+        null;
       const resolvedUrl =
+        assetHint?.url ||
         matchingAsset?.url ||
         (matchingAsset?.id
           ? `/assets/${encodeURIComponent(matchingAsset.id)}/file`
           : null);
 
-      if (saved?.map) {
-        if (resolvedUrl) {
-          sessionStore.getState().setMap({
-            ...saved.map,
-            imageUrl: resolvedUrl,
-            width: matchingAsset.width || saved.map.width || 1400,
-            height: matchingAsset.height || saved.map.height || 980,
-          });
-          sessionStore.getState().setSelectedMapAsset(matchingAsset);
+      const currentMap = sessionStore.getState().map || {
+        id: 1,
+        width: 1400,
+        height: 980,
+        gridSize: 70,
+      };
+      const sceneWidth = currentMap.width || 1400;
+      const sceneHeight = currentMap.height || 980;
+      sessionStore.getState().setMap({
+        ...currentMap,
+        name: newSceneName,
+        imageUrl: null,
+        width: sceneWidth,
+        height: sceneHeight,
+      });
+      sessionStore.getState().setSelectedMapAsset(null);
+
+      // Imported scene images are spawned once inside that scene as movable/resizable/rotatable/lockable map objects
+      if (resolvedUrl) {
+        let placedW = Number(assetHint?.width || matchingAsset?.width) || 1000;
+        let placedH = Number(assetHint?.height || matchingAsset?.height) || 700;
+        const alignScale =
+          Number(assetHint?.metadata?.scale || matchingAsset?.metadata?.scale) || 100;
+        placedW = Math.round(placedW * (alignScale / 100));
+        placedH = Math.round(placedH * (alignScale / 100));
+        const maxW = sceneWidth * 0.95;
+        const maxH = sceneHeight * 0.95;
+        if (placedW > maxW || placedH > maxH) {
+          const ratio = Math.min(maxW / placedW, maxH / placedH);
+          placedW = Math.round(placedW * ratio);
+          placedH = Math.round(placedH * ratio);
         }
-      } else {
-        const currentMap = sessionStore.getState().map || {
-          id: 1,
-          width: 1400,
-          height: 980,
-          gridSize: 70,
+
+        const sceneTokenPayload = {
+          label: newSceneName,
+          x: Math.round(sceneWidth / 2),
+          y: Math.round(sceneHeight / 2),
+          color: '#8fd2c5',
+          isMap: true,
+          imageUrl: resolvedUrl,
+          width: placedW,
+          height: placedH,
+          rotation: 0,
         };
-        sessionStore.getState().setMap({
-          ...currentMap,
-          name: newSceneName,
-          imageUrl: resolvedUrl || null,
-          width: matchingAsset?.width || currentMap.width || 1400,
-          height: matchingAsset?.height || currentMap.height || 980,
-        });
-        sessionStore.getState().setSelectedMapAsset(matchingAsset || null);
+        const res = await createToken(sceneTokenPayload);
+        if (!res?.ok || !res?.token) {
+          sessionStore.getState().upsertToken({
+            ...sceneTokenPayload,
+            id: `tok_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            mapId: currentMap.id ?? 1,
+            locked: false,
+          });
+        }
       }
+
+      sessionStore.getState().saveSceneSnapshot(newSceneName);
     }
+
     onSelectScene?.(newSceneName);
   }
 
@@ -319,7 +364,7 @@ export default function Board({
 
     const category = payload.category || assetTrayCategory || 'Characters';
     if (category === 'Scenes') {
-      handleSelectScene(payload.name);
+      await handleSelectScene(payload.name, payload);
       return;
     }
 
@@ -459,7 +504,9 @@ export default function Board({
   // Compute screen coordinates for the single-selected token's floating popup bar & non-obstructing Light menu
   const grid = map?.gridSize || 70;
   const isSelectedTokenDragging = Boolean(
-    singleSelectedToken && draggingIds.includes(singleSelectedToken.id),
+    singleSelectedToken &&
+      (draggingIds.includes(singleSelectedToken.id) ||
+        draggingTransforms[singleSelectedToken.id]),
   );
   const tokenScreenPos = singleSelectedToken
     ? mapToScreen(viewport, {
@@ -468,14 +515,15 @@ export default function Board({
       })
     : null;
   const tokenRadiusPx = Math.max(8, grid / 2 - 4) * viewport.scale;
-  const popupLeft = tokenScreenPos
-    ? Math.max(80, Math.min(size.width - 80, tokenScreenPos.x))
+
+  const effectiveDirection = singleSelectedToken
+    ? draggingRotations[singleSelectedToken.id] ??
+      singleSelectedToken.rotation ??
+      singleSelectedToken.light?.rotation ??
+      0
     : 0;
-  const popupTop = tokenScreenPos
-    ? singleSelectedToken?.isMap
-      ? Math.max(64, Math.min(size.height - 64, tokenScreenPos.y))
-      : Math.max(54, Math.min(size.height - 54, tokenScreenPos.y + tokenRadiusPx + 10))
-    : 0;
+  const normalizedDirection =
+    ((Math.round(Number(effectiveDirection) || 0) % 360) + 360) % 360;
 
   const MENU_W = 256;
   const MENU_H = 310;
@@ -491,14 +539,39 @@ export default function Board({
   const lightMenuTop = tokenScreenPos
     ? Math.max(16, Math.min(Math.max(16, size.height - MENU_H - 16), tokenScreenPos.y - 72))
     : 0;
-  const effectiveDirection = singleSelectedToken
-    ? draggingRotations[singleSelectedToken.id] ??
-      singleSelectedToken.rotation ??
-      singleSelectedToken.light?.rotation ??
-      0
+
+  // Position popup bar cleanly away from 12 o'clock rotate icon AND away from downward (6 o'clock) vision cones
+  const isPointingDown =
+    Boolean(singleSelectedToken && !singleSelectedToken.isMap) &&
+    normalizedDirection >= 45 &&
+    normalizedDirection <= 135;
+  let popupPlacementClass = '';
+  let popupLeft = tokenScreenPos
+    ? Math.max(96, Math.min(size.width - 96, tokenScreenPos.x))
     : 0;
-  const normalizedDirection =
-    ((Math.round(Number(effectiveDirection) || 0) % 360) + 360) % 360;
+  let popupTop = 0;
+  if (tokenScreenPos && singleSelectedToken) {
+    if (singleSelectedToken.isMap) {
+      const mapHalfHPx = ((singleSelectedToken.height || 600) * viewport.scale) / 2;
+      popupTop = Math.max(
+        64,
+        Math.min(size.height - 88, tokenScreenPos.y + mapHalfHPx + 14),
+      );
+    } else if (isPointingDown) {
+      const sideGap = Math.max(tokenRadiusPx + 18, 42);
+      const placeLeft = lightMenuFitsRight && tokenScreenPos.x > 190;
+      popupPlacementClass = placeLeft ? 'side-left' : 'side-right';
+      popupLeft = placeLeft
+        ? Math.max(168, tokenScreenPos.x - sideGap)
+        : Math.min(size.width - 180, tokenScreenPos.x + sideGap);
+      popupTop = Math.max(54, Math.min(size.height - 56, tokenScreenPos.y));
+    } else {
+      popupTop = Math.max(
+        54,
+        Math.min(size.height - 56, tokenScreenPos.y + tokenRadiusPx + 14),
+      );
+    }
+  }
 
   return (
     <section className="board" aria-label="Tabletop canvas">
@@ -581,10 +654,10 @@ export default function Board({
           onRollLifecycleEnd={() => sessionStore.getState().clearActiveRoll()}
         />
 
-        {/* Single-Clicked Token Property Popup Bar (Rename & Light Controls) */}
+        {/* Single-Clicked Token Property Popup Bar (Rename, Light & Lock Controls) */}
         {singleSelectedToken && tokenScreenPos && !isSelectedTokenDragging && (
           <div
-            className="token-popup-bar"
+            className={`token-popup-bar${popupPlacementClass ? ` ${popupPlacementClass}` : ''}`}
             style={{
               left: `${popupLeft}px`,
               top: `${popupTop}px`,
@@ -661,6 +734,36 @@ export default function Board({
                       </IconButton>
                     )}
                   </>
+                )}
+
+                {isDM && (
+                  <IconButton
+                    label={
+                      singleSelectedToken.locked
+                        ? `Unlock ${singleSelectedToken.label}`
+                        : `Lock ${singleSelectedToken.label}`
+                    }
+                    title={
+                      singleSelectedToken.locked
+                        ? 'Unlock position, resize & rotation'
+                        : 'Lock in place'
+                    }
+                    aria-pressed={Boolean(singleSelectedToken.locked)}
+                    className={singleSelectedToken.locked ? 'active-lock-btn' : ''}
+                    onClick={() => handleToggleSingleLock(singleSelectedToken)}
+                  >
+                    <ToolIcon name={singleSelectedToken.locked ? 'unlock' : 'lock'} />
+                  </IconButton>
+                )}
+
+                {isDM && singleSelectedToken.isMap && (
+                  <IconButton
+                    label={`Remove ${singleSelectedToken.label}`}
+                    title="Remove placed map/scene image"
+                    onClick={handleDeleteSelected}
+                  >
+                    <ToolIcon name="trash" />
+                  </IconButton>
                 )}
               </>
             )}

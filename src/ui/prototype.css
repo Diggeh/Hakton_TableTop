@@ -1031,6 +1031,10 @@
   background: #28494f;
   border-color: #76b9ae;
 }
+.hakton-app .asset-item.active-scene:not(.selected) {
+  border-color: rgba(134, 201, 189, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(173, 252, 249, 0.2);
+}
 .asset-item small {
   color: #c1efe2;
   background: #284b4e;
@@ -2766,6 +2770,14 @@
   pointer-events: auto;
 }
 
+.token-popup-bar.side-left {
+  transform: translate(-100%, -50%);
+}
+
+.token-popup-bar.side-right {
+  transform: translate(0, -50%);
+}
+
 .hakton-app .token-popup-btn {
   display: inline-flex;
   align-items: center;
@@ -2842,6 +2854,12 @@
 .hakton-app .token-popup-bar .icon-button.active-light-btn svg {
   stroke: #ffd57a;
   fill: rgba(255, 215, 120, 0.35);
+}
+
+.hakton-app .token-popup-bar .icon-button.active-lock-btn {
+  background: rgba(219, 150, 133, 0.25);
+  border-color: #db9685;
+  color: #ffd0c4;
 }
 
 /* Light Settings Popover Menu */

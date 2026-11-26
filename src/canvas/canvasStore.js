@@ -30,6 +30,7 @@ export const canvasStore = createStore((set, get) => {
     draggingIds: [],
     draggingPositions: {},
     draggingRotations: {},
+    draggingTransforms: {},
 
     // Fog of War & Dynamic Vision state (starts empty — never auto-placed on maps)
     fogTool: null, // 'rect' | 'circle' | 'polygon' | 'line' | 'wall' | 'door' | 'erase' | null
@@ -206,6 +207,21 @@ export const canvasStore = createStore((set, get) => {
       }),
 
     clearDraggingRotations: () => set({ draggingRotations: {} }),
+
+    setDraggingTransform: (id, transform) =>
+      set((state) => ({
+        draggingTransforms: { ...state.draggingTransforms, [id]: transform },
+      })),
+
+    clearDraggingTransform: (id) =>
+      set((state) => {
+        if (!(id in state.draggingTransforms)) return state;
+        const next = { ...state.draggingTransforms };
+        delete next[id];
+        return { draggingTransforms: next };
+      }),
+
+    clearDraggingTransforms: () => set({ draggingTransforms: {} }),
   };
 });
 

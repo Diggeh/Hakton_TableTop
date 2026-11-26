@@ -38,9 +38,10 @@ test('sessionStore scene asset memory isolates and restores tokens, fog, and map
   // Load "Greyhaven Docks" (new scene with no previous assets)
   sessionStore.getState().loadSceneAssets('Greyhaven Docks')
 
-  // Verify Scene 2 starts with a clean canvas (tokens from Scene 1 do not bleed into Scene 2)
+  // Verify Scene 2 starts with a clean canvas and clears stale selectedMapAsset
   assert.deepEqual(sessionStore.getState().tokens, {})
   assert.deepEqual(canvasStore.getState().fogShapes, [])
+  assert.equal(sessionStore.getState().selectedMapAsset, null)
 
   // 3. On "Greyhaven Docks": Set docks map layout and add a guard token
   sessionStore.getState().setMap({
@@ -161,4 +162,13 @@ test('sessionStore preserves token light properties and map tile tokens across n
   assert.equal(restored['char-scout'].light.type, 'vision')
   assert.equal(restored['map-tile-1'].isMap, true)
   assert.equal(restored['map-tile-1'].imageUrl, 'crypt-room.png')
+
+  // Editing restored tokens does not mutate the saved snapshot when switching away and back
+  sessionStore.getState().upsertToken({
+    ...restored['map-tile-1'],
+    rotation: 90,
+  })
+  sessionStore.getState().loadSceneAssets('Tavern')
+  sessionStore.getState().loadSceneAssets('Crypt Encounter')
+  assert.equal(sessionStore.getState().tokens['map-tile-1'].rotation, 0)
 })

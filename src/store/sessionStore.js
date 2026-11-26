@@ -317,13 +317,35 @@ export const sessionStore = createStore((set) => ({
       const currentWalls = overrides.walls ?? canvasStore.getState().walls;
       const currentMap = overrides.map ?? state.map;
       const currentSelectedMapAsset = overrides.selectedMapAsset ?? state.selectedMapAsset;
+      const clonedTokens = currentTokens
+        ? Object.fromEntries(
+            Object.entries(currentTokens).map(([id, tok]) => [
+              id,
+              {
+                ...tok,
+                light: tok?.light ? { ...tok.light } : null,
+              },
+            ]),
+          )
+        : {};
       return {
         sceneAssets: {
           ...state.sceneAssets,
           [key]: {
-            tokens: currentTokens ? { ...currentTokens } : {},
-            fogShapes: Array.isArray(currentFog) ? [...currentFog] : [],
-            walls: Array.isArray(currentWalls) ? [...currentWalls] : [],
+            tokens: clonedTokens,
+            fogShapes: Array.isArray(currentFog)
+              ? currentFog.map((s) => ({
+                  ...s,
+                  ...(Array.isArray(s.points) ? { points: [...s.points] } : {}),
+                }))
+              : [],
+            walls: Array.isArray(currentWalls)
+              ? currentWalls.map((w) => ({
+                  ...w,
+                  p1: w.p1 ? { ...w.p1 } : w.p1,
+                  p2: w.p2 ? { ...w.p2 } : w.p2,
+                }))
+              : [],
             map: currentMap ? { ...currentMap } : null,
             selectedMapAsset: currentSelectedMapAsset ? { ...currentSelectedMapAsset } : null,
           },
@@ -337,18 +359,40 @@ export const sessionStore = createStore((set) => ({
     const state = sessionStore.getState();
     const saved = state.sceneAssets[key];
     if (saved) {
+      const clonedTokens = saved.tokens
+        ? Object.fromEntries(
+            Object.entries(saved.tokens).map(([id, tok]) => [
+              id,
+              {
+                ...tok,
+                light: tok?.light ? { ...tok.light } : null,
+              },
+            ]),
+          )
+        : {};
       set({
-        tokens: saved.tokens ? { ...saved.tokens } : {},
+        tokens: clonedTokens,
         map: saved.map ? { ...saved.map } : state.map,
         selectedMapAsset: saved.selectedMapAsset ? { ...saved.selectedMapAsset } : null,
       });
       canvasStore.getState().setFogState({
-        fogShapes: saved.fogShapes ? [...saved.fogShapes] : [],
-        walls: saved.walls ? [...saved.walls] : [],
+        fogShapes: Array.isArray(saved.fogShapes)
+          ? saved.fogShapes.map((s) => ({
+              ...s,
+              ...(Array.isArray(s.points) ? { points: [...s.points] } : {}),
+            }))
+          : [],
+        walls: Array.isArray(saved.walls)
+          ? saved.walls.map((w) => ({
+              ...w,
+              p1: w.p1 ? { ...w.p1 } : w.p1,
+              p2: w.p2 ? { ...w.p2 } : w.p2,
+            }))
+          : [],
       });
     } else {
-      // Clean slate for newly activated scene
-      set({ tokens: {} });
+      // Clean slate for newly activated scene (clear stale selectedMapAsset too)
+      set({ tokens: {}, selectedMapAsset: null });
       canvasStore.getState().clearFog();
     }
   },

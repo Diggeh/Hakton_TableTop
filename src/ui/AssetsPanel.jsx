@@ -389,7 +389,9 @@ export default function AssetsPanel({
             const asset = entry.name;
             return (
               <div
-                className={`asset-item ${selected === asset || (activeTab === 'Scenes' && scene === asset) ? 'selected' : ''}`}
+                className={`asset-item ${selected === asset ? 'selected' : ''} ${
+                  activeTab === 'Scenes' && scene === asset ? 'active-scene' : ''
+                }`}
                 key={entry.id || asset}
                 role="button"
                 tabIndex={0}
@@ -410,8 +412,7 @@ export default function AssetsPanel({
                 }}
                 onClick={() => setSelected(asset)}
                 onDoubleClick={() => {
-                  if (activeTab === 'Scenes') onScene(asset);
-                  else onInspect(asset, activeTab);
+                  if (activeTab !== 'Scenes') onInspect(asset, activeTab);
                 }}
               >
                 <button
@@ -491,17 +492,21 @@ export default function AssetsPanel({
           )}
         </div>
         <div className="asset-bottom">
-          <span>{selected || ''}</span>
-          <button
-            disabled={!selected}
-            onClick={() =>
-              activeTab === 'Scenes'
-                ? onScene(selected)
-                : onInspect(selected, activeTab)
-            }
-          >
-            {activeTab === 'Scenes' ? 'Open scene' : 'Inspect'}
-          </button>
+          <span>
+            {activeTab === 'Scenes'
+              ? selected
+                ? `Drag "${selected}" onto the canvas to switch scenes`
+                : 'Drag a scene onto the canvas to switch'
+              : selected || ''}
+          </span>
+          {activeTab !== 'Scenes' && (
+            <button
+              disabled={!selected}
+              onClick={() => onInspect(selected, activeTab)}
+            >
+              Inspect
+            </button>
+          )}
         </div>
       </div>
 

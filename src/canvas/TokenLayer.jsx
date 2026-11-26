@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from 'react-konva';
+import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Text } from 'react-konva';
 import { sessionStore, useSession } from '../store/sessionStore.js';
 import { canvasStore, useCanvas } from './canvasStore.js';
 import { emitTokenMove, resolveAssetUrl, updateToken } from '../net/socket.js';
@@ -8,19 +8,71 @@ import { getAllCollisionWalls, resolveTokenMoveWithWalls } from './fogVision.js'
 import { useCanvasImage } from './useCanvasImage.js';
 
 const DEFAULT_COLOR = '#adfcf9';
+const MIN_MAP_SIZE = 80;
+
+function RotateHandleBadge({ x, y, onStartRotate, onCursor }) {
+  return (
+    <Group x={x} y={y}>
+      <Circle
+        radius={10}
+        hitStrokeWidth={12}
+        fill="#102533"
+        stroke="#ffd57a"
+        strokeWidth={1.8}
+        strokeScaleEnabled={false}
+        shadowColor="#020a12"
+        shadowBlur={6}
+        shadowOpacity={0.5}
+        onMouseDown={onStartRotate}
+        onTouchStart={onStartRotate}
+        onMouseEnter={(e) => {
+          e.cancelBubble = true;
+          onCursor?.('grab');
+        }}
+        onMouseLeave={(e) => {
+          e.cancelBubble = true;
+          onCursor?.('default');
+        }}
+      />
+      <Path
+        data="M 4.2 -1.2 A 4.5 4.5 0 1 0 3.2 3.2 M 4.5 -4.2 L 4.5 -0.8 L 1.2 -0.8"
+        stroke="#ffd57a"
+        strokeWidth={1.5}
+        strokeScaleEnabled={false}
+        lineCap="round"
+        lineJoin="round"
+        listening={false}
+      />
+    </Group>
+  );
+}
+
+const RESIZE_HANDLES = [
+  { id: 'nw', hx: -1, hy: -1, cursor: 'nwse-resize' },
+  { id: 'n', hx: 0, hy: -1, cursor: 'ns-resize' },
+  { id: 'ne', hx: 1, hy: -1, cursor: 'nesw-resize' },
+  { id: 'e', hx: 1, hy: 0, cursor: 'ew-resize' },
+  { id: 'se', hx: 1, hy: 1, cursor: 'nwse-resize' },
+  { id: 's', hx: 0, hy: 1, cursor: 'ns-resize' },
+  { id: 'sw', hx: -1, hy: 1, cursor: 'nesw-resize' },
+  { id: 'w', hx: -1, hy: 0, cursor: 'ew-resize' },
+];
 
 const TokenNode = memo(function TokenNode({
   token,
   grid,
   selected,
   draggable,
+  canTransform,
   panMode,
   liveRotation,
+  liveTransform,
   onSelect,
   onDragStart,
   onDragMove,
   onDragEnd,
   onRotateCommit,
+  onResizeCommit,
   onCursor,
   registerNode,
 }) {
@@ -30,12 +82,17 @@ const TokenNode = memo(function TokenNode({
   const lastValidPosRef = useRef({ x: token.x, y: token.y });
   const nodeRef = useRef(null);
   const rotateCleanupRef = useRef(null);
+  const resizeCleanupRef = useRef(null);
 
   useEffect(() => {
     return () => {
       if (rotateCleanupRef.current) {
         rotateCleanupRef.current();
         rotateCleanupRef.current = null;
+      }
+      if (resizeCleanupRef.current) {
+        resizeCleanupRef.current();
+        resizeCleanupRef.current = null;
       }
     };
   }, []);
@@ -55,10 +112,10 @@ const TokenNode = memo(function TokenNode({
   const radius = Math.max(8, grid / 2 - 4);
   const fontSize = Math.max(9, Math.round(grid * 0.2));
   const fill = token.color || DEFAULT_COLOR;
-  const displayX = dragging ? startRef.current.x : token.x;
-  const displayY = dragging ? startRef.current.y : token.y;
-  const mapW = token.width || image?.naturalWidth || 800;
-  const mapH = token.height || image?.naturalHeight || 600;
+  const displayX = liveTransform ? liveTransform.x : dragging ? startRef.current.x : token.x;
+  const displayY = liveTransform ? liveTransform.y : dragging ? startRef.current.y : token.y;
+  const mapW = liveTransform?.width ?? (token.width || image?.naturalWidth || 800);
+  const mapH = liveTransform?.height ?? (token.height || image?.naturalHeight || 600);
   const displayRotation =
     liveRotation !== undefined
       ? liveRotation
@@ -155,6 +212,118 @@ const TokenNode = memo(function TokenNode({
     [displayRotation, onCursor, onRotateCommit, token.id],
   );
 
+  const startResizeDrag = useCallback(
+    (hx, hy, cursorName, event) => {
+      event.cancelBubble = true;
+      event.evt?.preventDefault?.();
+      event.evt?.stopPropagation?.();
+
+      const node = nodeRef.current;
+      const stage = node?.getStage();
+      const container = stage?.container();
+      if (!container) return;
+
+      if (resizeCleanupRef.current) {
+        resizeCleanupRef.current();
+        resizeCleanupRef.current = null;
+      }
+
+      const startCenter = { x: node.x(), y: node.y() };
+      const startW = mapW;
+      const startH = mapH;
+      const theta = (displayRotation * Math.PI) / 180;
+      const ux = Math.cos(theta);
+      const uy = Math.sin(theta);
+      const vx = -Math.sin(theta);
+      const vy = Math.cos(theta);
+
+      // Anchor opposite corner/edge in world coordinates so the far side stays pinned
+      const anchorX =
+        startCenter.x -
+        (hx !== 0 ? hx * (startW / 2) * ux : 0) -
+        (hy !== 0 ? hy * (startH / 2) * vx : 0);
+      const anchorY =
+        startCenter.y -
+        (hx !== 0 ? hx * (startW / 2) * uy : 0) -
+        (hy !== 0 ? hy * (startH / 2) * vy : 0);
+
+      let latestTransform = {
+        x: startCenter.x,
+        y: startCenter.y,
+        width: startW,
+        height: startH,
+      };
+      onCursor?.(cursorName || 'nwse-resize');
+
+      const onMove = (ev) => {
+        const rect = container.getBoundingClientRect();
+        const mapPt = screenToMap(canvasStore.getState().viewport, {
+          x: ev.clientX - rect.left,
+          y: ev.clientY - rect.top,
+        });
+        const dx = mapPt.x - anchorX;
+        const dy = mapPt.y - anchorY;
+        const projU = dx * ux + dy * uy;
+        const projV = dx * vx + dy * vy;
+
+        let nextW = startW;
+        let nextH = startH;
+
+        if (hx !== 0 && hy !== 0) {
+          const rawW = Math.max(MIN_MAP_SIZE, hx * projU);
+          const rawH = Math.max(MIN_MAP_SIZE, hy * projV);
+          if (ev.shiftKey) {
+            nextW = Math.round(rawW);
+            nextH = Math.round(rawH);
+          } else {
+            const minScale = Math.max(MIN_MAP_SIZE / startW, MIN_MAP_SIZE / startH);
+            const scale = Math.max(minScale, Math.max(rawW / startW, rawH / startH));
+            nextW = Math.round(startW * scale);
+            nextH = Math.round(startH * scale);
+          }
+        } else if (hx !== 0) {
+          nextW = Math.max(MIN_MAP_SIZE, Math.round(hx * projU));
+        } else if (hy !== 0) {
+          nextH = Math.max(MIN_MAP_SIZE, Math.round(hy * projV));
+        }
+
+        const nextX = Math.round(
+          anchorX +
+            (hx !== 0 ? hx * (nextW / 2) * ux : 0) +
+            (hy !== 0 ? hy * (nextH / 2) * vx : 0),
+        );
+        const nextY = Math.round(
+          anchorY +
+            (hx !== 0 ? hx * (nextW / 2) * uy : 0) +
+            (hy !== 0 ? hy * (nextH / 2) * vy : 0),
+        );
+
+        latestTransform = { x: nextX, y: nextY, width: nextW, height: nextH };
+        canvasStore.getState().setDraggingTransform(token.id, latestTransform);
+      };
+
+      const cleanup = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        resizeCleanupRef.current = null;
+      };
+
+      const onUp = () => {
+        cleanup();
+        onCursor?.('default');
+        canvasStore.getState().clearDraggingTransform(token.id);
+        onResizeCommit?.(token.id, latestTransform);
+      };
+
+      resizeCleanupRef.current = cleanup;
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    },
+    [displayRotation, mapH, mapW, onCursor, onResizeCommit, token.id],
+  );
+
   return (
     <Group
       ref={setRef}
@@ -198,14 +367,14 @@ const TokenNode = memo(function TokenNode({
       }}
     >
       {token.isMap ? (
-        <>
+        <Group rotation={displayRotation}>
           {selected && (
             <Rect
               x={-mapW / 2 - 4}
               y={-mapH / 2 - 4}
               width={mapW + 8}
               height={mapH + 8}
-              stroke="#adfcf9"
+              stroke={token.locked ? '#db9685' : '#adfcf9'}
               strokeWidth={2}
               strokeScaleEnabled={false}
               dash={[8, 6]}
@@ -251,7 +420,78 @@ const TokenNode = memo(function TokenNode({
               />
             </Group>
           )}
-        </>
+          {selected && token.locked && (
+            <Group x={-mapW / 2 + 10} y={-mapH / 2 + 10} listening={false}>
+              <Rect
+                width={74}
+                height={22}
+                fill="rgba(11, 24, 32, 0.88)"
+                stroke="#db9685"
+                strokeWidth={1.5}
+                cornerRadius={6}
+              />
+              <Text
+                text="Locked"
+                x={0}
+                y={4}
+                width={74}
+                align="center"
+                fontSize={11}
+                fontStyle="bold"
+                fill="#ffd0c4"
+              />
+            </Group>
+          )}
+          {selected && canTransform && !panMode && (
+            <>
+              <Line
+                points={[0, -mapH / 2 - 4, 0, -mapH / 2 - 18]}
+                stroke="#adfcf9"
+                strokeWidth={2}
+                strokeScaleEnabled={false}
+                listening={false}
+              />
+              <RotateHandleBadge
+                x={0}
+                y={-mapH / 2 - 28}
+                onStartRotate={startRotateDrag}
+                onCursor={onCursor}
+              />
+              {RESIZE_HANDLES.map((h) => {
+                const isCorner = h.hx !== 0 && h.hy !== 0;
+                const hw = isCorner ? 12 : h.hy !== 0 ? 18 : 8;
+                const hh = isCorner ? 12 : h.hx !== 0 ? 18 : 8;
+                return (
+                  <Rect
+                    key={h.id}
+                    x={(h.hx * mapW) / 2}
+                    y={(h.hy * mapH) / 2}
+                    width={hw}
+                    height={hh}
+                    offsetX={hw / 2}
+                    offsetY={hh / 2}
+                    hitStrokeWidth={12}
+                    fill={isCorner ? '#adfcf9' : '#e7fbfa'}
+                    stroke="#081824"
+                    strokeWidth={1.8}
+                    strokeScaleEnabled={false}
+                    cornerRadius={isCorner ? 2 : 3}
+                    onMouseDown={(e) => startResizeDrag(h.hx, h.hy, h.cursor, e)}
+                    onTouchStart={(e) => startResizeDrag(h.hx, h.hy, h.cursor, e)}
+                    onMouseEnter={(e) => {
+                      e.cancelBubble = true;
+                      onCursor?.(h.cursor);
+                    }}
+                    onMouseLeave={(e) => {
+                      e.cancelBubble = true;
+                      onCursor?.('default');
+                    }}
+                  />
+                );
+              })}
+            </>
+          )}
+        </Group>
       ) : (
         <>
           {selected && (
@@ -287,36 +527,13 @@ const TokenNode = memo(function TokenNode({
               strokeScaleEnabled={false}
             />
           </Group>
-          {selected && draggable && !panMode && (
-            <Group rotation={displayRotation}>
-              <Line
-                points={[radius + 6, 0, radius + 21, 0]}
-                stroke="#adfcf9"
-                strokeWidth={2}
-                strokeScaleEnabled={false}
-                listening={false}
-              />
-              <Circle
-                x={radius + 26}
-                y={0}
-                radius={7}
-                hitStrokeWidth={12}
-                fill="#ffd57a"
-                stroke="#081824"
-                strokeWidth={2}
-                strokeScaleEnabled={false}
-                onMouseDown={startRotateDrag}
-                onTouchStart={startRotateDrag}
-                onMouseEnter={(e) => {
-                  e.cancelBubble = true;
-                  onCursor?.('grab');
-                }}
-                onMouseLeave={(e) => {
-                  e.cancelBubble = true;
-                  onCursor?.('default');
-                }}
-              />
-            </Group>
+          {selected && canTransform && !panMode && (
+            <RotateHandleBadge
+              x={0}
+              y={-(radius + 22)}
+              onStartRotate={startRotateDrag}
+              onCursor={onCursor}
+            />
           )}
           <Text
             text={token.label}
@@ -354,6 +571,7 @@ export default function TokenLayer({
   const selectedIds = useCanvas((state) => state.selectedIds);
   const snapEnabled = useCanvas((state) => state.snap);
   const draggingRotations = useCanvas((state) => state.draggingRotations);
+  const draggingTransforms = useCanvas((state) => state.draggingTransforms);
 
   const grid = gridSize > 0 ? gridSize : 70;
   const isDM =
@@ -505,6 +723,18 @@ export default function TokenLayer({
     updateToken(id, patch);
   }, []);
 
+  const handleResizeCommit = useCallback((id, next) => {
+    const latest = sessionStore.getState().tokens[id];
+    if (!latest || !next) return;
+    const x = Math.round(Number(next.x) || 0);
+    const y = Math.round(Number(next.y) || 0);
+    const width = Math.max(MIN_MAP_SIZE, Math.round(Number(next.width) || 0));
+    const height = Math.max(MIN_MAP_SIZE, Math.round(Number(next.height) || 0));
+    sessionStore.getState().upsertToken({ ...latest, x, y, width, height });
+    emitTokenMove(id, x, y);
+    updateToken(id, { width, height });
+  }, []);
+
   const visibleTokens = Object.values(tokensMap)
     .filter((token) => {
       if (filter === 'maps') return Boolean(token.isMap);
@@ -516,11 +746,11 @@ export default function TokenLayer({
   return (
     <>
       {visibleTokens.map((token) => {
-        const canDrag =
+        const canEdit =
           !panMode &&
-          (isDM ||
-            (!token.locked &&
-              (!token.ownerId || token.ownerId === currentUser?.id)));
+          (isDM || !token.ownerId || token.ownerId === currentUser?.id);
+        const canDrag = canEdit && !token.locked;
+        const canTransform = canEdit && !token.locked && (token.isMap ? isDM : true);
 
         return (
           <TokenNode
@@ -529,13 +759,16 @@ export default function TokenLayer({
             grid={grid}
             selected={selectedIds.includes(token.id)}
             draggable={canDrag}
+            canTransform={canTransform}
             panMode={panMode}
             liveRotation={draggingRotations[token.id]}
+            liveTransform={draggingTransforms[token.id]}
             onSelect={handleSelect}
             onDragStart={handleDragStart}
             onDragMove={handleDragMove}
             onDragEnd={handleDragEnd}
             onRotateCommit={handleRotateCommit}
+            onResizeCommit={handleResizeCommit}
             onCursor={onCursor}
             registerNode={registerNode}
           />
