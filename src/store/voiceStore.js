@@ -16,9 +16,15 @@ const MAX_LOG_ENTRIES = 300;
 const initialMesh = () => ({
   status: VOICE_STATUS.DISCONNECTED,
   error: null,
+  notice: null,
   peerId: null,
   localStreamActive: false,
-  /** peerId -> { peerId, playerId, displayName, direction, connectionState, iceConnectionState, streamActive, connectedAt } */
+  localStream: null,
+  localAudioMuted: false,
+  localDeafened: false,
+  localVideoEnabled: false,
+  listenOnly: false,
+  /** peerId -> { peerId, playerId, displayName, direction, connectionState, iceConnectionState, streamActive, hasVideo, stream, connectedAt } */
   peers: {},
   /** Authoritative `session:peers` roster from the host (includes this client). */
   roster: [],
@@ -36,8 +42,14 @@ export const createVoiceStore = () =>
   connectionLogs: [],
 
   setStatus: (status, error = null) => set({ status, error }),
+  setNotice: (notice) => set({ notice: notice ?? null }),
   setPeerId: (peerId) => set({ peerId }),
   setLocalStreamActive: (localStreamActive) => set({ localStreamActive }),
+  setLocalStream: (localStream) => set({ localStream: localStream ?? null }),
+  setLocalAudioMuted: (localAudioMuted) => set({ localAudioMuted: Boolean(localAudioMuted) }),
+  setLocalDeafened: (localDeafened) => set({ localDeafened: Boolean(localDeafened) }),
+  setLocalVideoEnabled: (localVideoEnabled) => set({ localVideoEnabled: Boolean(localVideoEnabled) }),
+  setListenOnly: (listenOnly) => set({ listenOnly: Boolean(listenOnly) }),
   setRoster: (roster) => set({ roster: Array.isArray(roster) ? roster : [] }),
 
   upsertPeer: (peerId, patch = {}) =>
@@ -52,6 +64,8 @@ export const createVoiceStore = () =>
           connectionState: 'new',
           iceConnectionState: 'new',
           streamActive: false,
+          hasVideo: false,
+          stream: null,
           connectedAt: null,
           ...state.peers[peerId],
           ...patch,

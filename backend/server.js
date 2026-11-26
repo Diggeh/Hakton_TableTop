@@ -19,7 +19,7 @@ import { createSoundboardLibrary } from './socket/soundboardLibrary.js';
 import { SOUNDBOARD_EVENTS } from '../shared/soundboard.js';
 import { createAutosaveService } from './autosave/service.js';
 import { typeToStorageKind } from './assetService.js';
-import { encodeInternetCode, encodeRoomCode } from '../shared/roomCode.js';
+import { encodeRoomCode, generateInternetCode } from '../shared/roomCode.js';
 
 let activeServer = null;
 let startingPromise = null;
@@ -135,15 +135,34 @@ export function createHttpApp({
   return app;
 }
 
+const VIRTUAL_NIC_RE =
+  /vethernet|wsl|hyper-v|docker|vbox|virtualbox|vmware|loopback|tailscale|zerotier|hamachi|nordlynx|wireguard|tun|tap/i;
+const PHYSICAL_NIC_RE = /wi-?fi|wlan|ethernet|en\d|eth\d/i;
+
+function scoreLanCandidate(ifaceName, address) {
+  let score = 0;
+  if (VIRTUAL_NIC_RE.test(ifaceName)) score -= 100;
+  else if (PHYSICAL_NIC_RE.test(ifaceName)) score += 15;
+
+  if (address.startsWith('169.254.')) score -= 200;
+  else if (address.startsWith('192.168.56.')) score -= 80;
+  else if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(address)) score -= 30;
+  else if (address.startsWith('192.168.')) score += 20;
+  else if (address.startsWith('10.')) score += 10;
+
+  return score;
+}
+
 /**
  * Enumerates non-internal IPv4 LAN addresses on the host machine so players on
  * the same local network know which IP address to connect to.
+ * Physical LAN interfaces are ranked ahead of virtual adapters (WSL/Hyper-V/Docker).
  * @returns {string[]}
  */
 export function getLocalIpAddresses() {
   const interfaces = os.networkInterfaces();
-  const addresses = [];
-  for (const entries of Object.values(interfaces)) {
+  const bestScores = new Map();
+  for (const [ifaceName, entries] of Object.entries(interfaces)) {
     if (!Array.isArray(entries)) continue;
     for (const entry of entries) {
       if (
@@ -152,11 +171,17 @@ export function getLocalIpAddresses() {
         !entry.internal &&
         entry.address
       ) {
-        addresses.push(entry.address);
+        const score = scoreLanCandidate(ifaceName, entry.address);
+        const prev = bestScores.get(entry.address);
+        if (prev === undefined || score > prev) {
+          bestScores.set(entry.address, score);
+        }
       }
     }
   }
-  return Array.from(new Set(addresses));
+  return Array.from(bestScores.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([address]) => address);
 }
 
 /**
@@ -448,7 +473,7 @@ export function startServer({
       const lanUrls = lanIps.map((ip) => `http://${ip}:${boundPort}`);
       const primaryIp = lanIps[0] || '127.0.0.1';
       const roomCode = encodeRoomCode(primaryIp, boundPort);
-      const internetCode = encodeInternetCode(`${sessionId}:${primaryIp}:${boundPort}`);
+      const internetCode = generateInternetCode();
 
       let closingPromise = null;
 

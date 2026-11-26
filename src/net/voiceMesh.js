@@ -10,6 +10,36 @@ const DEFAULT_AUDIO_CONSTRAINTS = Object.freeze({
   autoGainControl: true,
 });
 
+export const DEFAULT_VIDEO_CONSTRAINTS = Object.freeze({
+  width: { ideal: 640, max: 854 },
+  height: { ideal: 480, max: 480 },
+  frameRate: { ideal: 20, max: 20 },
+});
+
+export function defaultCreateSilentStream() {
+  try {
+    const AudioCtx = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (AudioCtx) {
+      const ctx = new AudioCtx();
+      const dest = ctx.createMediaStreamDestination();
+      const stream = dest.stream;
+      stream._haktonAudioContext = ctx;
+      return stream;
+    }
+  } catch {
+    // Fall through to empty MediaStream
+  }
+  if (typeof MediaStream === 'function') {
+    return new MediaStream();
+  }
+  return {
+    id: 'silent-listen-only',
+    getTracks: () => [],
+    getAudioTracks: () => [],
+    getVideoTracks: () => [],
+  };
+}
+
 function coded(message, code) {
   return Object.assign(new Error(message), { code });
 }
@@ -75,6 +105,7 @@ export class VoiceMeshManager {
     createPeer,
     peerOptions = {},
     getUserMedia = defaultGetUserMedia,
+    createSilentStream = defaultCreateSilentStream,
     documentRef = globalThis.document ?? null,
     store = voiceStore,
     logger = (line) => console.log(line),
@@ -90,6 +121,7 @@ export class VoiceMeshManager {
     this.createPeer = createPeer;
     this.peerOptions = peerOptions;
     this.getUserMedia = getUserMedia;
+    this.createSilentStream = createSilentStream;
     this.documentRef = documentRef;
     this.store = store;
     this.logger = logger;
@@ -109,6 +141,11 @@ export class VoiceMeshManager {
     this.registered = false;
     this.needsReregister = false;
     this.socketBindings = null;
+    this.listenOnly = false;
+    this.audioMuted = false;
+    this.deafened = false;
+    this.videoEnabled = false;
+    this.preDeafenMuted = false;
   }
 
   // ---------------------------------------------------------------- public API
@@ -152,6 +189,183 @@ export class VoiceMeshManager {
     this.#teardown();
     this.store.getState().resetMesh();
     this.#log('signal', 'left the voice mesh');
+  }
+
+  /** Mutes or unmutes the local microphone track (no-op on unmute in listen-only mode). */
+  setAudioMuted(muted) {
+    if (!this.localStream) return this.audioMuted;
+    if (this.listenOnly) {
+      this.audioMuted = true;
+      this.store.getState().setLocalAudioMuted(true);
+      return true;
+    }
+
+    const next = Boolean(muted);
+    if (!next && this.deafened) {
+      this.deafened = false;
+      for (const audio of this.audioEls.values()) {
+        audio.muted = false;
+      }
+      this.store.getState().setLocalDeafened(false);
+    }
+
+    this.audioMuted = next;
+    for (const track of this.localStream.getAudioTracks?.() ?? []) {
+      track.enabled = !next;
+    }
+    this.store.getState().setLocalAudioMuted(next);
+    this.#log('media', next ? 'microphone muted' : 'microphone unmuted');
+    return next;
+  }
+
+  /**
+   * Discord-style deafen: silences incoming voice peers (never the tabletop Soundboard)
+   * and auto-mutes the local mic, restoring prior mute state on undeafen.
+   */
+  setDeafened(deafened) {
+    const next = Boolean(deafened);
+    if (next === this.deafened) return this.deafened;
+
+    const store = this.store.getState();
+    if (next) {
+      this.preDeafenMuted = this.audioMuted;
+      this.deafened = true;
+      for (const audio of this.audioEls.values()) {
+        audio.muted = true;
+      }
+      this.audioMuted = true;
+      for (const track of this.localStream?.getAudioTracks?.() ?? []) {
+        track.enabled = false;
+      }
+      store.setLocalDeafened(true);
+      store.setLocalAudioMuted(true);
+      this.#log('media', 'deafened voice audio');
+    } else {
+      this.deafened = false;
+      for (const audio of this.audioEls.values()) {
+        audio.muted = false;
+      }
+      store.setLocalDeafened(false);
+
+      const restoredMuted = this.listenOnly ? true : this.preDeafenMuted;
+      this.audioMuted = restoredMuted;
+      for (const track of this.localStream?.getAudioTracks?.() ?? []) {
+        track.enabled = !restoredMuted;
+      }
+      store.setLocalAudioMuted(restoredMuted);
+      this.#log('media', 'undeafened voice audio');
+    }
+    return this.deafened;
+  }
+
+  /**
+   * Toggles the 480p @ 20fps camera track mid-call without dropping active audio.
+   * @param {boolean} enabled
+   * @param {object} [videoConstraints]
+   */
+  async setCameraEnabled(enabled, videoConstraints) {
+    const next = Boolean(enabled);
+    if (!this.peer || !this.localStream) {
+      return { ok: false, enabled: false, error: 'Join the call before enabling camera.' };
+    }
+    if (next === this.videoEnabled) {
+      return { ok: true, enabled: this.videoEnabled };
+    }
+
+    const store = this.store.getState();
+
+    if (next) {
+      let camStream;
+      try {
+        camStream = await this.getUserMedia({
+          audio: false,
+          video: { ...DEFAULT_VIDEO_CONSTRAINTS, ...(videoConstraints ?? {}) },
+        });
+      } catch (err) {
+        const message = err?.message || 'Camera access failed.';
+        this.#log('media', `camera failed: ${message}`, null, 'warn');
+        return { ok: false, enabled: false, error: message };
+      }
+
+      const videoTrack = camStream?.getVideoTracks?.()?.[0];
+      if (!videoTrack) {
+        return { ok: false, enabled: false, error: 'No camera video track available.' };
+      }
+
+      for (const oldTrack of this.localStream.getVideoTracks?.() ?? []) {
+        try {
+          this.localStream.removeTrack?.(oldTrack);
+          oldTrack.stop?.();
+        } catch {
+          // Ignore
+        }
+      }
+      this.localStream.addTrack?.(videoTrack);
+      this.videoEnabled = true;
+      store.setLocalVideoEnabled(true);
+      store.setLocalStream(this.localStream);
+
+      for (const [peerId, rec] of [...this.connections.entries()]) {
+        const senders = rec.call?.peerConnection?.getSenders?.() ?? [];
+        const videoSender = senders.find((s) => s.track?.kind === 'video');
+        if (videoSender?.replaceTrack) {
+          try {
+            await videoSender.replaceTrack(videoTrack);
+            continue;
+          } catch {
+            // Fall back to redial below
+          }
+        }
+        if (typeof this.peer.call === 'function' && this.peer.open !== false) {
+          try {
+            const peerMeta = store.peers[peerId];
+            const call = this.peer.call(peerId, this.localStream, {
+              metadata: {
+                playerId: peerMeta?.playerId ?? null,
+                from: this.peerId,
+                renegotiate: true,
+              },
+            });
+            if (call) {
+              this.#register(call, 'outgoing', {
+                playerId: peerMeta?.playerId ?? null,
+                displayName: peerMeta?.displayName ?? null,
+              });
+            }
+          } catch (err) {
+            this.#log('webrtc', `camera renegotiate failed for ${peerId}: ${err?.message}`, null, 'warn');
+          }
+        }
+      }
+
+      this.#log('media', 'camera enabled (480p @ 20fps)');
+      return { ok: true, enabled: true };
+    }
+
+    for (const track of [...(this.localStream.getVideoTracks?.() ?? [])]) {
+      try {
+        this.localStream.removeTrack?.(track);
+        track.stop?.();
+      } catch {
+        // Ignore
+      }
+    }
+    for (const rec of this.connections.values()) {
+      const senders = rec.call?.peerConnection?.getSenders?.() ?? [];
+      const videoSender = senders.find((s) => s.track?.kind === 'video');
+      if (videoSender?.replaceTrack) {
+        try {
+          await videoSender.replaceTrack(null);
+        } catch {
+          // Ignore
+        }
+      }
+    }
+    this.videoEnabled = false;
+    store.setLocalVideoEnabled(false);
+    store.setLocalStream(this.localStream);
+    this.#log('media', 'camera disabled');
+    return { ok: true, enabled: false };
   }
 
   /** Remote peers with an active MediaStream (what a future UI would list). */
@@ -243,6 +457,7 @@ export class VoiceMeshManager {
       store.setStatus(VOICE_STATUS.ACQUIRING_MEDIA);
       this.#log('media', 'requesting microphone');
       this.localStream = await this.#acquireMicrophone(options.audio);
+      store.setLocalStream(this.localStream);
       store.setLocalStreamActive(true);
       this.#log('media', `microphone ready (${this.localStream.getAudioTracks?.().length ?? '?'} track)`);
 
@@ -280,9 +495,26 @@ export class VoiceMeshManager {
       video: false,
     };
     try {
-      return await this.getUserMedia(constraints);
+      const stream = await this.getUserMedia(constraints);
+      this.listenOnly = false;
+      this.audioMuted = false;
+      this.store.getState().setListenOnly(false);
+      this.store.getState().setLocalAudioMuted(false);
+      this.store.getState().setNotice(null);
+      return stream;
     } catch (err) {
-      throw coded(err?.message || 'Microphone access failed.', micErrorCode(err));
+      const code = micErrorCode(err);
+      if (code === 'E_MIC_NOT_FOUND') {
+        const silentStream = this.createSilentStream();
+        this.listenOnly = true;
+        this.audioMuted = true;
+        this.store.getState().setListenOnly(true);
+        this.store.getState().setLocalAudioMuted(true);
+        this.store.getState().setNotice('No mic detected — listen-only');
+        this.#log('media', 'no microphone detected; joining in listen-only mode', null, 'warn');
+        return silentStream;
+      }
+      throw coded(err?.message || 'Microphone access failed.', code);
     }
   }
 
@@ -553,7 +785,8 @@ export class VoiceMeshManager {
     if (this.connections.get(peerId) !== record) return;
     record.stream = stream;
     this.#watchRtc(peerId, record);
-    this.store.getState().upsertPeer(peerId, { streamActive: true });
+    const hasVideo = (stream?.getVideoTracks?.() ?? []).some((t) => t.readyState !== 'ended');
+    this.store.getState().upsertPeer(peerId, { streamActive: true, hasVideo, stream });
     const audio = this.#attachAudio(peerId, stream);
     this.#log(
       'media',
@@ -617,6 +850,7 @@ export class VoiceMeshManager {
       this.audioEls.set(peerId, audio);
     }
     if (audio.srcObject !== stream) audio.srcObject = stream;
+    audio.muted = Boolean(this.deafened);
     try {
       const playing = audio.play?.();
       playing?.catch?.((err) =>
@@ -656,8 +890,18 @@ export class VoiceMeshManager {
           // Track already ended.
         }
       }
+      try {
+        this.localStream._haktonAudioContext?.close?.();
+      } catch {
+        // Ignore AudioContext close errors.
+      }
       this.localStream = null;
     }
+    this.listenOnly = false;
+    this.audioMuted = false;
+    this.deafened = false;
+    this.videoEnabled = false;
+    this.preDeafenMuted = false;
     if (this.peer) {
       const peer = this.peer;
       this.peer = null;

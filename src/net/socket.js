@@ -6,16 +6,21 @@ import {
   DEFAULT_SESSION_ID,
   EVENTS,
   ROLES,
+  VOICE_SIGNALING_MODE,
 } from '../../shared/events.js';
 import { sessionStore } from '../store/sessionStore.js';
 import { canvasStore } from '../canvas/canvasStore.js';
 import { autosave } from '../autosave/index.js';
 import { setAutosaveTransport } from '../autosave/transport.js';
 import { clearIdentity, loadIdentity, saveIdentity } from './identity.js';
+import { createWebRtcSocket } from './webrtcClientAdapter.js';
+import { startInternetHostBridge, stopInternetHostBridge } from './webrtcHostBridge.js';
+import { clearWebRtcAssetCache, isWebRtcUrl } from './webrtcAssets.js';
 
 let socket = null;
 let currentTargetUrl = null;
 let pendingConnectContext = null;
+let lastConnectOptions = null;
 let lastResyncAt = 0;
 let resyncBound = false;
 
@@ -90,7 +95,7 @@ export function resolveTargetUrl(input) {
   if (typeof input === 'string') {
     const trimmed = input.trim();
     if (!trimmed) return null;
-    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    if (/^(https?|webrtc):\/\//i.test(trimmed)) return trimmed;
     return `http://${trimmed}`;
   }
   if (typeof input === 'object') {
@@ -120,6 +125,7 @@ function detachListeners(sock) {
   sock.off(EVENTS.SESSION_PARTICIPANT_LEFT);
   sock.off(EVENTS.SESSION_PARTICIPANTS_UPDATE);
   sock.off(EVENTS.SESSION_ERROR);
+  sock.off(EVENTS.SESSION_NETWORK_MODE);
   sock.off(EVENTS.SERVER_SHUTDOWN);
   sock.off(EVENTS.SESSION_STATE);
   sock.off(EVENTS.TOKEN_MOVED);
@@ -156,11 +162,14 @@ export function getSocket() {
  */
 export function disconnect({ forgetIdentity = false } = {}) {
   unbindChat();
+  stopInternetHostBridge({ reason: 'Host ended the session.' }).catch(() => {});
+  clearWebRtcAssetCache();
   try {
     if (forgetIdentity) {
       autosave.flush().catch(() => {});
       autosave.discard();
       clearIdentity();
+      lastConnectOptions = null;
     } else {
       autosave.suspend();
     }
@@ -184,6 +193,56 @@ export function disconnect({ forgetIdentity = false } = {}) {
   const state = sessionStore.getState();
   state.setConnection(CONNECTION_STATUS.DISCONNECTED, null);
   state.resetSession();
+}
+
+async function ensureHostInternetBridge() {
+  const store = sessionStore.getState();
+  const internetCode = store.serverInfo?.internetCode;
+  if (!store.internetBridge?.enabled || !internetCode || !currentTargetUrl || isWebRtcUrl(currentTargetUrl)) {
+    return { ok: false, error: 'Host server info is not ready.' };
+  }
+  const result = await startInternetHostBridge({
+    internetCode,
+    localUrl: currentTargetUrl,
+  });
+  if (result.ok && socket?.connected) {
+    socket.emit(EVENTS.SESSION_NETWORK_MODE, { mode: VOICE_SIGNALING_MODE.INTERNET });
+    store.setVoiceSignalingMode(VOICE_SIGNALING_MODE.INTERNET);
+  }
+  return result;
+}
+
+/**
+ * Toggles the DM's PeerJS Internet Play bridge on/off without dropping local LAN play.
+ * @param {boolean} enabled
+ */
+export async function toggleInternetBridge(enabled) {
+  const next = Boolean(enabled);
+  const store = sessionStore.getState();
+  store.setInternetBridge({ enabled: next, error: null });
+
+  if (next) {
+    return ensureHostInternetBridge();
+  }
+
+  await stopInternetHostBridge({
+    reason: 'Dungeon Master switched the table to Local/Offline mode.',
+  });
+  if (socket?.connected) {
+    socket.emit(EVENTS.SESSION_NETWORK_MODE, { mode: VOICE_SIGNALING_MODE.LOCAL });
+    store.setVoiceSignalingMode(VOICE_SIGNALING_MODE.LOCAL);
+  }
+  return { ok: true, enabled: false };
+}
+
+/**
+ * Retries the most recent `connect()` call cleanly (used by the board Retry button).
+ */
+export async function retryConnection() {
+  if (!lastConnectOptions) return null;
+  const opts = { ...lastConnectOptions };
+  disconnect({ forgetIdentity: false });
+  return connect(opts);
 }
 
 /**
@@ -438,6 +497,7 @@ export async function connect(options) {
       : null;
 
   currentTargetUrl = target;
+  lastConnectOptions = { ...opts };
   pendingConnectContext = {
     sessionId,
     displayName:
@@ -455,14 +515,26 @@ export async function connect(options) {
 
   store.setConnection(CONNECTION_STATUS.CONNECTING, null);
 
-  socket = io(target, {
-    transports: ['websocket'],
-    reconnection: true,
-    reconnectionAttempts: 8,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    timeout: 8000,
-  });
+  if (isWebRtcUrl(target)) {
+    socket = createWebRtcSocket(target, {
+      onPhaseChange: (phaseMessage) => {
+        const s = sessionStore.getState();
+        if (s.connection === CONNECTION_STATUS.CONNECTING || s.connection === CONNECTION_STATUS.RECONNECTING) {
+          s.setConnection(s.connection, phaseMessage);
+        }
+      },
+    });
+    socket.connect();
+  } else {
+    socket = io(target, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 8,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 8000,
+    });
+  }
 
   detachListeners(socket);
   bindChat(socket);
@@ -493,6 +565,9 @@ export async function connect(options) {
     if (result?.success) {
       autosave.resume();
       requestState();
+      if (context.hostToken && sessionStore.getState().internetBridge?.enabled) {
+        void ensureHostInternetBridge();
+      }
     }
   });
 
@@ -528,14 +603,21 @@ export async function connect(options) {
     });
 
     socket.io.on('reconnect_failed', () => {
-      sessionStore
-        .getState()
-        .setConnection(
-          CONNECTION_STATUS.FAILED,
-          'Reconnection failed after maximum attempts.',
-        );
+      const storeState = sessionStore.getState();
+      const prevErr = storeState.connectionError;
+      const message =
+        prevErr && !prevErr.startsWith('Reconnecting')
+          ? prevErr
+          : 'Reconnection failed after maximum attempts.';
+      storeState.setConnection(CONNECTION_STATUS.FAILED, message);
     });
   }
+
+  socket.on(EVENTS.SESSION_NETWORK_MODE, (payload = {}) => {
+    if (payload?.voiceSignalingMode) {
+      sessionStore.getState().setVoiceSignalingMode(payload.voiceSignalingMode);
+    }
+  });
 
   socket.on(EVENTS.SESSION_WELCOME, (welcome) => {
     sessionStore.getState().applyWelcome(welcome, {

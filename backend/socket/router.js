@@ -3,7 +3,7 @@ import { registerChatHandlers } from '../chat/handlers.js';
 import { registerSoundboard } from './soundboard.js';
 import { registerAutosaveHandlers } from '../autosave/handlers.js';
 import { characterToWire, dmRecordToWire } from '../autosave/wire.js';
-import { ERROR_CODES, EVENTS, ROLES } from '../../shared/events.js';
+import { ERROR_CODES, EVENTS, ROLES, VOICE_SIGNALING_MODE } from '../../shared/events.js';
 import { DICE_MESSAGE_TYPE, DICE_VISIBILITY } from '../../shared/dice/constants.js';
 import { validateRollSubmission } from '../../shared/dice/validate.js';
 import { SessionManager, sanitizeParticipant } from '../session/sessionManager.js';
@@ -187,6 +187,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
     socket.removeAllListeners(EVENTS.DICE_ROLL);
     socket.removeAllListeners(EVENTS.STATE_REQUEST);
     socket.removeAllListeners(EVENTS.AUTOSAVE_COMMIT);
+    socket.removeAllListeners(EVENTS.SESSION_NETWORK_MODE);
 
     // Register autosave after the listener cleanup above, otherwise the cleanup
     // would remove the handler we just attached.
@@ -360,6 +361,29 @@ export function registerSocketRouter(io, repos, opts = {}) {
       if (ack) {
         ack({ success: true });
       }
+    });
+
+    socket.on(EVENTS.SESSION_NETWORK_MODE, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (res) => {
+        if (ack) ack(res);
+      };
+      if (!isJoined() || !isDM()) {
+        respond({ ok: false, error: 'Only the Dungeon Master can update network signaling mode.' });
+        return;
+      }
+      const mode =
+        payload?.mode === VOICE_SIGNALING_MODE.INTERNET
+          ? VOICE_SIGNALING_MODE.INTERNET
+          : VOICE_SIGNALING_MODE.LOCAL;
+      const sessionId = socket.data.sessionId;
+      sessionManager.setVoiceSignalingMode(sessionId, mode);
+      const room = getSessionRoom(sessionId);
+      io.to(room).emit(EVENTS.SESSION_NETWORK_MODE, {
+        sessionId,
+        voiceSignalingMode: mode,
+      });
+      respond({ ok: true, voiceSignalingMode: mode });
     });
 
     /**

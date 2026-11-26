@@ -3313,5 +3313,281 @@
   color: #ffadad;
 }
 
+/* Top-Left Combined Toolbar Row (Extension Toolbar + DM Voice Call Bar) */
+.top-left-toolbar-row {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.top-left-toolbar-row > * {
+  pointer-events: auto;
+}
+
+.top-left-toolbar-row .extension-toolbar {
+  position: static;
+  top: auto;
+  left: auto;
+}
+
+/* Floating 4-Button Voice & Video Call Toolbar */
+.voice-call-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(23, 45, 55, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(162, 220, 208, 0.3);
+  box-shadow: 0 4px 16px rgba(5, 13, 22, 0.45);
+  z-index: 6;
+}
+
+.voice-call-toolbar.is-player-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+}
+
+.hakton-app .voice-call-toolbar .icon-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  color: #d6e7ea;
+}
+
+.hakton-app .voice-call-toolbar .icon-button[aria-pressed='true'] {
+  background: rgba(50, 92, 90, 0.88);
+  color: #adfcf9;
+}
+
+.hakton-app .voice-call-toolbar .icon-button.is-danger {
+  background: rgba(154, 48, 52, 0.85);
+  color: #ffdede;
+}
+
+.hakton-app .voice-call-toolbar .icon-button.is-danger:hover {
+  background: rgba(190, 56, 62, 0.95);
+}
+
+/* Opt-In Voice Call Bar inside Players Panel */
+.voice-join-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid #2c434f;
+}
+
+.voice-join-btn {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 7px;
+}
+
+.voice-join-active {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  color: #a8c7cf;
+}
+
+.voice-status-badge.is-connected {
+  color: #8ce5c9;
+  font-weight: 600;
+}
+
+.voice-join-notice {
+  margin: 0;
+  font-size: 11px;
+  color: #f0cf85;
+}
+
+.voice-join-error {
+  margin: 0;
+  font-size: 11px;
+  color: #f39a9a;
+}
+
+.live-participant-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.voice-roster-badge {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(65, 146, 130, 0.35);
+  border: 1px solid rgba(140, 229, 201, 0.4);
+  color: #adfcf9;
+}
+
+.voice-roster-badge.is-cam {
+  background: rgba(58, 124, 165, 0.35);
+  border-color: rgba(120, 185, 225, 0.45);
+}
+
+/* Internet Bridge Status Dot & Toggle */
+.internet-code-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.internet-bridge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6c848f;
+  flex-shrink: 0;
+}
+
+.internet-bridge-dot.is-ready {
+  background: #5de0a8;
+  box-shadow: 0 0 6px rgba(93, 224, 168, 0.65);
+}
+
+.internet-bridge-dot.is-connecting {
+  background: #f0c054;
+}
+
+.internet-bridge-dot.is-error {
+  background: #ef7474;
+}
+
+.hakton-app button.internet-toggle-btn {
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border: 1px solid #355463;
+  background: rgba(14, 29, 38, 0.85);
+  color: #93adb7;
+  cursor: pointer;
+}
+
+.hakton-app button.internet-toggle-btn.is-on {
+  border-color: rgba(93, 224, 168, 0.55);
+  color: #9ff5cd;
+  background: rgba(24, 62, 56, 0.85);
+}
+
+.internet-bridge-error {
+  margin: 0;
+  font-size: 11px;
+  color: #f39a9a;
+}
+
+/* Board Notice Retry & Change Code Actions */
+.board-notice-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.board-notice-actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+/* Collapsible Advanced Network Settings Drawer */
+.network-settings-drawer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(85, 128, 146, 0.28);
+  text-align: left;
+}
+
+.network-settings-drawer.is-compact {
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+.network-settings-toggle {
+  font-size: 11px;
+  color: #97bdc9;
+  padding: 2px 0;
+}
+
+.network-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.network-settings-hint {
+  margin: 0;
+  font-size: 11px;
+  color: #88a7b2;
+}
+
+.network-settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: #b7d2db;
+}
+
+.network-settings-form input {
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #355362;
+  background: #0b1820;
+  color: #e4f4f6;
+}
+
+.network-settings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.network-settings-form label.network-settings-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.network-settings-saved {
+  margin: 0;
+  font-size: 11px;
+  color: #8ce5c9;
+}
+
+.network-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.network-settings-actions button {
+  padding: 5px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
 
 

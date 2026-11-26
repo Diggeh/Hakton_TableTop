@@ -8,6 +8,7 @@ import {
   MAX_SESSION_ID_LENGTH,
   MAX_VOICE_PEERS,
   ROLES,
+  VOICE_SIGNALING_MODE,
 } from '../../shared/events.js';
 
 const CONTROL_CHARS_RE = /[\x00-\x1F\x7F]/;
@@ -200,6 +201,7 @@ export class SessionManager {
       name: typeof name === 'string' && name.trim() ? name.trim() : DEFAULT_SESSION_NAME,
       createdAt: new Date().toISOString(),
       hostPlayerId: null,
+      voiceSignalingMode: VOICE_SIGNALING_MODE.LOCAL,
       participants: new Map(),
     };
     this.sessions.set(sessionId, session);
@@ -285,6 +287,7 @@ export class SessionManager {
           name: stored.name,
           createdAt: stored.createdAt ?? new Date().toISOString(),
           hostPlayerId: stored.hostPlayerId ?? null,
+          voiceSignalingMode: VOICE_SIGNALING_MODE.LOCAL,
           participants: new Map(),
         };
         this.sessions.set(stored.id, session);
@@ -683,6 +686,7 @@ export class SessionManager {
         sessionId: session.id,
         sessionName: session.name,
         activeParticipantCount: this.getConnectedParticipants(session.id).length,
+        voiceSignalingMode: session.voiceSignalingMode ?? VOICE_SIGNALING_MODE.LOCAL,
       },
     };
   }
@@ -873,6 +877,22 @@ export class SessionManager {
       previousPeerId,
       peers: this.getVoicePeers(session.id),
     };
+  }
+
+  /**
+   * Updates the session's advertised voice/video signaling mode ('local' or 'internet').
+   * @param {string} sessionId
+   * @param {string} mode
+   */
+  setVoiceSignalingMode(sessionId, mode) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    const nextMode =
+      mode === VOICE_SIGNALING_MODE.INTERNET
+        ? VOICE_SIGNALING_MODE.INTERNET
+        : VOICE_SIGNALING_MODE.LOCAL;
+    session.voiceSignalingMode = nextMode;
+    return nextMode;
   }
 
   /**

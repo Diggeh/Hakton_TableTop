@@ -11,6 +11,7 @@ import {
   SOUNDBOARD_EVENTS,
 } from '../../shared/soundboard.js';
 import { getSocket, resolveAssetUrl } from '../net/socket.js';
+import { isWebRtcUrl, resolveWebRtcAssetBlobUrl } from '../net/webrtcAssets.js';
 import { useSession } from '../store/sessionStore.js';
 import {
   createSoundboardPlayer,
@@ -44,12 +45,13 @@ export function useSoundboard(preview) {
   const serverOffset = useRef(null);
   const generation = useRef(0);
   const endTimer = useRef(null);
+  const webrtcAudioUrls = useRef(new Map());
 
   const clock = () =>
     performance.now() + (preview ? 0 : (serverOffset.current ?? 0));
   const lookup = (id) =>
     findSoundCue(id) ?? catalog.current.find((cue) => cue.id === id);
-  const urlFor = (id) => {
+  const rawUrlFor = (id) => {
     if (preview) return previewFiles.current.get(id);
     if (!accessToken.current) return null;
     return resolveAssetUrl(
@@ -60,10 +62,39 @@ export function useSoundboard(preview) {
         encodeURIComponent(accessToken.current),
     );
   };
+  const urlFor = (id) => {
+    const raw = rawUrlFor(id);
+    if (!raw) return null;
+    if (isWebRtcUrl(raw)) {
+      return webrtcAudioUrls.current.get(raw) ?? null;
+    }
+    return raw;
+  };
+
+  function ensureWebRtcCue(cueId) {
+    const raw = rawUrlFor(cueId);
+    if (!raw || !isWebRtcUrl(raw)) return Promise.resolve(raw);
+    const existing = webrtcAudioUrls.current.get(raw);
+    if (existing) return Promise.resolve(existing);
+    const scope = generation.current;
+    return resolveWebRtcAssetBlobUrl(raw, getSocket())
+      .then((blobUrl) => {
+        if (scope === generation.current && blobUrl) {
+          webrtcAudioUrls.current.set(raw, blobUrl);
+        }
+        return blobUrl;
+      })
+      .catch(() => null);
+  }
 
   function updateCatalog(items) {
     catalog.current = items;
     setCues(items);
+    for (const item of items) {
+      if (item?.id && !findSoundCue(item.id)) {
+        void ensureWebRtcCue(item.id);
+      }
+    }
   }
 
   function getPlayer() {
@@ -95,7 +126,18 @@ export function useSoundboard(preview) {
     clearTimeout(endTimer.current);
     const { track } = updated;
     if (!track) playback.current?.setTrack(null, clock, urlFor);
-    else if (audible.current) getPlayer().setTrack(track, clock, urlFor);
+    else if (audible.current) {
+      if (!findSoundCue(track.cueId) && isWebRtcUrl(rawUrlFor(track.cueId)) && !urlFor(track.cueId)) {
+        const scope = generation.current;
+        void ensureWebRtcCue(track.cueId).then((blobUrl) => {
+          if (scope === generation.current && blobUrl && current.current.track?.cueId === track.cueId) {
+            getPlayer().setTrack(current.current.track, clock, urlFor);
+          }
+        });
+      } else {
+        getPlayer().setTrack(track, clock, urlFor);
+      }
+    }
     if (track?.playing && !track.loop) {
       const finishAt = track.startsAt + track.durationMs - track.positionMs;
       endTimer.current = setTimeout(
@@ -110,8 +152,17 @@ export function useSoundboard(preview) {
 
   function trigger(cueId, startsAt) {
     const cue = lookup(cueId);
-    if (cue && audible.current)
-      getPlayer().effect(cue, startsAt, clock, urlFor);
+    if (!cue || !audible.current) return;
+    if (!findSoundCue(cue.id) && isWebRtcUrl(rawUrlFor(cue.id)) && !urlFor(cue.id)) {
+      const scope = generation.current;
+      void ensureWebRtcCue(cue.id).then((blobUrl) => {
+        if (scope === generation.current && blobUrl) {
+          getPlayer().effect(cue, startsAt, clock, urlFor);
+        }
+      });
+      return;
+    }
+    getPlayer().effect(cue, startsAt, clock, urlFor);
   }
 
   useEffect(() => {
@@ -175,6 +226,7 @@ export function useSoundboard(preview) {
       upload.current = null;
       for (const url of previewFiles.current.values()) URL.revokeObjectURL(url);
       previewFiles.current.clear();
+      webrtcAudioUrls.current.clear();
       serverOffset.current = null;
       accessToken.current = null;
       current.current = initialSoundboard;

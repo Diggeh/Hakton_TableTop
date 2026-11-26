@@ -5,6 +5,7 @@ import { IconButton, Mark, Modal } from './Primitives.jsx';
 import ToolIcon from './ToolIcon.jsx';
 import Tabletop from './Tabletop.jsx';
 import RecoveryBanner from './RecoveryBanner.jsx';
+import NetworkSettingsDrawer from './NetworkSettingsDrawer.jsx';
 import './hakton.css';
 import './prototype.css';
 
@@ -448,6 +449,7 @@ export default function HaktonUI() {
                     Join Game →
                   </button>
                 </form>
+                <NetworkSettingsDrawer />
               </div>
             </main>
           ) : (

@@ -3,7 +3,9 @@ import {
   connect,
   createToken,
   deleteToken,
+  disconnect,
   resolveAssetUrl,
+  retryConnection,
   updateToken,
 } from '../net/socket.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
@@ -21,6 +23,7 @@ import ToolIcon from './ToolIcon.jsx';
 import AddTokenDialog from './AddTokenDialog.jsx';
 import { useUploadedCategoryAssetEntries } from './AssetsPanel.jsx';
 import { IconButton } from './Primitives.jsx';
+import VoiceCallToolbar from './VoiceCallToolbar.jsx';
 
 const MapStage = lazy(() => import('../canvas/MapStage.jsx'));
 
@@ -44,6 +47,7 @@ export default function Board({
   onOpenAssetManager,
   onSelectScene,
   onInspectAsset,
+  onLeave,
 }) {
   const host = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -502,45 +506,48 @@ export default function Board({
 
   return (
     <section className="board" aria-label="Tabletop canvas">
-      <nav className="extension-toolbar" aria-label="VTT extensions">
-        {[
-          'home',
-          'players',
-          'dice',
-          'sheet',
-          'initiative',
-          'soundboard',
-          ...(role === 'DM' ? ['notes'] : []),
-          'compendium',
-        ].map((action) => {
-          const isToggle = Object.hasOwn(activeMapStates, action);
-          const isOpen = activeMapStates[action];
-          return (
-            <IconButton
-              key={action}
-              label={
-                {
-                  home: 'Home',
-                  players: 'Players',
-                  dice: 'Dice tray',
-                  sheet: 'Character sheet',
-                  initiative: 'Initiative tracker — unavailable',
-                  notes: 'DM screen',
-                  compendium: 'Compendium',
-                  soundboard: 'Music box',
-                }[action]
-              }
-              disabled={action === 'initiative'}
-              aria-pressed={isToggle ? isOpen : undefined}
-              aria-expanded={isToggle ? isOpen : undefined}
-              aria-controls={action === 'soundboard' ? soundboardId : undefined}
-              onClick={(event) => onAction(action, event.currentTarget)}
-            >
-              <ToolIcon name={action} />
-            </IconButton>
-          );
-        })}
-      </nav>
+      <div className="top-left-toolbar-row">
+        <nav className="extension-toolbar" aria-label="VTT extensions">
+          {[
+            'home',
+            'players',
+            'dice',
+            'sheet',
+            'initiative',
+            'soundboard',
+            ...(role === 'DM' ? ['notes'] : []),
+            'compendium',
+          ].map((action) => {
+            const isToggle = Object.hasOwn(activeMapStates, action);
+            const isOpen = activeMapStates[action];
+            return (
+              <IconButton
+                key={action}
+                label={
+                  {
+                    home: 'Home',
+                    players: 'Players',
+                    dice: 'Dice tray',
+                    sheet: 'Character sheet',
+                    initiative: 'Initiative tracker — unavailable',
+                    notes: 'DM screen',
+                    compendium: 'Compendium',
+                    soundboard: 'Music box',
+                  }[action]
+                }
+                disabled={action === 'initiative'}
+                aria-pressed={isToggle ? isOpen : undefined}
+                aria-expanded={isToggle ? isOpen : undefined}
+                aria-controls={action === 'soundboard' ? soundboardId : undefined}
+                onClick={(event) => onAction(action, event.currentTarget)}
+              >
+                <ToolIcon name={action} />
+              </IconButton>
+            );
+          })}
+        </nav>
+        {isDM && <VoiceCallToolbar role={role} />}
+      </div>
       <div className="board-caption" role="status">
         <span className="scene-indicator" />
         <strong>{scene || map?.name || 'Active Scene'}</strong>
@@ -819,16 +826,42 @@ export default function Board({
 
         {(error || connectionError || connection !== 'connected') && (
           <div className="board-notice" role="status">
-            {error ||
-              connectionError ||
-              (hostUrl
-                ? `Session ${connection}. Waiting for ${hostUrl}.`
-                : window.hakton
-                  ? `Session ${connection}. Waiting for the local host.`
-                  : 'Session disconnected. Waiting for connection.')}
+            <div>
+              {error ||
+                connectionError ||
+                (hostUrl
+                  ? `Session ${connection}. Waiting for ${hostUrl}.`
+                  : window.hakton
+                    ? `Session ${connection}. Waiting for the local host.`
+                    : 'Session disconnected. Waiting for connection.')}
+            </div>
+            {!isDM && (connection === 'failed' || connection === 'disconnected' || Boolean(error)) && (
+              <div className="board-notice-actions">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void retryConnection()}
+                >
+                  Retry
+                </button>
+                {onLeave && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      disconnect({ forgetIdentity: true });
+                      onLeave();
+                    }}
+                  >
+                    Change Code
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {!isDM && <VoiceCallToolbar role={role} />}
 
       {/* DM Fog of War & Walls Top Horizontal Bar */}
       {isDM && fogMenuOpen && (

@@ -85,7 +85,7 @@ export function encodeRoomCode(ip = '127.0.0.1', port = DEFAULT_PORT) {
 }
 
 /**
- * Generates an Internet (WebRTC) Room Code (e.g. "NET-7H9K-42M1") derived from a seed or session ID.
+ * Generates an Internet (WebRTC) Room Code (e.g. "NET-7H9K") derived from a seed or session ID.
  *
  * @param {string} [seed]
  * @returns {string}
@@ -99,6 +99,30 @@ export function encodeInternetCode(seed = '') {
   }
   const short = encodeBase32Bits(hash & 0xfffffn, 4);
   return `NET-${short}`;
+}
+
+/**
+ * Generates a collision-resistant random 8-character Internet (WebRTC) Room Code
+ * (e.g. "NET-7H9K-42M1", 40 bits of entropy) for public PeerJS signaling.
+ *
+ * @returns {string}
+ */
+export function generateInternetCode() {
+  let bits = 0n;
+  const cryptoObj = globalThis.crypto;
+  if (cryptoObj?.getRandomValues) {
+    const bytes = new Uint8Array(5);
+    cryptoObj.getRandomValues(bytes);
+    for (const b of bytes) {
+      bits = (bits << 8n) | BigInt(b);
+    }
+  } else {
+    for (let i = 0; i < 5; i += 1) {
+      bits = (bits << 8n) | BigInt(Math.floor(Math.random() * 256));
+    }
+  }
+  const raw = encodeBase32Bits(bits, 8);
+  return `NET-${raw.slice(0, 4)}-${raw.slice(4, 8)}`;
 }
 
 /**
@@ -157,7 +181,10 @@ export function decodeRoomCode(input) {
         throw new Error(`Invalid character "${cleanPayload[i]}" in room code.`);
       }
     }
-    const normalizedCode = `NET-${cleanPayload}`;
+    const normalizedCode =
+      cleanPayload.length === 8
+        ? `NET-${cleanPayload.slice(0, 4)}-${cleanPayload.slice(4, 8)}`
+        : `NET-${cleanPayload}`;
     const peerId = `hakton-net-${cleanPayload.toLowerCase()}`;
     return {
       mode: 'webrtc',

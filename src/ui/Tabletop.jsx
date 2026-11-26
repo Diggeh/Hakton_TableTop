@@ -1,8 +1,9 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { DICE_VISIBILITY } from '../../shared/dice/constants.js';
 import { ROLES } from '../../shared/events.js';
 import { rollFormula } from '../../shared/dice/roller.js';
-import { disconnect, emitDiceRoll, resolveAssetUrl } from '../net/socket.js';
+import { disconnect, emitDiceRoll, getSocket, resolveAssetUrl } from '../net/socket.js';
+import { isWebRtcUrl, resolveWebRtcAssetBlobUrl } from '../net/webrtcAssets.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
 import { useAssets } from '../store/assetStore.js';
 import { useSoundboard } from '../audio/useSoundboard.js';
@@ -13,7 +14,7 @@ import {
   dmRecordDocument,
 } from '../autosave/documents.js';
 import Board from './Board.jsx';
-import { SessionStatus, LiveRoster } from './SessionStatus.jsx';
+import { SessionStatus, LiveRoster, VoiceCallJoinBar } from './SessionStatus.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
 import ChatPanel from './ChatPanel.jsx';
 import DiceTray, { buildTrayFormula } from './DiceTray.jsx';
@@ -40,6 +41,35 @@ function characterForPerson(characters, person) {
       (candidate) => candidate.name?.toLowerCase() === person.name.toLowerCase(),
     ) ?? null
   );
+}
+
+function ResolvedAssetImg({ src, alt }) {
+  const [resolvedSrc, setResolvedSrc] = useState(() => (isWebRtcUrl(src) ? null : src));
+
+  useEffect(() => {
+    if (!src) {
+      setResolvedSrc(null);
+      return undefined;
+    }
+    if (!isWebRtcUrl(src)) {
+      setResolvedSrc(src);
+      return undefined;
+    }
+    let cancelled = false;
+    resolveWebRtcAssetBlobUrl(src, getSocket())
+      .then((blobUrl) => {
+        if (!cancelled) setResolvedSrc(blobUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedSrc(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  if (!resolvedSrc) return <p className="notice">Loading asset preview…</p>;
+  return <img src={resolvedSrc} alt={alt} />;
 }
 
 export default function Tabletop({
@@ -184,6 +214,7 @@ export default function Tabletop({
           }}
           onSelectScene={setScene}
           onInspectAsset={inspect}
+          onLeave={onLeave}
         />
 
         {(playersOpen || diceOpen || soundboardOpen) && (
@@ -202,6 +233,7 @@ export default function Tabletop({
                     ×
                   </IconButton>
                 </header>
+                <VoiceCallJoinBar />
                 <LiveRoster />
                 <div className="player-list-footer">
                   <AutosaveStatus />
@@ -411,7 +443,7 @@ export default function Tabletop({
                   <>
                     {previewSrc ? (
                       <div className="asset-inspect-preview">
-                        <img src={previewSrc} alt={inspected.name} />
+                        <ResolvedAssetImg src={previewSrc} alt={inspected.name} />
                       </div>
                     ) : (
                       <p className="notice">Sample asset</p>

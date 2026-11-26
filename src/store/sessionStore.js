@@ -1,6 +1,6 @@
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
-import { CONNECTION_STATUS, ROLES } from '../../shared/events.js';
+import { CONNECTION_STATUS, ROLES, VOICE_SIGNALING_MODE } from '../../shared/events.js';
 import { canvasStore } from '../canvas/canvasStore.js';
 
 /** Normalize a wire token (camelCase) or raw SQLite row (snake_case). */
@@ -153,6 +153,15 @@ export const sessionStore = createStore((set) => ({
   session: null,
   currentUser: null,
   participants: [],
+  voiceSignalingMode: VOICE_SIGNALING_MODE.LOCAL,
+  internetBridge: {
+    enabled: true,
+    status: 'offline', // 'offline' | 'connecting' | 'ready' | 'error'
+    error: null,
+    peerId: null,
+    code: null,
+    peerCount: 0,
+  },
 
   // Board state (existing)
   map: null,
@@ -177,6 +186,22 @@ export const sessionStore = createStore((set) => ({
 
   setConnection: (connection, connectionError = null) =>
     set({ connection, connectionError }),
+
+  setVoiceSignalingMode: (voiceSignalingMode) =>
+    set({
+      voiceSignalingMode:
+        voiceSignalingMode === VOICE_SIGNALING_MODE.INTERNET
+          ? VOICE_SIGNALING_MODE.INTERNET
+          : VOICE_SIGNALING_MODE.LOCAL,
+    }),
+
+  setInternetBridge: (patch = {}) =>
+    set((state) => ({
+      internetBridge: {
+        ...state.internetBridge,
+        ...patch,
+      },
+    })),
 
   setServerInfo: (serverInfo) =>
     set({
@@ -216,6 +241,10 @@ export const sessionStore = createStore((set) => ({
         isHost: Boolean(isHost || welcome.role === ROLES.DM),
       },
       participants: Array.isArray(welcome.participants) ? welcome.participants : [],
+      voiceSignalingMode:
+        welcome.serverStatus?.voiceSignalingMode === VOICE_SIGNALING_MODE.INTERNET
+          ? VOICE_SIGNALING_MODE.INTERNET
+          : VOICE_SIGNALING_MODE.LOCAL,
     });
   },
 
@@ -247,12 +276,21 @@ export const sessionStore = createStore((set) => ({
     })),
 
   resetSession: () =>
-    set({
+    set((state) => ({
       session: null,
       currentUser: null,
       participants: [],
       connectionError: null,
-    }),
+      voiceSignalingMode: VOICE_SIGNALING_MODE.LOCAL,
+      internetBridge: {
+        ...state.internetBridge,
+        status: 'offline',
+        error: null,
+        peerId: null,
+        code: null,
+        peerCount: 0,
+      },
+    })),
 
   // Board actions (existing)
   setMap: (map) => set({ map: map ?? null }),

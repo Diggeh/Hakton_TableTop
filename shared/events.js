@@ -29,6 +29,7 @@ export const EVENTS = Object.freeze({
   SESSION_PARTICIPANT_LEFT: 'session:participant:left',
   SESSION_PARTICIPANTS_UPDATE: 'session:participants:update',
   SESSION_ERROR: 'session:error',
+  SESSION_NETWORK_MODE: 'session:network-mode',
 
   // Board & Game State (existing contracts)
   SESSION_STATE: 'session:state',
@@ -96,6 +97,11 @@ export const SERVER_STATE = Object.freeze({
   RUNNING: 'running',
   STOPPING: 'stopping',
   ERROR: 'error',
+});
+
+export const VOICE_SIGNALING_MODE = Object.freeze({
+  LOCAL: 'local',
+  INTERNET: 'internet',
 });
 
 /**

@@ -11,6 +11,7 @@ import {
   ROLES,
 } from '../../shared/events.js';
 import { VOICE_SINK_ID, VoiceMeshManager } from '../../src/net/voiceMesh.js';
+import { resolvePeerOptions } from '../../src/net/peerOptions.js';
 import { createVoiceStore, VOICE_STATUS } from '../../src/store/voiceStore.js';
 import { FakeDocument, FakePeerNetwork, FakeStream } from './voiceFakes.js';
 
@@ -455,5 +456,114 @@ describe('P2P voice mesh over the real host signaling (Socket.io + fake WebRTC)'
     await new Promise((r) => setTimeout(r, 50));
     assert.equal(xHeardItself, false);
     assert.equal(reannounced, false);
+  });
+
+  it('supports mute, Discord-style deafen, listen-only fallback, 480p camera toggle, and mixed-mode peer options', TIMEOUT, async () => {
+    const a = await makeClient('A');
+    const b = await makeClient('B');
+    await a.manager.join({ peerId: 'peer-a' });
+    await b.manager.join({ peerId: 'peer-b' });
+    await Promise.all([a.manager.waitForStreams(1), b.manager.waitForStreams(1)]);
+
+    // Mute + Discord-style Deafen
+    assert.equal(a.manager.setAudioMuted(true), true);
+    assert.equal(a.store.getState().localAudioMuted, true);
+    assert.equal(a.mic.tracks[0].enabled, false);
+
+    assert.equal(a.manager.setAudioMuted(false), false);
+    assert.equal(a.mic.tracks[0].enabled, true);
+
+    a.manager.setDeafened(true);
+    assert.equal(a.store.getState().localDeafened, true);
+    assert.equal(a.store.getState().localAudioMuted, true);
+    assert.equal(a.doc.audioElements()[0].el.muted, true);
+    a.manager.setDeafened(false);
+    assert.equal(a.store.getState().localDeafened, false);
+    assert.equal(a.store.getState().localAudioMuted, false);
+    assert.equal(a.doc.audioElements()[0].el.muted, false);
+
+    // Camera toggle (480p @ 20fps) without dropping audio
+    let lastVideoConstraints = null;
+    const camTrack = { kind: 'video', readyState: 'live', enabled: true, stop() { this.readyState = 'ended'; } };
+    a.manager.localStream.getVideoTracks = () => (a.manager._videoTracks ??= []);
+    a.manager.localStream.addTrack = (t) => a.manager._videoTracks.push(t);
+    a.manager.localStream.removeTrack = (t) => {
+      a.manager._videoTracks = a.manager._videoTracks.filter((x) => x !== t);
+    };
+    a.manager.getUserMedia = async (constraints) => {
+      lastVideoConstraints = constraints;
+      return { getVideoTracks: () => [camTrack] };
+    };
+    const camOn = await a.manager.setCameraEnabled(true);
+    assert.equal(camOn.ok, true);
+    assert.equal(camOn.enabled, true);
+    assert.equal(a.store.getState().localVideoEnabled, true);
+    assert.equal(lastVideoConstraints.video.height.max, 480);
+    assert.equal(lastVideoConstraints.video.frameRate.max, 20);
+
+    const camOff = await a.manager.setCameraEnabled(false);
+    assert.equal(camOff.ok, true);
+    assert.equal(camOff.enabled, false);
+    assert.equal(a.store.getState().localVideoEnabled, false);
+    assert.equal(camTrack.readyState, 'ended');
+
+    // Listen-only fallback when NotFoundError occurs
+    const cSocket = await connectSocket();
+    await emitAck(cSocket, EVENTS.SESSION_JOIN, { displayName: 'NoMic' });
+    const cStore = createVoiceStore();
+    const cManager = new VoiceMeshManager({
+      socket: cSocket,
+      createPeer: network.createPeer,
+      getUserMedia: async () => {
+        const err = new Error('No device found');
+        err.name = 'NotFoundError';
+        throw err;
+      },
+      createSilentStream: () => new FakeStream('silent-c'),
+      documentRef: new FakeDocument(),
+      store: cStore,
+      logger: null,
+    });
+    const noMicRes = await cManager.join({ peerId: 'peer-c' });
+    assert.equal(noMicRes.success, true);
+    assert.equal(cStore.getState().listenOnly, true);
+    assert.equal(cStore.getState().localAudioMuted, true);
+    assert.match(cStore.getState().notice, /listen-only/i);
+    cManager.leave();
+
+    // Denied mic still returns error cleanly
+    const dStore = createVoiceStore();
+    const dManager = new VoiceMeshManager({
+      socket: cSocket,
+      createPeer: network.createPeer,
+      getUserMedia: async () => {
+        const err = new Error('Permission denied');
+        err.name = 'NotAllowedError';
+        throw err;
+      },
+      documentRef: new FakeDocument(),
+      store: dStore,
+      logger: null,
+    });
+    const deniedRes = await dManager.join({ peerId: 'peer-d' });
+    assert.equal(deniedRes.success, false);
+    assert.equal(deniedRes.code, 'E_MIC_DENIED');
+    assert.equal(dStore.getState().status, VOICE_STATUS.ERROR);
+
+    // Mixed-mode resolvePeerOptions
+    const localOpts = resolvePeerOptions({ socket: { io: { uri: 'http://192.168.1.10:3001' } } });
+    assert.equal(localOpts.host, '192.168.1.10');
+    assert.equal(localOpts.port, 3001);
+    assert.deepEqual(localOpts.config.iceServers, []);
+
+    const internetOpts = resolvePeerOptions({ socket: { io: { uri: 'webrtc://hakton-net-12345678' } } });
+    assert.ok(internetOpts.config.iceServers.length >= 1);
+    assert.equal(internetOpts.host, undefined);
+
+    const mixedLanOpts = resolvePeerOptions({
+      socket: { io: { uri: 'http://192.168.1.10:3001' } },
+      signalingMode: 'internet',
+    });
+    assert.ok(mixedLanOpts.config.iceServers.length >= 1);
   });
 });

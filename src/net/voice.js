@@ -1,3 +1,4 @@
+import { sessionStore } from '../store/sessionStore.js';
 import { voiceStore } from '../store/voiceStore.js';
 import { resolvePeerOptions } from './peerOptions.js';
 import { getSocket } from './socket.js';
@@ -55,10 +56,16 @@ export async function joinVoiceMesh(options = {}) {
     manager = null;
   }
 
+  const sessionState = sessionStore.getState();
+  const signalingMode =
+    sessionState.internetBridge?.status === 'ready'
+      ? 'internet'
+      : sessionState.voiceSignalingMode;
+
   manager ??= new VoiceMeshManager({
     socket,
     createPeer: defaultCreatePeer,
-    peerOptions: resolvePeerOptions({ socket, ...(options.peer ?? {}) }),
+    peerOptions: resolvePeerOptions({ socket, signalingMode, ...(options.peer ?? {}) }),
     store: voiceStore,
     label: options.label ?? 'voice',
     logger: options.quiet ? null : undefined,
@@ -72,6 +79,33 @@ export function leaveVoiceMesh() {
   manager?.leave();
 }
 
+export function setAudioMuted(muted) {
+  return manager?.setAudioMuted(muted) ?? false;
+}
+
+export function toggleAudioMuted() {
+  const current = voiceStore.getState().localAudioMuted;
+  return setAudioMuted(!current);
+}
+
+export function setDeafened(deafened) {
+  return manager?.setDeafened(deafened) ?? false;
+}
+
+export function toggleDeafened() {
+  const current = voiceStore.getState().localDeafened;
+  return setDeafened(!current);
+}
+
+export function setCameraEnabled(enabled, constraints) {
+  return manager?.setCameraEnabled(enabled, constraints) ?? Promise.resolve({ ok: false, enabled: false });
+}
+
+export function toggleCamera(constraints) {
+  const current = voiceStore.getState().localVideoEnabled;
+  return setCameraEnabled(!current, constraints);
+}
+
 /**
  * Headless diagnostics until the voice UI exists. From the renderer DevTools console:
  *   await __haktonVoice.join()      // after connecting to a session
@@ -82,6 +116,12 @@ if (typeof window !== 'undefined') {
   window.__haktonVoice = {
     join: joinVoiceMesh,
     leave: leaveVoiceMesh,
+    setAudioMuted,
+    toggleAudioMuted,
+    setDeafened,
+    toggleDeafened,
+    setCameraEnabled,
+    toggleCamera,
     manager: getVoiceManager,
     stats: () => manager?.getStats() ?? Promise.resolve({}),
     logs: () => voiceStore.getState().connectionLogs,
