@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { loadIdentity } from '../net/identity.js';
 import { DEFAULT_PORT } from '../../shared/events.js';
 import { campaigns as initialCampaigns } from './fixtures.js';
 import { Mark, Modal } from './Primitives.jsx';
@@ -24,7 +25,7 @@ export default function HaktonUI() {
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [selected, setSelected] = useState('salt');
   const [modal, setModal] = useState(null);
-  const [name, setName] = useState('Josh');
+  const [name, setName] = useState(() => loadIdentity()?.displayName || 'Josh');
   const campaign = campaigns.find((c) => c.id === selected);
   function browse(nextRole) {
     setRole(nextRole);

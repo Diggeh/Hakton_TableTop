@@ -5,10 +5,17 @@ import {
   MAX_TEXT_LENGTH,
 } from '../../shared/chatEvents.js';
 import { validateChatImage } from './image.js';
+import {
+  validWhisperEnvelope,
+  validWhisperPublicKey,
+} from '../../shared/whisperEncryption.js';
 
 const supportedTypes = new Set(['text', 'whisper', 'image']);
 
 function messageForWire(row) {
+  const encrypted = row.payload.encrypted;
+  const safeEnvelope = encrypted ? { ...encrypted } : undefined;
+  if (safeEnvelope) delete safeEnvelope.imageCiphertext;
   return {
     id: row.id,
     requestId: row.payload.requestId,
@@ -19,6 +26,7 @@ function messageForWire(row) {
     recipientName: row.payload.recipientName,
     type: row.type,
     text: row.payload.text,
+    encrypted: safeEnvelope,
     createdAt: row.created_at,
   };
 }
@@ -54,6 +62,16 @@ function parseMessage(input) {
     (type === 'whisper' && recipientId === null)
   )
     return null;
+  if (recipientId !== null) {
+    if (
+      input.text !== undefined ||
+      input.image !== undefined ||
+      !validWhisperEnvelope(input.encrypted, type)
+    )
+      return null;
+    return { type, recipientId, encrypted: input.encrypted };
+  }
+  if (input.encrypted !== undefined) return null;
   const text = input.text === undefined && type === 'image' ? '' : input.text;
   if (
     typeof text !== 'string' ||
@@ -88,6 +106,54 @@ export function registerChatHandlers(
     return participant;
   }
 
+  socket.on(CHAT_EVENTS.KEY_PUBLISH, (publicKey, ack) => {
+    if (typeof ack !== 'function') return;
+    const participant = ready(ack);
+    if (!participant) return;
+    try {
+      if (
+        !validWhisperPublicKey(publicKey) ||
+        !repository.publishWhisperKey?.(
+          participant.sessionId,
+          participant.id,
+          publicKey,
+        )
+      ) {
+        return ack({
+          success: false,
+          error:
+            'This participant already has a different whisper key. Restore the original device keys or rejoin with a new identity.',
+        });
+      }
+      ack({ success: true });
+    } catch {
+      ack({ success: false, error: 'Whisper key storage is unavailable.' });
+    }
+  });
+
+  socket.on(CHAT_EVENTS.KEY_GET, (id, ack) => {
+    if (typeof ack !== 'function') return;
+    const participant = ready(ack);
+    if (!participant) return;
+    try {
+      const peer = sessionManager
+        .getSession(participant.sessionId)
+        ?.participants.get(id);
+      const publicKey =
+        peer && repository.whisperKey?.(participant.sessionId, id);
+      ack(
+        publicKey
+          ? { success: true, publicKey }
+          : {
+              success: false,
+              error: 'This participant has not enabled encrypted whispers yet.',
+            },
+      );
+    } catch {
+      ack({ success: false, error: 'Whisper key storage is unavailable.' });
+    }
+  });
+
   socket.on(CHAT_EVENTS.SEND, (input, ack) => {
     if (typeof ack !== 'function') return;
     const participant = ready(ack);
@@ -97,7 +163,7 @@ export function registerChatHandlers(
       ack({ success: false, error: 'Invalid chat message or image.' });
       return;
     }
-    const { type, recipientId, text, image } = draft;
+    const { type, recipientId, text, image, encrypted } = draft;
     const recipient = sessionManager
       .getSession(participant.sessionId)
       ?.participants.get(recipientId);
@@ -129,7 +195,9 @@ export function registerChatHandlers(
           existing.recipient_id !== recipientId ||
           existing.type !== type ||
           existing.payload.text !== text ||
-          existing.payload.image !== image
+          existing.payload.image !== image ||
+          JSON.stringify(existing.payload.encrypted) !==
+            JSON.stringify(encrypted)
         ) {
           ack({
             success: false,
@@ -139,6 +207,18 @@ export function registerChatHandlers(
         }
         ack({ success: true, message: messageForWire(existing) });
         return;
+      }
+      if (
+        encrypted &&
+        (repository.whisperKey?.(participant.sessionId, participant.id) !==
+          encrypted.senderKey ||
+          repository.whisperKey?.(participant.sessionId, recipientId) !==
+            encrypted.recipientKey)
+      ) {
+        return ack({
+          success: false,
+          error: 'Whisper keys changed. Verify this participant again.',
+        });
       }
       const saved = repository.append({
         id,
@@ -151,6 +231,7 @@ export function registerChatHandlers(
           requestId: input.requestId,
           text,
           image,
+          encrypted,
           recipientName: recipient?.displayName,
         },
       });
@@ -206,7 +287,14 @@ export function registerChatHandlers(
           ? repository.get(id)
           : null;
       if (row?.type === 'image' && canRead(row, participant)) {
-        ack({ success: true, image: row.payload.image });
+        ack(
+          row.payload.encrypted
+            ? {
+                success: true,
+                encryptedImage: row.payload.encrypted.imageCiphertext,
+              }
+            : { success: true, image: row.payload.image },
+        );
         return;
       }
     } catch {

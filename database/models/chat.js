@@ -8,6 +8,12 @@ export function createChatModel(db) {
     VALUES (@id, @senderId, @senderName, @recipientId, @type, @payload)
     ON CONFLICT(id) DO NOTHING`);
   const byId = db.prepare('SELECT * FROM chat_messages WHERE id = ?');
+  const keyByParticipant = db.prepare(
+    'SELECT public_key FROM whisper_public_keys WHERE session_id = ? AND participant_id = ?',
+  );
+  const insertKey = db.prepare(
+    'INSERT INTO whisper_public_keys (session_id, participant_id, public_key) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+  );
   // Public messages + whispers the user sent or received, newest first.
   const recent = db.prepare(`
     SELECT * FROM chat_messages
@@ -22,7 +28,7 @@ export function createChatModel(db) {
 
   const sessionHistory = db.prepare(`
     SELECT id, sender_id, sender_name, recipient_id, type, created_at,
-           json_remove(payload, '$.image') AS payload
+           json_remove(payload, '$.image', '$.encrypted.imageCiphertext') AS payload
     FROM chat_messages
     WHERE json_extract(payload, '$.sessionId') = @sessionId
       AND type IN ('text', 'whisper', 'image')
@@ -30,6 +36,12 @@ export function createChatModel(db) {
     ORDER BY created_at DESC, rowid DESC LIMIT @limit`);
 
   return {
+    whisperKey: (sessionId, participantId) =>
+      keyByParticipant.get(sessionId, participantId)?.public_key ?? null,
+    publishWhisperKey(sessionId, participantId, publicKey) {
+      insertKey.run(sessionId, participantId, publicKey);
+      return keyByParticipant.get(sessionId, participantId).public_key === publicKey;
+    },
     historyForSession: (sessionId, userId, limit) =>
       sessionHistory.all({ sessionId, userId, limit }).reverse().map(hydrate),
     publicHistoryForSession: (sessionId, limit = 100) =>

@@ -8,6 +8,7 @@ import { CHAT_EVENTS, MAX_TEXT_LENGTH } from '../../shared/chatEvents.js';
 import { connect, disconnect } from '../../src/net/socket.js';
 import { chatStore } from '../../src/store/chatStore.js';
 import { sessionStore } from '../../src/store/sessionStore.js';
+import { createWhisperIdentity, encryptWhisper, decryptWhisper } from '../../src/net/whisperCrypto.js';
 import {
   loadChatHistory,
   retryPublicText,
@@ -16,9 +17,17 @@ import {
 
 function repository() {
   const rows = new Map();
+  const keys = new Map();
   return {
     rows,
     get: (id) => rows.get(id) || null,
+    whisperKey: (session, id) => keys.get(JSON.stringify([session, id])) ?? null,
+    publishWhisperKey(session, id, key) {
+      const scope = JSON.stringify([session, id]);
+      if (keys.has(scope) && keys.get(scope) !== key) return false;
+      keys.set(scope, key);
+      return true;
+    },
     append(m) {
       if (rows.has(m.id)) throw new Error('duplicate');
       const row = {
@@ -174,24 +183,41 @@ describe('Delgado public text chat', () => {
     assert.equal(local.messages[0].text, 'Only this table.');
   });
 
-  it('delivers whispers and private images only to sender and recipient', async () => {
+  it('stores only ciphertext for private messages and restricts delivery and images to their endpoints', { timeout: 10000 }, async () => {
     const a = await raw('Josh');
     const b = await raw('Mira');
     const c = await raw('Thorne');
     server.sessionManager.createSession({ id: 'another', name: 'Another' });
     const other = await raw('Visitor', 'another');
     const unrelated = [];
+    const senderKeys = await createWhisperIdentity();
+    const recipientKeys = await createWhisperIdentity();
+    for (const [participant, keys] of [[a, senderKeys], [b, recipientKeys]]) {
+      assert.equal((await ack(participant.socket, CHAT_EVENTS.KEY_PUBLISH, keys.publicKey)).success, true);
+    }
+    const seal = async (requestId, type, text, image) => encryptWhisper(senderKeys, recipientKeys.publicKey, {
+      sessionId: a.welcome.sessionId, senderId: a.welcome.playerId,
+      recipientId: b.welcome.playerId, requestId, type, text, image,
+    });
     c.socket.on(CHAT_EVENTS.MESSAGE, (m) => unrelated.push(m));
     const delivered = once(b.socket, CHAT_EVENTS.MESSAGE);
     const whisper = {
       requestId: 'private',
       type: 'whisper',
       recipientId: b.welcome.playerId,
-      text: 'Secret',
+      encrypted: await seal('private', 'whisper', 'Secret'),
     };
     const sent = await ack(a.socket, CHAT_EVENTS.SEND, whisper);
     assert.equal(sent.success, true);
     assert.deepEqual((await delivered)[0], sent.message);
+    assert.equal(sent.message.text, undefined);
+    assert.equal(await decryptWhisper(recipientKeys, senderKeys.publicKey, b.welcome.playerId, sent.message), 'Secret');
+    assert.equal(await decryptWhisper(senderKeys, recipientKeys.publicKey, a.welcome.playerId, sent.message), 'Secret');
+    assert.equal(JSON.stringify([...repo.rows.values()]).includes('Secret'), false);
+    assert.equal((await ack(a.socket, CHAT_EVENTS.SEND, {
+      type: 'whisper', requestId: 'plaintext', recipientId: b.welcome.playerId, text: 'must reject',
+    })).success, false);
+    assert.equal((await ack(a.socket, CHAT_EVENTS.KEY_PUBLISH, recipientKeys.publicKey)).success, false);
     assert.equal(
       (await ack(a.socket, CHAT_EVENTS.SEND, whisper)).message.id,
       sent.message.id,
@@ -215,7 +241,7 @@ describe('Delgado public text chat', () => {
       type: 'image',
       requestId: 'attachment',
       recipientId: b.welcome.playerId,
-      image,
+      encrypted: await seal('attachment', 'image', 'Private caption', image),
     });
     assert.equal(attachment.success, true);
     assert.equal((await incoming)[0].image, undefined);
@@ -226,16 +252,14 @@ describe('Delgado public text chat', () => {
         ['whisper', 'image'],
       );
       assert.equal(history.messages[1].image, undefined);
-      assert.equal(
-        (
-          await ack(
-            participant.socket,
-            CHAT_EVENTS.IMAGE,
-            attachment.message.id,
-          )
-        ).image,
-        image,
-      );
+      const response = await ack(participant.socket, CHAT_EVENTS.IMAGE, attachment.message.id);
+      assert.equal(response.image, undefined);
+      assert.equal(await decryptWhisper(
+        participant === a ? senderKeys : recipientKeys,
+        participant === a ? recipientKeys.publicKey : senderKeys.publicKey,
+        participant.welcome.playerId, attachment.message, response.encryptedImage,
+      ), image);
+      assert.equal(history.messages[1].encrypted.imageCiphertext, undefined);
     }
     for (const participant of [c, other]) {
       assert.equal(
@@ -288,6 +312,7 @@ describe('Delgado public text chat', () => {
       );
     }
     assert.equal(repo.rows.size, 3);
+    assert.equal(JSON.stringify(repo.rows.get(attachment.message.id)).includes(image), false);
   });
 
   it('rejects unjoined send/history, malformed text, and private/roll payloads', async () => {

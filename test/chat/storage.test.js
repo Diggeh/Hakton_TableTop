@@ -84,3 +84,23 @@ it('persists text across reopen and scopes history before applying its limit', (
   assert.equal(chat.get('missing'), null);
   assert.equal(chat.publicHistoryForSession('table-b', 10000).length, 100);
 });
+
+it('keeps public keys and encrypted attachments across reopen without putting attachment bytes in history', () => {
+  let chat = createChatModel(db);
+  assert.equal(chat.publishWhisperKey('session', 'alice', 'alice-public-key'), true);
+  assert.equal(chat.publishWhisperKey('session', 'alice', 'replacement'), false);
+  chat.append({
+    id: 'encrypted-image', senderId: 'alice', senderName: 'Alice', recipientId: 'bob', type: 'image',
+    payload: { sessionId: 'session', encrypted: { ciphertext: 'encrypted-caption', imageCiphertext: 'encrypted-image-bytes' } },
+  });
+  db.close();
+  db = openDatabase(file);
+  chat = createChatModel(db);
+  assert.equal(chat.whisperKey('session', 'alice'), 'alice-public-key');
+  assert.equal(chat.whisperKey('another-session', 'alice'), null);
+  assert.equal(chat.get('encrypted-image').payload.encrypted.imageCiphertext, 'encrypted-image-bytes');
+  const [history] = chat.historyForSession('session', 'bob', 100);
+  assert.equal(history.payload.encrypted.ciphertext, 'encrypted-caption');
+  assert.equal(history.payload.encrypted.imageCiphertext, undefined);
+  assert.deepEqual(chat.historyForSession('session', 'dm', 100), []);
+});

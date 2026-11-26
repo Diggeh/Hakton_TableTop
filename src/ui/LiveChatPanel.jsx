@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DICE_VISIBILITY } from '../../shared/dice/constants.js';
 import { isRollCommand } from '../../shared/dice/parser.js';
 import { rollFormula } from '../../shared/dice/roller.js';
@@ -13,6 +13,7 @@ import { emitDiceRoll } from '../net/socket.js';
 import { chatStore, useChat } from '../store/chatStore.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
 import ChatImage from './ChatImage.jsx';
+import WhisperSecurity from './WhisperSecurity.jsx';
 import { RollLogEntry } from './ChatPanel.jsx';
 import { IconButton, Tabs } from './Primitives.jsx';
 
@@ -27,6 +28,7 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
   const rollHistory = useSession((s) => s.rollHistory);
   const [tab, setTab] = useState('Table');
   const [recipientId, setRecipientId] = useState('');
+  const [verifiedRecipient, setVerifiedRecipient] = useState(null);
   const [attachment, setAttachment] = useState(null);
   const [preparing, setPreparing] = useState(false);
   const fileInput = useRef(null);
@@ -38,7 +40,11 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
   const rollsTab = tab === 'Rolls';
   const recipients = participants.filter((p) => p.id !== user?.id);
   const recipient = recipients.find((p) => p.id === recipientId);
-  const canCompose = connected && (!privateTab || Boolean(recipient));
+  const verificationScope = JSON.stringify([sessionId, user?.id, recipientId]);
+  const onWhisperVerified = useCallback((verified) => {
+    setVerifiedRecipient(verified ? verificationScope : null);
+  }, [verificationScope]);
+  const canCompose = connected && (!privateTab || (Boolean(recipient) && verifiedRecipient === verificationScope));
   const shown = rollsTab
     ? []
     : messages.filter((message) => Boolean(message.recipientId) === privateTab);
@@ -66,7 +72,7 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
     if (!canCompose || preparing || (!trimmed && !attachment)) return;
     setError('');
 
-    if (!attachment && (rollsTab || isRollCommand(trimmed))) {
+    if (!privateTab && !attachment && (rollsTab || isRollCommand(trimmed))) {
       const evaluated = rollFormula(trimmed);
       if (!evaluated.ok) {
         setError(evaluated.error);
@@ -151,6 +157,10 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
           </select>
         </label>
       )}
+      {privateTab && (
+        <WhisperSecurity key={verificationScope} recipientId={recipientId}
+          connected={connected} onVerified={onWhisperVerified} />
+      )}
       <div
         className="message-list"
         role="log"
@@ -208,7 +218,9 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
                 </small>
               )}
               {m.text && <p>{m.text}</p>}
-              {m.type === 'image' && (
+              {m.legacyPrivate && <small>Sent before encryption was available</small>}
+              {m.encryptionError && <p className="chat-error">{m.encryptionError}</p>}
+              {m.type === 'image' && !m.encryptionError && (
                 <ChatImage
                   message={m}
                   connected={connected}

@@ -180,7 +180,7 @@ function PreviewChatPanel({ name, onClose, hidden, width }) {
           if (!trimmed) return;
           setRollError('');
 
-          if (tab === 'Rolls' || isRollCommand(trimmed)) {
+          if (tab !== 'Whispers' && (tab === 'Rolls' || isRollCommand(trimmed))) {
             const evaluated = rollFormula(trimmed);
             if (!evaluated.ok) {
               setRollError(evaluated.error);
