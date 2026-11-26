@@ -7,6 +7,10 @@ export const PEER_PATH = '/peerjs';
 export const DEFAULT_SESSION_ID = 'default';
 export const DEFAULT_SESSION_NAME = 'Hakton Tabletop Session';
 
+export const DEFAULT_GRID_SIZE = 35;
+export const MIN_GRID_SIZE = 16;
+export const MAX_GRID_SIZE = 140;
+
 export const MAX_DISPLAY_NAME_LENGTH = 32;
 export const MAX_SESSION_ID_LENGTH = 64;
 
@@ -63,6 +67,8 @@ export const EVENTS = Object.freeze({
   MAP_SELECTED: 'map:selected',
   MAP_UPDATE: 'map:update',
   MAP_UPDATED: 'map:updated',
+  MAP_DELETE: 'map:delete',
+  MAP_DELETED: 'map:deleted',
 
   // Continuous auto-save
   AUTOSAVE_COMMIT: 'autosave:commit',

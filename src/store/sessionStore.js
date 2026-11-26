@@ -1,11 +1,14 @@
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import { CONNECTION_STATUS, ROLES } from '../../shared/events.js';
+import { normalizeOwnerRole, sanitizeCombat } from '../../shared/combat.js';
 import { canvasStore } from '../canvas/canvasStore.js';
+import { parseTimestampMs } from '../ui/chatTimeline.js';
 
 /** Normalize a wire token (camelCase) or raw SQLite row (snake_case). */
 function normalizeToken(token) {
   if (!token) return null;
+  const sanitizedCombat = token.combat ? sanitizeCombat(token.combat) : null;
   return {
     id: token.id,
     mapId: token.mapId ?? token.map_id ?? null,
@@ -13,6 +16,7 @@ function normalizeToken(token) {
     x: token.x,
     y: token.y,
     ownerId: token.ownerId ?? token.owner_id ?? null,
+    ownerRole: normalizeOwnerRole(token.ownerRole ?? token.owner_role),
     locked: Boolean(token.locked),
     color: token.color ?? null,
     isMap: Boolean(token.isMap ?? token.is_map),
@@ -26,6 +30,12 @@ function normalizeToken(token) {
           range: Number(token.light.range) || 30,
           angle: Number(token.light.angle) || 90,
           rotation: Number(token.light.rotation) || 0,
+        }
+      : null,
+    combat: sanitizedCombat
+      ? {
+          ...sanitizedCombat,
+          hpHidden: Boolean(token.combat?.hpHidden),
         }
       : null,
     rotation: Number.isFinite(Number(token.rotation))
@@ -118,11 +128,11 @@ export function normalizeRollEntry(entry, fallbackName = 'Adventurer') {
   const clientRollId = payload.clientRollId || entry.clientRollId || entry.id;
   if (!clientRollId) return null;
 
-  const createdAt = entry.created_at || entry.createdAt || new Date().toISOString();
-  const dateObj = new Date(createdAt);
-  const time = Number.isNaN(dateObj.getTime())
-    ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const rawCreatedAt = entry.created_at || entry.createdAt;
+  const parsedMs = parseTimestampMs(rawCreatedAt);
+  const dateObj = parsedMs > 0 ? new Date(parsedMs) : new Date();
+  const createdAt = dateObj.toISOString();
+  const time = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return {
     id: entry.id || `roll_${clientRollId}`,
@@ -136,6 +146,7 @@ export function normalizeRollEntry(entry, fallbackName = 'Adventurer') {
     dice: Array.isArray(payload.dice) ? payload.dice : [],
     modifier: Number(payload.modifier) || 0,
     total: Number(payload.total) || 0,
+    isHistorical: Boolean(entry.isHistorical),
     createdAt,
     time,
   };
@@ -174,6 +185,7 @@ export const sessionStore = createStore((set) => ({
   activeRoll: null, // Currently tumbling 3D roll on this client
   settledTrayRoll: null, // Roll result that popped into the Dice Tray after settling
   rollHistory: [], // Ordered list of normalized roll entries (local + remote)
+  sessionJoinedAt: null,
 
   setConnection: (connection, connectionError = null) =>
     set({ connection, connectionError }),
@@ -200,9 +212,10 @@ export const sessionStore = createStore((set) => ({
 
   applyWelcome: (welcome, { isHost = false } = {}) => {
     if (!welcome || typeof welcome !== 'object') return;
-    set({
+    set((state) => ({
       connection: CONNECTION_STATUS.CONNECTED,
       connectionError: null,
+      sessionJoinedAt: state.sessionJoinedAt ?? Date.now(),
       session: {
         id: welcome.sessionId,
         name: welcome.sessionName ?? welcome.serverStatus?.sessionName ?? welcome.sessionId,
@@ -216,7 +229,7 @@ export const sessionStore = createStore((set) => ({
         isHost: Boolean(isHost || welcome.role === ROLES.DM),
       },
       participants: Array.isArray(welcome.participants) ? welcome.participants : [],
-    });
+    }));
   },
 
   setParticipants: (participants) =>
@@ -252,12 +265,13 @@ export const sessionStore = createStore((set) => ({
       currentUser: null,
       participants: [],
       connectionError: null,
+      sessionJoinedAt: null,
     }),
 
   // Board actions (existing)
   setMap: (map) => set({ map: map ?? null }),
 
-  applySnapshot: (snapshot = {}) =>
+  applySnapshot: (snapshot = {}) => {
     set((state) => {
       const next = {
         map: snapshot.map ?? null,
@@ -278,8 +292,88 @@ export const sessionStore = createStore((set) => ({
       if (Array.isArray(snapshot.dmRecords)) {
         next.dmRecords = toRecordMap(snapshot.dmRecords, normalizeDmRecord);
       }
+      if (Array.isArray(snapshot.rollHistory)) {
+        const joinedAt = state.sessionJoinedAt ?? Date.now();
+        const byKey = new Map();
+        for (const existing of state.rollHistory) {
+          byKey.set(existing.clientRollId || existing.id, existing);
+        }
+        for (const rawRoll of snapshot.rollHistory) {
+          const normalized = normalizeRollEntry(rawRoll);
+          if (!normalized) continue;
+          const key = normalized.clientRollId || normalized.id;
+          const existing = byKey.get(key);
+          const ts = parseTimestampMs(normalized.createdAt);
+          const isHistorical = existing
+            ? existing.isHistorical
+            : ts > 0 && ts < joinedAt;
+          byKey.set(key, { ...(existing ?? {}), ...normalized, isHistorical });
+        }
+        next.rollHistory = Array.from(byKey.values()).sort(
+          (a, b) => parseTimestampMs(a.createdAt) - parseTimestampMs(b.createdAt),
+        );
+      }
       return next;
-    }),
+    });
+    if (snapshot.map?.sceneData) {
+      canvasStore.getState().setFogState({
+        fogShapes: Array.isArray(snapshot.map.sceneData.fogShapes)
+          ? snapshot.map.sceneData.fogShapes
+          : [],
+        walls: Array.isArray(snapshot.map.sceneData.walls)
+          ? snapshot.map.sceneData.walls
+          : [],
+      });
+    }
+  },
+
+  applyMapSelected: ({ map, maps, tokens } = {}) => {
+    set((state) => ({
+      map: map !== undefined ? map ?? null : state.map,
+      maps: Array.isArray(maps) ? maps : state.maps,
+      tokens: Array.isArray(tokens)
+        ? Object.fromEntries(
+            tokens
+              .map(normalizeToken)
+              .filter(Boolean)
+              .map((token) => [token.id, token]),
+          )
+        : {},
+      selectedMapAsset: null,
+    }));
+    canvasStore.getState().clearSelection();
+    canvasStore.getState().setFogState({
+      fogShapes: Array.isArray(map?.sceneData?.fogShapes) ? map.sceneData.fogShapes : [],
+      walls: Array.isArray(map?.sceneData?.walls) ? map.sceneData.walls : [],
+    });
+  },
+
+  applyMapUpdated: (updatedMap) => {
+    if (!updatedMap) return;
+    set((state) => {
+      const nextMaps = Array.isArray(state.maps)
+        ? state.maps.some((m) => m.id === updatedMap.id)
+          ? state.maps.map((m) => (m.id === updatedMap.id ? { ...m, ...updatedMap } : m))
+          : [...state.maps, updatedMap]
+        : state.maps;
+      const isActive = !state.map || state.map.id === updatedMap.id;
+      return {
+        maps: nextMaps,
+        ...(isActive ? { map: { ...(state.map ?? {}), ...updatedMap } } : {}),
+      };
+    });
+    const activeId = sessionStore.getState().map?.id;
+    if (updatedMap.sceneData && (!activeId || activeId === updatedMap.id)) {
+      canvasStore.getState().setFogState({
+        fogShapes: Array.isArray(updatedMap.sceneData.fogShapes)
+          ? updatedMap.sceneData.fogShapes
+          : [],
+        walls: Array.isArray(updatedMap.sceneData.walls)
+          ? updatedMap.sceneData.walls
+          : [],
+      });
+    }
+  },
 
   upsertToken: (token) =>
     set((state) => {
@@ -531,7 +625,7 @@ export const sessionStore = createStore((set) => ({
   appendRollRecord: (rawRecord, fallbackName) =>
     set((state) => {
       const normalized = normalizeRollEntry(
-        rawRecord,
+        { ...rawRecord, isHistorical: Boolean(rawRecord?.isHistorical) },
         fallbackName || state.currentUser?.displayName || 'Adventurer',
       );
       if (!normalized) return state;

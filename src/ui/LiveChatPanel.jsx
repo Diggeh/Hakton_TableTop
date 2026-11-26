@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { DICE_VISIBILITY } from '../../shared/dice/constants.js';
+import { ROLES } from '../../shared/events.js';
 import { isRollCommand } from '../../shared/dice/parser.js';
 import { rollFormula } from '../../shared/dice/roller.js';
 import { MAX_TEXT_LENGTH } from '../../shared/chatEvents.js';
@@ -12,9 +13,20 @@ import { prepareChatImage } from '../net/chatImage.js';
 import { emitDiceRoll } from '../net/socket.js';
 import { chatStore, useChat } from '../store/chatStore.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
+import { mergeChatTimeline, parseTimestampMs } from './chatTimeline.js';
 import ChatImage from './ChatImage.jsx';
 import { RollLogEntry } from './ChatPanel.jsx';
 import { IconButton, Tabs } from './Primitives.jsx';
+
+const HIDE_PREVIOUS_ROLLS_KEY = 'hakton:dm:hide-previous-rolls:v1';
+
+function readHidePreviousRolls() {
+  try {
+    return localStorage.getItem(HIDE_PREVIOUS_ROLLS_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 
 export default function LiveChatPanel({ hidden, width, onClose }) {
   const messages = useChat((s) => s.messages);
@@ -29,27 +41,44 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
   const [recipientId, setRecipientId] = useState('');
   const [attachment, setAttachment] = useState(null);
   const [preparing, setPreparing] = useState(false);
+  const [hidePreviousRolls, setHidePreviousRolls] = useState(readHidePreviousRolls);
   const fileInput = useRef(null);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
   const end = useRef(null);
   const connected = connection === 'connected' && Boolean(user?.id);
+  const isDM = user?.role === ROLES.DM;
   const privateTab = tab === 'Whispers';
   const rollsTab = tab === 'Rolls';
-  const recipients = participants.filter((p) => p.id !== user?.id);
+  const recipients = participants.filter((p) => p.connected && p.id !== user?.id);
   const recipient = recipients.find((p) => p.id === recipientId);
   const canCompose = connected && (!privateTab || Boolean(recipient));
   const shown = rollsTab
     ? []
     : messages.filter((message) => Boolean(message.recipientId) === privateTab);
-  const shownRolls = rollsTab
+  const baseRolls = rollsTab
     ? rollHistory
     : tab === 'Table'
       ? rollHistory.filter((r) => r.visibility !== DICE_VISIBILITY.DM)
       : [];
+  const shownRolls =
+    isDM && hidePreviousRolls ? baseRolls.filter((r) => !r.isHistorical) : baseRolls;
+  const timeline = mergeChatTimeline(shown, shownRolls);
   const composeScope = JSON.stringify([sessionId, user?.id, tab, recipientId]);
   const currentScope = useRef(composeScope);
   currentScope.current = composeScope;
+
+  function toggleHidePreviousRolls() {
+    setHidePreviousRolls((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(HIDE_PREVIOUS_ROLLS_KEY, String(next));
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!hidden) end.current?.scrollIntoView({ block: 'nearest' });
@@ -134,6 +163,19 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
         onChange={setTab}
         label="Chat channels"
       />
+      {isDM && !privateTab && (
+        <div className="chat-dm-controls">
+          <button
+            type="button"
+            className="chat-dm-toggle"
+            aria-pressed={hidePreviousRolls}
+            title="Hide dice rolls saved from previous sessions"
+            onClick={toggleHidePreviousRolls}
+          >
+            {hidePreviousRolls ? 'Past rolls: Hidden' : 'Hide past rolls'}
+          </button>
+        </div>
+      )}
       {privateTab && (
         <label className="recipient">
           To
@@ -145,7 +187,6 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
             {recipients.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.displayName}
-                {p.connected ? '' : ' (offline)'}
               </option>
             ))}
           </select>
@@ -179,60 +220,63 @@ export default function LiveChatPanel({ hidden, width, onClose }) {
             </button>
           </div>
         )}
-        {!shown.length && !shownRolls.length && historyState === 'ready' && (
+        {!timeline.length && historyState === 'ready' && (
           <p className="empty-inline">
             {rollsTab ? 'No rolls yet.' : 'No messages yet.'}
           </p>
         )}
-        {shown.map((m) => (
-          <article className={`message message-${m.status}`} key={m.id}>
-            <span className="message-avatar" aria-hidden="true">
-              {m.senderName.slice(0, 1)}
-            </span>
-            <div className="message-body">
-              <div className="message-meta">
-                <strong>{m.senderName}</strong>
-                <time dateTime={m.createdAt}>
-                  {new Date(m.createdAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </time>
-              </div>
-              {m.recipientId && (
-                <small>
-                  To{' '}
-                  {m.recipientId === user?.id
-                    ? 'you'
-                    : m.recipientName || 'participant'}
-                </small>
-              )}
-              {m.text && <p>{m.text}</p>}
-              {m.type === 'image' && (
-                <ChatImage
-                  message={m}
-                  connected={connected}
-                  visible={!hidden}
-                />
-              )}
-              {m.status === 'pending' && <small role="status">Sending…</small>}
-              {m.status === 'failed' && (
-                <div className="chat-error">
-                  <span>{m.error}</span>
-                  <button
-                    disabled={!connected}
-                    onClick={() => void retryChatMessage(m.requestId)}
-                  >
-                    Retry
-                  </button>
+        {timeline.map((entry) => {
+          if (entry.kind === 'roll') {
+            return <RollLogEntry key={entry.id} roll={entry.item} />;
+          }
+          const m = entry.item;
+          const ts = parseTimestampMs(m.createdAt);
+          const timeLabel = (ts > 0 ? new Date(ts) : new Date(m.createdAt)).toLocaleTimeString(
+            [],
+            { hour: '2-digit', minute: '2-digit' },
+          );
+          return (
+            <article className={`message message-${m.status}`} key={entry.id}>
+              <span className="message-avatar" aria-hidden="true">
+                {m.senderName.slice(0, 1)}
+              </span>
+              <div className="message-body">
+                <div className="message-meta">
+                  <strong>{m.senderName}</strong>
+                  <time dateTime={m.createdAt}>{timeLabel}</time>
                 </div>
-              )}
-            </div>
-          </article>
-        ))}
-        {shownRolls.map((roll) => (
-          <RollLogEntry key={roll.id} roll={roll} />
-        ))}
+                {m.recipientId && (
+                  <small>
+                    To{' '}
+                    {m.recipientId === user?.id
+                      ? 'you'
+                      : m.recipientName || 'participant'}
+                  </small>
+                )}
+                {m.text && <p>{m.text}</p>}
+                {m.type === 'image' && (
+                  <ChatImage
+                    message={m}
+                    connected={connected}
+                    visible={!hidden}
+                  />
+                )}
+                {m.status === 'pending' && <small role="status">Sending…</small>}
+                {m.status === 'failed' && (
+                  <div className="chat-error">
+                    <span>{m.error}</span>
+                    <button
+                      disabled={!connected}
+                      onClick={() => void retryChatMessage(m.requestId)}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </div>
+            </article>
+          );
+        })}
         <div ref={end} />
       </div>
       <form className="chat-composer" onSubmit={submit}>

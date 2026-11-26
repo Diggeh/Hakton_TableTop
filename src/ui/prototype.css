@@ -3331,5 +3331,327 @@
   color: #ffadad;
 }
 
+/* DM Grid Settings Popover beside the right-hand VTT Utilities sidebar */
+.grid-settings-popover {
+  position: absolute;
+  top: 168px;
+  right: 54px;
+  width: 224px;
+  background: rgba(11, 23, 31, 0.96);
+  border: 1px solid rgba(116, 198, 184, 0.5);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 30;
+  pointer-events: auto;
+}
+
+.grid-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(76, 124, 142, 0.35);
+  padding-bottom: 7px;
+}
+
+.grid-settings-header strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #edfaf7;
+  letter-spacing: 0.02em;
+}
+
+.grid-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.grid-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #b7d2db;
+}
+
+.grid-size-value {
+  font-weight: 600;
+  color: #adfcf9;
+}
+
+.grid-settings-section input[type="range"] {
+  width: 100%;
+  accent-color: #86c9bd;
+  cursor: pointer;
+}
+
+.hakton-app .grid-toggle-btn {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid #355463;
+  background: rgba(18, 36, 47, 0.85);
+  color: #9bb8c2;
+  cursor: pointer;
+}
+
+.hakton-app .grid-toggle-btn.active {
+  background: rgba(44, 105, 97, 0.85);
+  border-color: #86c9bd;
+  color: #e9fbf8;
+}
+
+.grid-size-steppers {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hakton-app .grid-size-steppers button {
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid #355463;
+  background: rgba(18, 36, 47, 0.85);
+  color: #d7efec;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hakton-app .grid-size-steppers button:hover {
+  border-color: #7bcab9;
+  background: rgba(28, 56, 70, 0.95);
+}
+
+.hakton-app .grid-size-steppers .grid-reset-btn {
+  flex: 1;
+  font-size: 11px;
+}
+
+/* Asset Manager Multi-Row Wrapping Grid & Long Filename Ellipsis */
+.hakton-app .asset-manager-modal .asset-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.hakton-app .asset-manager-modal .asset-item strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  line-height: 1.25;
+  max-height: calc(2.5em + 6px);
+}
+
+.hakton-app .asset-manager-modal .asset-bottom > span,
+.hakton-app .asset-manager-modal .asset-submodal p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* DM Chat "Hide past rolls" Toggle */
+.hakton-app .chat-dm-controls {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 10px 0;
+}
+
+.hakton-app .chat-dm-toggle {
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid #2b4553;
+  background: rgba(18, 33, 44, 0.85);
+  color: #9dc0c7;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.hakton-app .chat-dm-toggle.active {
+  border-color: #7bcab9;
+  color: #adfcf9;
+  background: rgba(24, 52, 64, 0.95);
+}
+
+/* Initiative Tracker Floating Window */
+.hakton-app .initiative-window {
+  width: 240px;
+}
+
+.hakton-app .initiative-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px 2px;
+}
+
+.hakton-app .initiative-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #29414f;
+  background: rgba(16, 30, 40, 0.88);
+  color: #e2f5f2;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hakton-app .initiative-row:hover {
+  border-color: #6bc4b3;
+  background: rgba(24, 45, 58, 0.95);
+}
+
+.hakton-app .initiative-score {
+  min-width: 28px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(114, 214, 198, 0.14);
+  color: #adfcf9;
+  font-weight: 700;
+  font-size: 12px;
+  text-align: center;
+}
+
+.hakton-app .initiative-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.hakton-app .initiative-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.hakton-app .initiative-empty {
+  margin: 0;
+  padding: 10px 6px;
+  color: #8fb1b9;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Token Combat & Properties Popover */
+.hakton-app .token-popup-bar button.active-combat-btn {
+  background: rgba(232, 121, 91, 0.22);
+  color: #ffad96;
+  border-color: rgba(232, 121, 91, 0.55);
+}
+
+.hakton-app .token-properties-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.hakton-app .token-properties-tabs button {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid #2b4553;
+  background: rgba(17, 32, 42, 0.85);
+  color: #9ec0c7;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hakton-app .token-properties-tabs button.active {
+  border-color: #7bcab9;
+  background: rgba(31, 61, 74, 0.95);
+  color: #adfcf9;
+}
+
+.hakton-app .combat-owner-select,
+.hakton-app .token-properties-menu input[type='number'] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #304d5c;
+  background: rgba(13, 25, 34, 0.92);
+  color: #e4f7f4;
+  font-size: 12px;
+}
+
+.hakton-app .combat-hp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.hakton-app .hp-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.hakton-app .hp-ring-track {
+  fill: none;
+  stroke: rgba(140, 178, 187, 0.22);
+}
+
+.hakton-app .hp-ring-arc {
+  fill: none;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 180ms ease, stroke 180ms ease;
+}
+
+.hakton-app .hp-ring-value {
+  position: absolute;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ebfaf7;
+  pointer-events: none;
+}
+
+.hakton-app .combat-hp-inputs {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.hakton-app .combat-hp-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  color: #93b5bd;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hakton-app .combat-hp-hidden {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #8aaab3;
+  font-style: italic;
+}
+
 
 

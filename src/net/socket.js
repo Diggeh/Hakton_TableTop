@@ -2,9 +2,12 @@ import { bindChat, unbindChat } from './chat.js';
 import { io } from 'socket.io-client';
 import {
   CONNECTION_STATUS,
+  DEFAULT_GRID_SIZE,
   DEFAULT_PORT,
   DEFAULT_SESSION_ID,
   EVENTS,
+  MAX_GRID_SIZE,
+  MIN_GRID_SIZE,
   ROLES,
 } from '../../shared/events.js';
 import { sessionStore } from '../store/sessionStore.js';
@@ -126,6 +129,9 @@ function detachListeners(sock) {
   sock.off(EVENTS.TOKEN_CREATED);
   sock.off(EVENTS.TOKEN_UPDATED);
   sock.off(EVENTS.TOKEN_DELETED);
+  sock.off(EVENTS.MAP_SELECTED);
+  sock.off(EVENTS.MAP_UPDATED);
+  sock.off(EVENTS.MAP_DELETED);
   sock.off(EVENTS.DICE_ROLLED);
   sock.off(EVENTS.AUTOSAVE_SAVED);
   sock.off(EVENTS.AUTOSAVE_ERROR);
@@ -216,6 +222,8 @@ export function joinSession(params = {}) {
     playerId,
     reconnectToken,
     userId,
+    campaignKey,
+    campaignName,
     timeoutMs = 8000,
   } = params;
 
@@ -227,6 +235,8 @@ export function joinSession(params = {}) {
     ...(playerId !== undefined ? { playerId } : {}),
     ...(reconnectToken !== undefined ? { reconnectToken } : {}),
     ...(userId !== undefined ? { userId } : {}),
+    ...(campaignKey !== undefined ? { campaignKey } : {}),
+    ...(campaignName !== undefined ? { campaignName } : {}),
   };
 
   return new Promise((resolve) => {
@@ -297,6 +307,8 @@ async function joinWithIdentity(context) {
       playerId: identity?.playerId,
       reconnectToken: identity?.reconnectToken,
       userId: context.userId,
+      campaignKey: context.campaignKey,
+      campaignName: context.campaignName,
     });
 
   const identity = context.identity;
@@ -398,8 +410,12 @@ export async function connect(options) {
     target = `http://127.0.0.1:${DEFAULT_PORT}`;
   }
 
-  // Reuse existing socket if already connected/connecting to the exact same target
-  if (socket && currentTargetUrl === target) {
+  // Reuse existing socket if already connected/connecting to the exact same target & campaign
+  if (
+    socket &&
+    currentTargetUrl === target &&
+    (!opts.campaignKey || pendingConnectContext?.campaignKey === opts.campaignKey)
+  ) {
     if (!socket.connected && !socket.active) {
       store.setConnection(CONNECTION_STATUS.CONNECTING, null);
       socket.connect();
@@ -407,7 +423,7 @@ export async function connect(options) {
     return socket;
   }
 
-  // If switching targets, clean up the previous socket instance first
+  // If switching targets or campaigns, clean up the previous socket instance first
   if (socket) {
     disconnect();
   }
@@ -447,6 +463,8 @@ export async function connect(options) {
     playerId: identity?.playerId,
     reconnectToken: identity?.reconnectToken,
     userId: opts.userId,
+    campaignKey: opts.campaignKey ?? undefined,
+    campaignName: opts.campaignName ?? undefined,
     identity,
     autoJoin: opts.autoJoin !== false,
   };
@@ -599,6 +617,18 @@ export async function connect(options) {
 
   socket.on(EVENTS.TOKEN_DELETED, ({ id } = {}) => {
     if (typeof id === 'string') sessionStore.getState().removeToken(id);
+  });
+
+  socket.on(EVENTS.MAP_SELECTED, (payload = {}) => {
+    sessionStore.getState().applyMapSelected(payload);
+  });
+
+  socket.on(EVENTS.MAP_UPDATED, (payload = {}) => {
+    if (payload?.map) sessionStore.getState().applyMapUpdated(payload.map);
+  });
+
+  socket.on(EVENTS.MAP_DELETED, (payload = {}) => {
+    sessionStore.getState().applyMapSelected(payload);
   });
 
   // Remote/confirmed dice roll listener: records the rolled numbers in the log without
@@ -768,6 +798,84 @@ export function deleteToken(id) {
     if (response?.reason === 'disconnected' && id) {
       sessionStore.getState().removeToken(id);
       return { ok: true, offline: true };
+    }
+    return response;
+  });
+}
+
+/** DM-only: select or create an active scene map in SQLite and sync all clients. */
+export function selectSceneMap(payload = {}) {
+  return emitWithAck(EVENTS.MAP_SELECT, payload).then((response) => {
+    if (response?.ok) {
+      sessionStore.getState().applyMapSelected(response);
+      return response;
+    }
+    if (response?.reason === 'disconnected' && payload?.name) {
+      const store = sessionStore.getState();
+      const prevMap = store.map;
+      if (prevMap?.name) store.saveSceneSnapshot(prevMap.name);
+      store.loadSceneAssets(payload.name);
+      const nextMap = {
+        id: store.map?.id ?? `local-${payload.name.toLowerCase()}`,
+        name: payload.name,
+        width: Number(payload.width) || store.map?.width || 1920,
+        height: Number(payload.height) || store.map?.height || 1080,
+        gridSize: Number(payload.gridSize) || store.map?.gridSize || DEFAULT_GRID_SIZE,
+        imageUrl: null,
+        sceneData: {
+          fogShapes: canvasStore.getState().fogShapes,
+          walls: canvasStore.getState().walls,
+        },
+      };
+      store.setMap(nextMap);
+      return {
+        ok: true,
+        offline: true,
+        map: nextMap,
+        tokens: Object.values(sessionStore.getState().tokens),
+        wasCreated: !store.sceneAssets?.[payload.name.trim().toLowerCase()],
+      };
+    }
+    return response;
+  });
+}
+
+/** Update active scene settings (gridSize, name, dimensions, or fog/walls sceneData). */
+export function updateSceneMap(patch = {}) {
+  return emitWithAck(EVENTS.MAP_UPDATE, patch).then((response) => {
+    if (response?.ok && response.map) {
+      sessionStore.getState().applyMapUpdated(response.map);
+      return response;
+    }
+    if (response?.reason === 'disconnected') {
+      const store = sessionStore.getState();
+      if (store.map) {
+        const nextGrid =
+          'gridSize' in patch
+            ? Math.min(MAX_GRID_SIZE, Math.max(MIN_GRID_SIZE, Math.round(Number(patch.gridSize) || DEFAULT_GRID_SIZE)))
+            : store.map.gridSize ?? DEFAULT_GRID_SIZE;
+        const updated = {
+          ...store.map,
+          ...(patch.name ? { name: patch.name } : {}),
+          ...(patch.width ? { width: patch.width } : {}),
+          ...(patch.height ? { height: patch.height } : {}),
+          ...(patch.sceneData ? { sceneData: patch.sceneData } : {}),
+          gridSize: nextGrid,
+        };
+        store.setMap(updated);
+        return { ok: true, offline: true, map: updated };
+      }
+    }
+    return response;
+  });
+}
+
+/** DM-only: delete a persisted scene map. */
+export function deleteSceneMap(payload = {}) {
+  return emitWithAck(EVENTS.MAP_DELETE, payload).then((response) => {
+    if (response?.ok) {
+      sessionStore.getState().applyMapSelected(response);
+      return response;
     }
     return response;
   });

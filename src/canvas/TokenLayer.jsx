@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Text } from 'react-konva';
+import { DEFAULT_GRID_SIZE } from '../../shared/events.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
 import { canvasStore, useCanvas } from './canvasStore.js';
 import { emitTokenMove, resolveAssetUrl, updateToken } from '../net/socket.js';
@@ -508,10 +509,10 @@ const TokenNode = memo(function TokenNode({
             radius={radius}
             fill={fill}
             opacity={0.94}
-            stroke={token.locked ? '#db9685' : hovered ? '#ffffff' : '#e7fbfa'}
-            strokeWidth={token.locked ? 2.5 : 2}
+            stroke={selected && token.locked ? '#db9685' : hovered ? '#ffffff' : '#e7fbfa'}
+            strokeWidth={selected && token.locked ? 2.5 : 2}
             strokeScaleEnabled={false}
-            dash={token.locked ? [5, 4] : undefined}
+            dash={selected && token.locked ? [5, 4] : undefined}
             shadowColor="#020a12"
             shadowBlur={8}
             shadowOpacity={0.45}
@@ -573,7 +574,7 @@ export default function TokenLayer({
   const draggingRotations = useCanvas((state) => state.draggingRotations);
   const draggingTransforms = useCanvas((state) => state.draggingTransforms);
 
-  const grid = gridSize > 0 ? gridSize : 70;
+  const grid = gridSize > 0 ? gridSize : DEFAULT_GRID_SIZE;
   const isDM =
     role === 'DM' ||
     role === 'dm' ||
@@ -613,7 +614,11 @@ export default function TokenLayer({
       const positions = new Map();
       for (const tokenId of ids) {
         const token = tokensMap[tokenId];
-        if (token) {
+        const mayMove =
+          token &&
+          !token.locked &&
+          (isDM || !token.ownerId || token.ownerId === currentUser?.id);
+        if (mayMove) {
           positions.set(tokenId, {
             x: token.x,
             y: token.y,
@@ -635,7 +640,7 @@ export default function TokenLayer({
       };
       store.setDraggingIds(Array.from(positions.keys()));
     },
-    [tokensMap],
+    [currentUser?.id, isDM, tokensMap],
   );
 
   const handleDragMove = useCallback((id, node) => {

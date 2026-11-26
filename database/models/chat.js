@@ -29,9 +29,26 @@ export function createChatModel(db) {
       AND (recipient_id IS NULL OR recipient_id = @userId OR sender_id = @userId)
     ORDER BY created_at DESC, rowid DESC LIMIT @limit`);
 
+  const allDiceHistory = db.prepare(`
+    SELECT id, sender_id, sender_name, recipient_id, type, payload, created_at
+    FROM chat_messages
+    WHERE type = 'dice_roll'
+    ORDER BY created_at DESC, rowid DESC LIMIT @limit`);
+
+  const publicDiceHistory = db.prepare(`
+    SELECT id, sender_id, sender_name, recipient_id, type, payload, created_at
+    FROM chat_messages
+    WHERE type = 'dice_roll' AND recipient_id IS NULL
+    ORDER BY created_at DESC, rowid DESC LIMIT @limit`);
+
   return {
     historyForSession: (sessionId, userId, limit) =>
       sessionHistory.all({ sessionId, userId, limit }).reverse().map(hydrate),
+    diceHistoryFor: (role, limit = 100) => {
+      const safeLimit = Math.max(1, Math.min(200, Number.isInteger(limit) ? limit : 100));
+      const stmt = role === 'dm' ? allDiceHistory : publicDiceHistory;
+      return stmt.all({ limit: safeLimit }).reverse().map(hydrate);
+    },
     publicHistoryForSession: (sessionId, limit = 100) =>
       publicHistory
         .all({

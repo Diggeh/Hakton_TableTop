@@ -65,18 +65,20 @@ export function SessionStatus() {
 
 export function LiveRoster() {
   const participants = useSession((s) => s.participants);
+  const activeParticipants = participants
+    .filter((p) => p.connected)
+    .sort((a, b) => (a.role === ROLES.DM ? 0 : 1) - (b.role === ROLES.DM ? 0 : 1));
+
   return (
     <div className="player-list-content" aria-label="Live participants">
-      {participants.map((p) => (
+      {activeParticipants.map((p) => (
         <div className="live-participant" key={p.id}>
           <span>{p.displayName}</span>
-          <small>
-            {p.connected ? (p.role === ROLES.DM ? 'DM' : 'Online') : 'Offline'}
-          </small>
+          <small>{p.role === ROLES.DM ? 'DM' : 'Online'}</small>
         </div>
       ))}
-      {!participants.length && (
-        <span className="roster-empty">Waiting for session</span>
+      {!activeParticipants.length && (
+        <span className="roster-empty">No active players</span>
       )}
     </div>
   );

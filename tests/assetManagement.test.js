@@ -436,11 +436,13 @@ test('Upload Tests: valid map and token uploads succeed across PNG, JPEG, WebP, 
   assert.equal(gifAsset.width, 64);
   assert.equal(gifAsset.height, 64);
 
-  // 5. Verify bundled starter-map.svg from main seeds cleanly via seedIfEmpty(repos, storage)
+  // 5. Verify seedIfEmpty(repos) creates a clean blank gridded tabletop without preset scenes or starter-map.svg
   await seedIfEmpty(env.repos, env.storage);
   const seededMap = env.repos.maps.first();
-  assert.ok(seededMap?.image_file, 'seedIfEmpty must populate maps.image_file with starter-map.svg');
-  assert.match(seededMap.image_file, /\.svg$/);
+  assert.equal(seededMap?.name, 'Untitled Scene');
+  assert.equal(seededMap?.image_file, null);
+  assert.equal(seededMap?.grid_size, 35);
+  assert.equal(env.repos.tokens.listByMap(seededMap.id).length, 0);
 });
 
 test('Upload Tests: unsupported formats, corrupted images, spoofed extensions, and invalid paths are rejected cleanly', async (t) => {
@@ -910,15 +912,78 @@ test('Integration Tests: Express /assets/:id/file streaming, catalog endpoints, 
     },
   };
 
+  env.repos.tokens.create({
+    id: 'tok-test-move',
+    mapId: env.repos.maps.first().id,
+    label: 'Mira',
+    x: 105,
+    y: 105,
+  });
+
   connectionCallback(mockSocket);
   socketListeners.get(EVENTS.SESSION_JOIN)({ displayName: 'Aragorn' });
   const stateEvent = emitted.find((e) => e.ev === EVENTS.SESSION_STATE);
   assert.ok(stateEvent, 'SESSION_STATE must be emitted on join');
-  assert.equal(stateEvent.payload.map.name, 'Drowned Sanctuary');
-  assert.equal(stateEvent.payload.tokens[0].id, 'tok-demo-1');
+  assert.equal(stateEvent.payload.map.name, 'Untitled Scene');
+  assert.equal(stateEvent.payload.map.gridSize, 35);
+  assert.equal(stateEvent.payload.tokens[0].id, 'tok-test-move');
 
-  socketListeners.get(EVENTS.TOKEN_MOVE)({ id: 'tok-demo-1', x: 280, y: 350 });
+  socketListeners.get(EVENTS.TOKEN_MOVE)({ id: 'tok-test-move', x: 280, y: 350 });
   const moveEvent = broadcasted.find((e) => e.ev === EVENTS.TOKEN_MOVED);
   assert.ok(moveEvent, 'TOKEN_MOVED must be broadcasted');
-  assert.equal(moveEvent.payload.id, 'tok-demo-1');
+  assert.equal(moveEvent.payload.id, 'tok-test-move');
+});
+
+test('Migration 009 strips legacy preset scene defaults and upgrades grid_size to 35', async (t) => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hakton-mig-009-'));
+
+  const dbPath = path.join(tmpDir, 'legacy.db');
+  const { openHandle, listMigrationFiles } = await import('../database/index.js');
+  const db = openHandle(dbPath);
+  t.after(() => {
+    try {
+      db.close();
+    } catch {
+      // ignore
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const migrationsDir = path.join(process.cwd(), 'database', 'migrations');
+  db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+
+  for (const file of listMigrationFiles()) {
+    if (file.startsWith('009_')) continue;
+    db.exec(fs.readFileSync(path.join(migrationsDir, file), 'utf8'));
+    db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(file);
+  }
+
+  db.prepare('INSERT INTO campaigns (id, name) VALUES (1, ?)').run('First Campaign');
+  db.prepare(
+    'INSERT INTO maps (id, campaign_id, name, grid_size, image_file) VALUES (1, 1, ?, 70, ?)',
+  ).run('Drowned Sanctuary', 'starter-map.svg');
+  db.prepare('UPDATE campaigns SET active_map_id = 1 WHERE id = 1').run();
+  db.prepare('INSERT INTO tokens (id, map_id, label, x, y, is_map) VALUES (?, 1, ?, 100, 100, 0)').run(
+    'tok-demo-1',
+    'Mira',
+  );
+  db.prepare('INSERT INTO tokens (id, map_id, label, x, y, is_map) VALUES (?, 1, ?, 500, 500, 1)').run(
+    'tok-imported-scene',
+    'Bandit Hideout',
+  );
+
+  // Apply 009 migration
+  const { migrate } = await import('../database/index.js');
+  migrate(db);
+
+  const upgradedMap = db.prepare('SELECT * FROM maps WHERE id = 1').get();
+  assert.equal(upgradedMap.name, 'Bandit Hideout');
+  assert.equal(upgradedMap.grid_size, 35);
+  assert.equal(upgradedMap.image_file, null);
+  assert.equal(upgradedMap.scene_data, '{}');
+  assert.equal(db.prepare('SELECT * FROM tokens WHERE id = ?').get('tok-demo-1'), undefined);
+  assert.ok(db.prepare('SELECT * FROM tokens WHERE id = ?').get('tok-imported-scene'));
 });

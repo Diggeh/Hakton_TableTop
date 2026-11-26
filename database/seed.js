@@ -1,15 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const SAMPLE_MAP = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  'storage',
-  'samples',
-  'starter-map.svg',
-);
-
 /**
  * Demo party seeded into `characters` so the sheet has real, autosavable rows.
  * `demo-dm` is a sentinel owner: only the DM may edit these until a player is
@@ -84,29 +72,18 @@ export const DEMO_CHARACTERS = Object.freeze([
 ]);
 
 /**
- * Seeds a default campaign/map/tokens so a fresh install renders something.
- * Also installs the bundled sample battle map into lossless local storage and
- * backfills any missing demo character sheets.
+ * Seeds a default campaign/map so a fresh install starts on a clean blank gridded
+ * tabletop and backfills any missing demo character sheets.
  *
  * Idempotent: existing rows are never overwritten.
  */
-export async function seedIfEmpty(repos, storage) {
+export async function seedIfEmpty(repos) {
   if (!repos?.maps) return;
 
-  let map = repos.maps.first();
+  const map = repos.maps.first();
 
   if (!map) {
-    map = repos.maps.createWithCampaign('First Campaign', 'Drowned Sanctuary');
-
-    const tokens = [
-      { id: 'tok-demo-1', label: 'Mira', x: 455, y: 455, color: '#adfcf9' },
-      { id: 'tok-demo-2', label: 'Thorne', x: 525, y: 455, color: '#d7cba0' },
-      { id: 'tok-demo-3', label: 'Sentinel', x: 875, y: 665, color: '#db9685' },
-    ];
-
-    for (const token of tokens) {
-      repos.tokens.create({ ...token, mapId: map.id, ownerId: null, locked: false });
-    }
+    repos.maps.createWithCampaign('First Campaign', 'Untitled Scene');
   }
 
   if (repos.characters?.get) {
@@ -118,18 +95,6 @@ export async function seedIfEmpty(repos, storage) {
       } catch (error) {
         console.warn(`[hakton] could not seed character ${character.id}:`, error.message);
       }
-    }
-  }
-
-  if (storage?.saveAsset && map && !map.image_file) {
-    try {
-      const bytes = await fs.promises.readFile(SAMPLE_MAP);
-      const { fileName } = await storage.saveAsset('maps', bytes, {
-        originalName: 'starter-map.svg',
-      });
-      repos.maps.setImage(map.id, fileName);
-    } catch (error) {
-      console.warn('[hakton] could not install sample map:', error.message);
     }
   }
 }

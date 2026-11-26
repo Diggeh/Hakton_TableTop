@@ -32,16 +32,27 @@ export const canvasStore = createStore((set, get) => {
     draggingRotations: {},
     draggingTransforms: {},
 
-    // Fog of War & Dynamic Vision state (starts empty — never auto-placed on maps)
+    // Selection & Fog of War / Dynamic Vision state
+    selectTool: 'select', // 'select' | 'lasso'
     fogTool: null, // 'rect' | 'circle' | 'polygon' | 'line' | 'wall' | 'door' | 'erase' | null
     fogShapes: [],
     walls: [],
     playerVisionPreview: false,
 
+    setSelectTool: (selectTool) =>
+      set({
+        selectTool: selectTool === 'lasso' ? 'lasso' : 'select',
+        ...(selectTool === 'lasso' ? { fogTool: null } : {}),
+      }),
+
     setFogTool: (fogTool) =>
-      set((state) => ({
-        fogTool: state.fogTool === fogTool ? null : fogTool,
-      })),
+      set((state) => {
+        const nextFogTool = state.fogTool === fogTool ? null : fogTool;
+        return {
+          fogTool: nextFogTool,
+          ...(nextFogTool ? { selectTool: 'select' } : {}),
+        };
+      }),
 
     togglePlayerVisionPreview: () =>
       set((state) => ({

@@ -10,6 +10,44 @@ import './prototype.css';
 
 const LOCAL_USERS_KEY = 'hakton:local-users:v1';
 const LOCAL_ACTIVE_USER_KEY = 'hakton:active-user-id:v1';
+const LOCAL_CAMPAIGNS_KEY = 'hakton:campaigns:v1';
+const LEGACY_PRESET_SCENES = new Set([
+  'drowned sanctuary',
+  'greyhaven docks',
+  'the old lighthouse',
+  'northwatch crossing',
+]);
+
+function sanitizeCampaignScene(sceneName) {
+  const clean = typeof sceneName === 'string' ? sceneName.trim() : '';
+  if (!clean || LEGACY_PRESET_SCENES.has(clean.toLowerCase())) {
+    return 'Untitled Scene';
+  }
+  return clean;
+}
+
+function readLocalCampaigns() {
+  try {
+    const raw = localStorage.getItem(LOCAL_CAMPAIGNS_KEY);
+    if (!raw) return initialCampaigns;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return initialCampaigns;
+    return parsed.map((c) => ({
+      ...c,
+      scene: sanitizeCampaignScene(c?.scene),
+    }));
+  } catch {
+    return initialCampaigns;
+  }
+}
+
+function writeLocalCampaigns(campaigns) {
+  try {
+    localStorage.setItem(LOCAL_CAMPAIGNS_KEY, JSON.stringify(campaigns));
+  } catch {
+    // Ignore storage quota errors in restricted environments
+  }
+}
 
 function readLocalUsers() {
   try {
@@ -125,10 +163,14 @@ export default function HaktonUI() {
   const [authError, setAuthError] = useState('');
 
   const [role, setRole] = useState('DM');
-  const [campaigns, setCampaigns] = useState(initialCampaigns);
-  const [selected, setSelected] = useState('salt');
+  const [campaigns, setCampaigns] = useState(() => readLocalCampaigns());
+  const [selected, setSelected] = useState(() => readLocalCampaigns()[0]?.id || 'salt');
   const [modal, setModal] = useState(null);
   const [name, setName] = useState('Adventurer');
+
+  useEffect(() => {
+    writeLocalCampaigns(campaigns);
+  }, [campaigns]);
 
   // Player Room Code join state
   const [roomCodeInput, setRoomCodeInput] = useState('');
@@ -237,7 +279,7 @@ export default function HaktonUI() {
               ? {
                   id: joinTarget?.code || 'joined-session',
                   name: `Session ${joinTarget?.code || ''}`.trim(),
-                  scene: 'Drowned Sanctuary',
+                  scene: 'Untitled Scene',
                   hostUrl: joinTarget?.hostUrl,
                 }
               : campaign
@@ -246,6 +288,16 @@ export default function HaktonUI() {
           name={activeDisplayName}
           userId={accountUser?.id}
           hostUrl={role === 'Player' ? joinTarget?.hostUrl : undefined}
+          onScenePersisted={(nextSceneName) => {
+            if (role !== 'DM' || !campaign?.id || !nextSceneName) return;
+            setCampaigns((prev) =>
+              prev.map((c) =>
+                c.id === campaign.id && c.scene !== nextSceneName
+                  ? { ...c, scene: nextSceneName }
+                  : c,
+              ),
+            );
+          }}
           onLeave={() =>
             setScreen(role === 'Player' ? 'join-code' : 'campaigns')
           }
@@ -743,7 +795,7 @@ export default function HaktonUI() {
                     description: '',
                     system: data.get('system'),
                     chapter: 'Chapter I',
-                    scene: 'Untitled scene',
+                    scene: 'Untitled Scene',
                     sessions: 0,
                   },
                 ]);

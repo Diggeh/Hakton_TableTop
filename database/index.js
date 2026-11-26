@@ -19,11 +19,20 @@ export function openHandle(filePath) {
   if (filePath !== ':memory:') fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
   const db = new Database(filePath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('busy_timeout = 5000');
-  db.pragma('wal_autocheckpoint = 1000');
+  try {
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('busy_timeout = 5000');
+    db.pragma('wal_autocheckpoint = 1000');
+  } catch (err) {
+    try {
+      db.close();
+    } catch {
+      // Ignore close errors on a corrupt handle.
+    }
+    throw err;
+  }
   return db;
 }
 

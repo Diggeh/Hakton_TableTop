@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { DEFAULT_GRID_SIZE } from '../../shared/events.js';
 import { assetStore, useAssets } from '../store/assetStore.js';
-import { resolveAssetUrl } from '../net/socket.js';
+import { sessionStore } from '../store/sessionStore.js';
+import { deleteSceneMap, resolveAssetUrl, updateSceneMap } from '../net/socket.js';
 import { assets as fixtureAssets, party } from './fixtures.js';
 import ToolIcon from './ToolIcon.jsx';
 import { IconButton, Tabs } from './Primitives.jsx';
@@ -82,6 +84,19 @@ export function renameCatalogAsset(category, oldName, newName) {
     void assetStore.getState().renameAsset(match.id, clean);
   }
 
+  if (category === 'Scenes') {
+    const state = sessionStore.getState();
+    const targetName = oldName.trim().toLowerCase();
+    const matchedMap =
+      (Array.isArray(state.maps)
+        ? state.maps.find((m) => (m?.name || '').trim().toLowerCase() === targetName)
+        : null) ||
+      ((state.map?.name || '').trim().toLowerCase() === targetName ? state.map : null);
+    if (matchedMap?.id != null) {
+      void updateSceneMap({ id: matchedMap.id, name: clean });
+    }
+  }
+
   if (previewState.imported[category]) {
     previewState.imported[category] = previewState.imported[category].map((n) =>
       n === oldName ? clean : n,
@@ -102,6 +117,10 @@ export function deleteCatalogAsset(category, assetName) {
   );
   if (match && typeof window !== 'undefined' && window.hakton?.assets) {
     void assetStore.getState().deleteAsset(match.id);
+  }
+
+  if (category === 'Scenes') {
+    void deleteSceneMap({ name: assetName });
   }
 
   if (previewState.imported[category]) {
@@ -247,7 +266,7 @@ export default function AssetsPanel({
         scale: 100,
         offsetX: 0,
         offsetY: 0,
-        gridSize: 48,
+        gridSize: DEFAULT_GRID_SIZE,
       });
       return;
     }
@@ -480,7 +499,7 @@ export default function AssetsPanel({
                     </span>
                   )}
                 </span>
-                <strong>{asset}</strong>
+                <strong title={asset}>{asset}</strong>
                 {activeTab === 'Scenes' && scene === asset && (
                   <small>Active</small>
                 )}
@@ -686,7 +705,13 @@ export default function AssetsPanel({
                 onClick={() =>
                   setPendingMapAlign((prev) =>
                     prev
-                      ? { ...prev, scale: 100, offsetX: 0, offsetY: 0, gridSize: 48 }
+                      ? {
+                          ...prev,
+                          scale: 100,
+                          offsetX: 0,
+                          offsetY: 0,
+                          gridSize: DEFAULT_GRID_SIZE,
+                        }
                       : null,
                   )
                 }

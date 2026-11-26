@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Konva from 'konva';
-import { Stage, Layer } from 'react-konva';
-import { useSession } from '../store/sessionStore.js';
+import { Stage, Layer, Line } from 'react-konva';
+import { DEFAULT_GRID_SIZE } from '../../shared/events.js';
+import { sessionStore, useSession } from '../store/sessionStore.js';
+import { updateSceneMap } from '../net/socket.js';
 import { canvasStore, useCanvas } from './canvasStore.js';
+import { selectTokensInLasso } from './lasso.js';
 import { screenToMap } from './viewport.js';
 import {
   detectClosedLoop,
@@ -45,9 +48,15 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
   const isDM = role === 'DM' || role === 'dm' || currentUser?.role === 'dm' || currentUser?.role === 'DM';
 
   const gridVisible = useCanvas((state) => state.gridVisible);
+  const selectTool = useCanvas((state) => state.selectTool);
+  const viewportScale = useCanvas((state) => state.viewport.scale);
   const fogTool = useCanvas((state) => state.fogTool);
+  const fogShapes = useCanvas((state) => state.fogShapes);
+  const walls = useCanvas((state) => state.walls);
+  const fogSyncTimerRef = useRef(null);
   const [panMode, setPanMode] = useState(false);
   const [draftShape, setDraftShape] = useState(null);
+  const [lassoDraft, setLassoDraft] = useState(null);
   const [polygonDraft, setPolygonDraft] = useState([]);
   const [mouseMapPos, setMouseMapPos] = useState(null);
 
@@ -89,27 +98,68 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
     return unsubscribe;
   }, []);
 
-  // Fit the map the first time it appears, preserve the centre on resize.
+  // Center each newly loaded scene at 100% zoom so default 35px cells render at 1:1 scale.
   useEffect(() => {
     if (!width || !height) return;
     const store = canvasStore.getState();
     store.setViewportSize({ width, height });
     if (!map) return;
+    const mapW = map.width || 1920;
+    const mapH = map.height || 1080;
     store.setMapSize({
-      width: map.width || 0,
-      height: map.height || 0,
+      width: mapW,
+      height: mapH,
     });
     if (fittedForMap.current !== map.id) {
       fittedForMap.current = map.id;
-      store.fit();
+      store.setViewport({
+        x: Math.round((width - mapW) / 2),
+        y: Math.round((height - mapH) / 2),
+        scale: 1,
+      });
     }
   }, [width, height, map]);
 
-  // Reset draft when switching fog tools
+  // Persist Fog of War & wall/door edits to SQLite for the active scene.
+  useEffect(() => {
+    if (!map?.id) return undefined;
+    const nextScene = {
+      fogShapes: Array.isArray(fogShapes) ? fogShapes : [],
+      walls: Array.isArray(walls) ? walls : [],
+    };
+    const serverScene = {
+      fogShapes: Array.isArray(map.sceneData?.fogShapes) ? map.sceneData.fogShapes : [],
+      walls: Array.isArray(map.sceneData?.walls) ? map.sceneData.walls : [],
+    };
+    if (JSON.stringify(nextScene) === JSON.stringify(serverScene)) return undefined;
+
+    if (fogSyncTimerRef.current) clearTimeout(fogSyncTimerRef.current);
+    fogSyncTimerRef.current = setTimeout(() => {
+      fogSyncTimerRef.current = null;
+      void updateSceneMap({ id: map.id, sceneData: nextScene });
+    }, 180);
+    return () => {
+      if (fogSyncTimerRef.current) {
+        clearTimeout(fogSyncTimerRef.current);
+        fogSyncTimerRef.current = null;
+      }
+    };
+  }, [fogShapes, walls, map?.id, map?.sceneData]);
+
+  // Reset draft when switching fog or selection tools
   useEffect(() => {
     setDraftShape(null);
     setPolygonDraft([]);
   }, [fogTool]);
+
+  useEffect(() => {
+    if (selectTool === 'lasso' && !fogTool && !panMode) {
+      setCursor('crosshair');
+    } else if (!panMode && !panRef.current) {
+      setCursor('default');
+      setLassoDraft(null);
+    }
+  }, [selectTool, fogTool, panMode, setCursor]);
 
   // Keyboard: space pans, +/- zooms, 0 fits, Enter finishes polygon, Escape clears selection/tool, Delete removes selection.
   useEffect(() => {
@@ -144,7 +194,9 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       } else if (event.key === 'Escape') {
         canvasStore.getState().clearSelection();
         setDraftShape(null);
+        setLassoDraft(null);
         setPolygonDraft([]);
+        canvasStore.getState().setSelectTool('select');
         if (canvasStore.getState().fogTool) {
           canvasStore.getState().setFogTool(null);
         }
@@ -248,7 +300,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
           });
         } else {
           const snap = store.snap;
-          const grid = map?.gridSize || 70;
+          const grid = map?.gridSize || DEFAULT_GRID_SIZE;
           const startPt = snap ? snapPoint(mapPt, grid) : { x: Math.round(mapPt.x), y: Math.round(mapPt.y) };
           setDraftShape({
             type: 'door',
@@ -300,6 +352,24 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       }
     }
 
+    // Freehand Lasso multi-select tool
+    if (
+      selectTool === 'lasso' &&
+      !fogTool &&
+      isEmpty &&
+      native.button === 0 &&
+      !spaceRef.current
+    ) {
+      native.preventDefault();
+      const mapPt = screenToMap(canvasStore.getState().viewport, pointer);
+      setLassoDraft({
+        points: [mapPt.x, mapPt.y],
+        additive: Boolean(native.shiftKey),
+      });
+      setCursor('crosshair');
+      return;
+    }
+
     if (!(isMiddle || spaceRef.current || (isEmpty && native.button === 0))) {
       return;
     }
@@ -324,6 +394,19 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
 
     const mapPt = screenToMap(canvasStore.getState().viewport, pointer);
     setMouseMapPos(mapPt);
+
+    if (lassoDraft) {
+      setLassoDraft((prev) => {
+        if (!prev) return null;
+        const pts = prev.points;
+        const lastX = pts[pts.length - 2];
+        const lastY = pts[pts.length - 1];
+        const minStep = 4 / (canvasStore.getState().viewport.scale || 1);
+        if (Math.hypot(mapPt.x - lastX, mapPt.y - lastY) < minStep) return prev;
+        return { ...prev, points: [...pts, mapPt.x, mapPt.y] };
+      });
+      return;
+    }
 
     if (draftShape) {
       setDraftShape((prev) => {
@@ -362,7 +445,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
             };
           }
           const snap = canvasStore.getState().snap;
-          const grid = map?.gridSize || 70;
+          const grid = map?.gridSize || DEFAULT_GRID_SIZE;
           const endPt = snap ? snapPoint(mapPt, grid) : { x: Math.round(mapPt.x), y: Math.round(mapPt.y) };
           return {
             ...prev,
@@ -384,6 +467,30 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
   };
 
   const endPan = () => {
+    if (lassoDraft) {
+      const current = lassoDraft;
+      setLassoDraft(null);
+      const store = canvasStore.getState();
+      if (current.points.length >= 6) {
+        const allTokens = Object.values(sessionStore.getState().tokens || {});
+        const matched = selectTokensInLasso(allTokens, current.points, {
+          includeMaps: false,
+          filterFn: (t) =>
+            isDM || (!t.locked && (!t.ownerId || t.ownerId === currentUser?.id)),
+        });
+        if (current.additive) {
+          store.setSelection([...store.selectedIds, ...matched]);
+        } else {
+          store.setSelection(matched);
+        }
+      } else if (!current.additive) {
+        store.clearSelection();
+      }
+      store.setSelectTool('select');
+      setCursor(spaceRef.current ? 'grab' : 'default');
+      return;
+    }
+
     if (draftShape) {
       const current = draftShape;
       setDraftShape(null);
@@ -480,7 +587,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
     }
   };
 
-  const gridSize = map?.gridSize ?? 70;
+  const gridSize = map?.gridSize ?? DEFAULT_GRID_SIZE;
 
   return (
     <Stage
@@ -497,7 +604,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       <Layer listening={false}>
         <MapLayer map={map} />
       </Layer>
-      <Layer>
+      <Layer listening={selectTool !== 'lasso'}>
         <TokenLayer
           map={map}
           gridSize={gridSize}
@@ -530,6 +637,19 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
           onFinishPolygon={handleFinishPolygon}
         />
       </Layer>
+      {lassoDraft && lassoDraft.points.length >= 4 && (
+        <Layer listening={false}>
+          <Line
+            points={lassoDraft.points}
+            closed={lassoDraft.points.length >= 6}
+            fill="rgba(173, 252, 249, 0.14)"
+            stroke="#adfcf9"
+            strokeWidth={1.6 / (viewportScale || 1)}
+            dash={[6 / (viewportScale || 1), 4 / (viewportScale || 1)]}
+            listening={false}
+          />
+        </Layer>
+      )}
     </Stage>
   );
 }

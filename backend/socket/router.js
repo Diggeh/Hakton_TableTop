@@ -3,9 +3,22 @@ import { registerChatHandlers } from '../chat/handlers.js';
 import { registerSoundboard } from './soundboard.js';
 import { registerAutosaveHandlers } from '../autosave/handlers.js';
 import { characterToWire, dmRecordToWire } from '../autosave/wire.js';
-import { ERROR_CODES, EVENTS, ROLES } from '../../shared/events.js';
+import {
+  DEFAULT_GRID_SIZE,
+  ERROR_CODES,
+  EVENTS,
+  MAX_GRID_SIZE,
+  MIN_GRID_SIZE,
+  ROLES,
+} from '../../shared/events.js';
 import { DICE_MESSAGE_TYPE, DICE_VISIBILITY } from '../../shared/dice/constants.js';
 import { validateRollSubmission } from '../../shared/dice/validate.js';
+import {
+  canViewTokenHp,
+  normalizeOwnerRole,
+  sanitizeCombat,
+  stripHiddenCombatFields,
+} from '../../shared/combat.js';
 import { SessionManager, sanitizeParticipant } from '../session/sessionManager.js';
 import { announceVoicePeerLeft, registerVoiceHandlers } from '../voice/handlers.js';
 
@@ -51,6 +64,18 @@ function parseTokenLight(raw) {
   return sanitizeLight(raw);
 }
 
+function parseTokenCombat(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return sanitizeCombat(JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
+  return sanitizeCombat(raw);
+}
+
 /** Convert a SQLite token row into the wire shape consumed by the renderer. */
 export function tokenToWire(token) {
   if (!token) return null;
@@ -61,6 +86,7 @@ export function tokenToWire(token) {
     x: token.x,
     y: token.y,
     ownerId: token.owner_id ?? token.ownerId ?? null,
+    ownerRole: normalizeOwnerRole(token.owner_role ?? token.ownerRole),
     locked: Boolean(token.locked),
     color: token.color ?? null,
     isMap: Boolean(token.is_map ?? token.isMap),
@@ -68,7 +94,26 @@ export function tokenToWire(token) {
     width: token.width ?? null,
     height: token.height ?? null,
     light: parseTokenLight(token.light),
+    combat: parseTokenCombat(token.combat),
     rotation: sanitizeRotation(token.rotation),
+  };
+}
+
+function parseSceneData(raw) {
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      obj = null;
+    }
+  }
+  if (!obj || typeof obj !== 'object') {
+    return { fogShapes: [], walls: [] };
+  }
+  return {
+    fogShapes: Array.isArray(obj.fogShapes) ? obj.fogShapes : [],
+    walls: Array.isArray(obj.walls) ? obj.walls : [],
   };
 }
 
@@ -79,12 +124,13 @@ export function mapToWire(map) {
     id: map.id,
     campaignId: map.campaign_id ?? map.campaignId ?? null,
     name: map.name,
-    gridSize: map.grid_size ?? map.gridSize ?? 70,
+    gridSize: map.grid_size ?? map.gridSize ?? DEFAULT_GRID_SIZE,
     width: map.width,
     height: map.height,
     imageUrl: map.image_file
       ? `/assets/maps/${encodeURIComponent(map.image_file)}`
       : null,
+    sceneData: parseSceneData(map.scene_data ?? map.sceneData),
   };
 }
 
@@ -94,11 +140,17 @@ export function mapToWire(map) {
  * Board documents and DM records are permission-filtered here, not in the UI.
  *
  * @param {ReturnType<typeof import('../../database/repositories.js').createRepositories>} repos
- * @param {{ role?: string, playerId?: string|null }} viewer
+ * @param {{ role?: string, playerId?: string|null, campaignId?: number|string|null }} viewer
  */
-export function buildStateSnapshot(repos, { role, playerId } = {}) {
-  const map = repos?.maps?.active?.() ?? repos?.maps?.first?.() ?? null;
-  const campaignId = map?.campaign_id ?? null;
+export function buildStateSnapshot(repos, { role, playerId, campaignId: requestedCampaignId } = {}) {
+  const map =
+    (requestedCampaignId != null && repos?.maps?.activeForCampaign
+      ? repos.maps.activeForCampaign(requestedCampaignId)
+      : null) ??
+    repos?.maps?.active?.() ??
+    repos?.maps?.first?.() ??
+    null;
+  const campaignId = requestedCampaignId ?? map?.campaign_id ?? null;
   const maps =
     campaignId !== null && repos?.maps?.listByCampaign
       ? repos.maps.listByCampaign(campaignId)
@@ -118,12 +170,15 @@ export function buildStateSnapshot(repos, { role, playerId } = {}) {
   }
   const dmRecords =
     isDM && repos?.dmRecords?.listAll ? repos.dmRecords.listAll() : [];
+  const rollHistory = repos?.chat?.diceHistoryFor
+    ? repos.chat.diceHistoryFor(role, 100)
+    : [];
 
   return {
     campaignId,
     map: mapToWire(map),
     maps: maps.map(mapToWire),
-    tokens: tokens.map(tokenToWire),
+    tokens: tokens.map((t) => stripHiddenCombatFields(tokenToWire(t), role)),
     board: board
       ? {
           campaignId,
@@ -134,6 +189,7 @@ export function buildStateSnapshot(repos, { role, playerId } = {}) {
       : null,
     characters: characters.map(characterToWire),
     dmRecords: dmRecords.map(dmRecordToWire),
+    rollHistory,
     serverTime: new Date().toISOString(),
   };
 }
@@ -143,7 +199,7 @@ function clamp(value, min, max) {
 }
 
 function cellCentre(value, grid) {
-  const size = grid > 0 ? grid : 70;
+  const size = grid > 0 ? grid : DEFAULT_GRID_SIZE;
   return Math.floor(value / size) * size + size / 2;
 }
 
@@ -170,6 +226,15 @@ export function registerSocketRouter(io, repos, opts = {}) {
     return sessionManager;
   }
   registeredServers.add(io);
+  const sessionCampaignIds = new Map();
+
+  const resolveActiveMap = (sessionId) => {
+    const campaignId = sessionId ? sessionCampaignIds.get(sessionId) : null;
+    if (campaignId != null && repos?.maps?.activeForCampaign) {
+      return repos.maps.activeForCampaign(campaignId) ?? repos?.maps?.active?.() ?? repos?.maps?.first?.() ?? null;
+    }
+    return repos?.maps?.active?.() ?? repos?.maps?.first?.() ?? null;
+  };
 
   io.on('connection', (socket) => {
     registerSoundboard(socket, { io, sessionManager, roomFor: getSessionRoom, library: opts.soundboard });
@@ -184,6 +249,9 @@ export function registerSocketRouter(io, repos, opts = {}) {
     socket.removeAllListeners(EVENTS.TOKEN_CREATE);
     socket.removeAllListeners(EVENTS.TOKEN_UPDATE);
     socket.removeAllListeners(EVENTS.TOKEN_DELETE);
+    socket.removeAllListeners(EVENTS.MAP_SELECT);
+    socket.removeAllListeners(EVENTS.MAP_UPDATE);
+    socket.removeAllListeners(EVENTS.MAP_DELETE);
     socket.removeAllListeners(EVENTS.DICE_ROLL);
     socket.removeAllListeners(EVENTS.STATE_REQUEST);
     socket.removeAllListeners(EVENTS.AUTOSAVE_COMMIT);
@@ -208,10 +276,41 @@ export function registerSocketRouter(io, repos, opts = {}) {
       else socket.broadcast.emit(event, payload);
     };
 
+    const emitPerSocketRole = (event, buildPayload) => {
+      const room = roomForSocket();
+      const roomSockets = room ? io.sockets?.adapter?.rooms?.get?.(room) : null;
+      if (roomSockets && io.sockets?.sockets) {
+        for (const sid of roomSockets) {
+          const peer = io.sockets.sockets.get(sid);
+          if (peer) peer.emit(event, buildPayload(peer.data?.role));
+        }
+      } else {
+        broadcast(event, buildPayload(socket.data.role));
+      }
+    };
+
+    const broadcastTokenForRole = (event, fullWire) => {
+      emitPerSocketRole(event, (viewerRole) =>
+        stripHiddenCombatFields(fullWire, viewerRole),
+      );
+    };
+
+    const resolveOwnerRole = (ownerId, explicitRole) => {
+      if (ownerId) {
+        const session = socket.data.sessionId
+          ? sessionManager.getSession(socket.data.sessionId)
+          : null;
+        const participant = session?.participants?.get?.(ownerId) ?? null;
+        const fromSession = normalizeOwnerRole(participant?.role);
+        if (fromSession) return fromSession;
+      }
+      return normalizeOwnerRole(explicitRole);
+    };
+
     const isDM = () => socket.data.role === ROLES.DM;
     const isJoined = () => Boolean(socket.data.playerId && socket.data.sessionId);
 
-    const currentMap = () => repos?.maps?.first?.() ?? null;
+    const currentMap = () => resolveActiveMap(socket.data.sessionId);
 
     /** Queue a server-built board snapshot for the mutated campaign. */
     const markBoardDirty = (map, updatedBy) => {
@@ -270,6 +369,21 @@ export function registerSocketRouter(io, repos, opts = {}) {
       socket.data.role = participant.role;
       socket.data.displayName = participant.displayName;
 
+      if (
+        participant.role === ROLES.DM &&
+        typeof payload.campaignKey === 'string' &&
+        payload.campaignKey.trim() &&
+        repos?.campaigns?.ensureByKey
+      ) {
+        const ensured = repos.campaigns.ensureByKey(
+          payload.campaignKey.trim(),
+          typeof payload.campaignName === 'string' ? payload.campaignName : undefined,
+        );
+        if (ensured?.campaign?.id != null) {
+          sessionCampaignIds.set(session.id, ensured.campaign.id);
+        }
+      }
+
       // 1. Deliver authoritative Welcome Packet to joining client
       if (ack) {
         ack({ success: true, welcome });
@@ -288,6 +402,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
           buildStateSnapshot(repos, {
             role: participant.role,
             playerId: participant.id,
+            campaignId: sessionCampaignIds.get(session.id) ?? null,
           }),
         );
       }
@@ -327,6 +442,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
       const state = buildStateSnapshot(repos, {
         role: socket.data.role,
         playerId: socket.data.playerId,
+        campaignId: sessionCampaignIds.get(socket.data.sessionId) ?? null,
       });
       socket.emit(EVENTS.SESSION_STATE, state);
       respond({ ok: true, state });
@@ -421,14 +537,17 @@ export function registerSocketRouter(io, repos, opts = {}) {
       }
       markBoardDirty(map, socket.data.playerId);
 
-      const updated = tokenToWire(repos.tokens.get(id));
-      broadcast(EVENTS.TOKEN_MOVED, {
-        ...updated,
+      const fullWire = tokenToWire(repos.tokens.get(id));
+      const moveMeta = {
         moveId: typeof moveId === 'string' ? moveId : null,
         movedBy: socket.data.playerId,
         serverTime: Date.now(),
-      });
-      respond({ ok: true, token: updated });
+      };
+      emitPerSocketRole(EVENTS.TOKEN_MOVED, (viewerRole) => ({
+        ...stripHiddenCombatFields(fullWire, viewerRole),
+        ...moveMeta,
+      }));
+      respond({ ok: true, token: stripHiddenCombatFields(fullWire, socket.data.role) });
     });
 
     socket.on(EVENTS.TOKEN_CREATE, (payload = {}, maybeAck) => {
@@ -452,7 +571,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
         return;
       }
 
-      const grid = map.grid_size || 70;
+      const grid = map.grid_size || DEFAULT_GRID_SIZE;
       const label =
         typeof payload.label === 'string' && payload.label.trim()
           ? payload.label.trim().slice(0, 40)
@@ -471,6 +590,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
         typeof payload.ownerId === 'string' && payload.ownerId
           ? payload.ownerId
           : null;
+      const ownerRole = resolveOwnerRole(ownerId, payload.ownerRole);
 
       const widthNum = Number(payload.width);
       const heightNum = Number(payload.height);
@@ -481,6 +601,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
         x,
         y,
         ownerId,
+        ownerRole,
         locked: Boolean(payload.locked),
         color: normalizeColor(payload.color),
         isMap: Boolean(payload.isMap),
@@ -491,13 +612,14 @@ export function registerSocketRouter(io, repos, opts = {}) {
         width: Number.isFinite(widthNum) && widthNum > 0 ? widthNum : null,
         height: Number.isFinite(heightNum) && heightNum > 0 ? heightNum : null,
         light: sanitizeLight(payload.light),
+        combat: sanitizeCombat(payload.combat),
         rotation: sanitizeRotation(payload.rotation),
       });
       markBoardDirty(map, socket.data.playerId);
 
       const wire = tokenToWire(token);
-      broadcast(EVENTS.TOKEN_CREATED, wire);
-      respond({ ok: true, token: wire });
+      broadcastTokenForRole(EVENTS.TOKEN_CREATED, wire);
+      respond({ ok: true, token: stripHiddenCombatFields(wire, socket.data.role) });
     });
 
     socket.on(EVENTS.TOKEN_UPDATE, (payload = {}, maybeAck) => {
@@ -510,17 +632,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
         respond({ ok: false, reason: 'board_unavailable' });
         return;
       }
-      const playerAllowed =
-        !isDM() &&
-        !('locked' in payload) &&
-        !('ownerId' in payload) &&
-        !('isMap' in payload) &&
-        (
-          (typeof payload.label === 'string' && payload.label.trim().length > 0) ||
-          'light' in payload ||
-          'rotation' in payload
-        );
-      if (!isJoined() || (!isDM() && !playerAllowed)) {
+      if (!isJoined()) {
         respond({ ok: false, reason: 'forbidden' });
         return;
       }
@@ -529,15 +641,51 @@ export function registerSocketRouter(io, repos, opts = {}) {
         return;
       }
 
+      const existing = repos.tokens.get?.(payload.id) ?? null;
+      if (!existing) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+      const existingWire = tokenToWire(existing);
+
+      if (!isDM()) {
+        const hasForbiddenKeys =
+          'locked' in payload ||
+          'ownerId' in payload ||
+          'ownerRole' in payload ||
+          'isMap' in payload;
+        const hasAllowedKeys =
+          (typeof payload.label === 'string' && payload.label.trim().length > 0) ||
+          'light' in payload ||
+          'rotation' in payload ||
+          'combat' in payload;
+        const mayEditCombat =
+          !('combat' in payload) ||
+          (!existingWire.locked &&
+            existingWire.ownerRole !== 'dm' &&
+            (!existingWire.ownerId || existingWire.ownerId === socket.data.playerId));
+        if (hasForbiddenKeys || !hasAllowedKeys || !mayEditCombat) {
+          respond({ ok: false, reason: 'forbidden' });
+          return;
+        }
+      }
+
       const patch = {};
       if (typeof payload.label === 'string' && payload.label.trim()) {
         patch.label = payload.label.trim().slice(0, 40);
       }
-      if ('ownerId' in payload) {
-        patch.ownerId =
-          typeof payload.ownerId === 'string' && payload.ownerId
-            ? payload.ownerId
-            : null;
+      if ('ownerId' in payload || 'ownerRole' in payload) {
+        const nextOwnerId =
+          'ownerId' in payload
+            ? typeof payload.ownerId === 'string' && payload.ownerId
+              ? payload.ownerId
+              : null
+            : existingWire.ownerId;
+        if ('ownerId' in payload) patch.ownerId = nextOwnerId;
+        patch.ownerRole = resolveOwnerRole(
+          nextOwnerId,
+          'ownerRole' in payload ? payload.ownerRole : undefined,
+        );
       }
       if ('locked' in payload) patch.locked = Boolean(payload.locked);
       if ('color' in payload) patch.color = normalizeColor(payload.color);
@@ -558,6 +706,26 @@ export function registerSocketRouter(io, repos, opts = {}) {
         const h = Number(payload.height);
         patch.height = Number.isFinite(h) && h > 0 ? h : null;
       }
+      if ('combat' in payload) {
+        const sanitized = sanitizeCombat(payload.combat);
+        if (!sanitized) {
+          patch.combat = null;
+        } else {
+          const effectiveToken = {
+            ...existingWire,
+            ownerId: 'ownerId' in patch ? patch.ownerId : existingWire.ownerId,
+            ownerRole: 'ownerRole' in patch ? patch.ownerRole : existingWire.ownerRole,
+          };
+          const viewerCanSeeHp = canViewTokenHp(effectiveToken, socket.data.role);
+          patch.combat = viewerCanSeeHp
+            ? sanitized
+            : {
+                ...sanitized,
+                hp: existingWire.combat?.hp ?? null,
+                maxHp: existingWire.combat?.maxHp ?? null,
+              };
+        }
+      }
 
       const token = repos.tokens.update(payload.id, patch);
       if (!token) {
@@ -567,8 +735,8 @@ export function registerSocketRouter(io, repos, opts = {}) {
       markBoardDirty(currentMap(), socket.data.playerId);
 
       const wire = tokenToWire(token);
-      broadcast(EVENTS.TOKEN_UPDATED, wire);
-      respond({ ok: true, token: wire });
+      broadcastTokenForRole(EVENTS.TOKEN_UPDATED, wire);
+      respond({ ok: true, token: stripHiddenCombatFields(wire, socket.data.role) });
     });
 
     socket.on(EVENTS.TOKEN_DELETE, (payload = {}, maybeAck) => {
@@ -590,6 +758,16 @@ export function registerSocketRouter(io, repos, opts = {}) {
         return;
       }
 
+      const existing = repos.tokens.get?.(payload.id) ?? null;
+      if (!existing) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+      if (Boolean(existing.locked)) {
+        respond({ ok: false, reason: 'locked', token: tokenToWire(existing) });
+        return;
+      }
+
       if (!repos.tokens.delete(payload.id)) {
         respond({ ok: false, reason: 'not_found' });
         return;
@@ -598,6 +776,261 @@ export function registerSocketRouter(io, repos, opts = {}) {
 
       broadcast(EVENTS.TOKEN_DELETED, { id: payload.id });
       respond({ ok: true, id: payload.id });
+    });
+
+    socket.on(EVENTS.MAP_SELECT, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (response) => {
+        if (ack) ack(response);
+      };
+
+      if (!repos?.maps?.setActive || !repos?.tokens?.listByMap) {
+        respond({ ok: false, reason: 'board_unavailable' });
+        return;
+      }
+      if (!isJoined() || !isDM()) {
+        respond({ ok: false, reason: 'forbidden' });
+        return;
+      }
+
+      const active = currentMap();
+      const campaignId =
+        active?.campaign_id ?? sessionCampaignIds.get(socket.data.sessionId) ?? null;
+      if (campaignId == null) {
+        respond({ ok: false, reason: 'no_campaign' });
+        return;
+      }
+
+      let targetMap = null;
+      let wasCreated = false;
+
+      if (payload.mapId != null) {
+        const candidate = repos.maps.get?.(payload.mapId) ?? null;
+        if (candidate && candidate.campaign_id === campaignId) {
+          targetMap = candidate;
+        }
+      }
+      if (!targetMap && typeof payload.name === 'string' && payload.name.trim()) {
+        targetMap = repos.maps.findByName?.(campaignId, payload.name.trim()) ?? null;
+      }
+
+      const reqWidth = Number(payload.width);
+      const reqHeight = Number(payload.height);
+      const reqGrid = Number(payload.gridSize);
+
+      if (!targetMap && payload.createIfMissing !== false) {
+        const cleanName =
+          typeof payload.name === 'string' && payload.name.trim()
+            ? payload.name.trim().slice(0, 80)
+            : '';
+        if (!cleanName) {
+          respond({ ok: false, reason: 'invalid_payload' });
+          return;
+        }
+        const activeScene = active ? parseSceneData(active.scene_data ?? active.sceneData) : null;
+        const activeIsEmptyUntitled =
+          active &&
+          active.name === 'Untitled Scene' &&
+          !active.image_file &&
+          repos.tokens.listByMap(active.id).length === 0 &&
+          activeScene.fogShapes.length === 0 &&
+          activeScene.walls.length === 0;
+
+        if (activeIsEmptyUntitled && repos.maps.update) {
+          targetMap = repos.maps.update(active.id, {
+            name: cleanName,
+            ...(Number.isFinite(reqWidth) && reqWidth > 0 ? { width: reqWidth } : {}),
+            ...(Number.isFinite(reqHeight) && reqHeight > 0 ? { height: reqHeight } : {}),
+            ...(Number.isFinite(reqGrid) && reqGrid > 0 ? { gridSize: reqGrid } : {}),
+          });
+        } else if (repos.maps.create) {
+          targetMap = repos.maps.create({
+            campaignId,
+            name: cleanName,
+            ...(Number.isFinite(reqWidth) && reqWidth > 0 ? { width: reqWidth } : {}),
+            ...(Number.isFinite(reqHeight) && reqHeight > 0 ? { height: reqHeight } : {}),
+            ...(Number.isFinite(reqGrid) && reqGrid > 0 ? { gridSize: reqGrid } : {}),
+          });
+        }
+        wasCreated = Boolean(targetMap);
+      }
+
+      if (!targetMap) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+
+      repos.maps.setActive(campaignId, targetMap.id);
+      const tokens = repos.tokens.listByMap(targetMap.id);
+      const maps = repos.maps.listByCampaign ? repos.maps.listByCampaign(campaignId) : [targetMap];
+      markBoardDirty(targetMap, socket.data.playerId);
+
+      const basePayload = {
+        ok: true,
+        map: mapToWire(targetMap),
+        maps: maps.map(mapToWire),
+        wasCreated,
+      };
+      const rawTokens = tokens.map(tokenToWire);
+      emitPerSocketRole(EVENTS.MAP_SELECTED, (viewerRole) => ({
+        ...basePayload,
+        tokens: rawTokens.map((t) => stripHiddenCombatFields(t, viewerRole)),
+      }));
+      respond({
+        ...basePayload,
+        tokens: rawTokens.map((t) => stripHiddenCombatFields(t, socket.data.role)),
+      });
+    });
+
+    socket.on(EVENTS.MAP_UPDATE, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (response) => {
+        if (ack) ack(response);
+      };
+
+      if (!repos?.maps?.update) {
+        respond({ ok: false, reason: 'board_unavailable' });
+        return;
+      }
+      if (!isJoined()) {
+        respond({ ok: false, reason: 'forbidden' });
+        return;
+      }
+
+      const active = currentMap();
+      const targetId = payload.id ?? active?.id;
+      const target = targetId != null ? repos.maps.get?.(targetId) ?? null : null;
+      if (!target) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+
+      if (!isDM()) {
+        // Players may only persist door open/close toggles inside sceneData.walls
+        const onlySceneData =
+          Object.keys(payload).every((k) => k === 'id' || k === 'sceneData') &&
+          payload.sceneData &&
+          typeof payload.sceneData === 'object';
+        const existingScene = parseSceneData(target.scene_data ?? target.sceneData);
+        const nextWalls = Array.isArray(payload.sceneData?.walls) ? payload.sceneData.walls : null;
+        const nextFog = Array.isArray(payload.sceneData?.fogShapes)
+          ? payload.sceneData.fogShapes
+          : null;
+        const doorToggleOnly =
+          onlySceneData &&
+          nextFog &&
+          nextWalls &&
+          nextFog.length === existingScene.fogShapes.length &&
+          nextWalls.length === existingScene.walls.length &&
+          nextWalls.every((w, idx) => {
+            const prev = existingScene.walls[idx];
+            return (
+              prev &&
+              w?.id === prev.id &&
+              Boolean(w.isDoor) === Boolean(prev.isDoor) &&
+              (Boolean(w.isDoor) || Boolean(w.isOpen) === Boolean(prev.isOpen))
+            );
+          });
+        if (!doorToggleOnly) {
+          respond({ ok: false, reason: 'forbidden' });
+          return;
+        }
+      }
+
+      const patch = {};
+      if (typeof payload.name === 'string' && payload.name.trim()) {
+        patch.name = payload.name.trim().slice(0, 80);
+      }
+      if ('gridSize' in payload) {
+        const g = Number(payload.gridSize);
+        if (Number.isFinite(g) && g > 0) {
+          patch.gridSize = clamp(Math.round(g), MIN_GRID_SIZE, MAX_GRID_SIZE);
+        }
+      }
+      if ('width' in payload) {
+        const w = Number(payload.width);
+        if (Number.isFinite(w) && w > 0) patch.width = Math.round(w);
+      }
+      if ('height' in payload) {
+        const h = Number(payload.height);
+        if (Number.isFinite(h) && h > 0) patch.height = Math.round(h);
+      }
+      if ('sceneData' in payload && payload.sceneData && typeof payload.sceneData === 'object') {
+        patch.sceneData = parseSceneData(payload.sceneData);
+      }
+
+      const updated = repos.maps.update(target.id, patch);
+      if (!updated) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+      markBoardDirty(updated, socket.data.playerId);
+
+      const wire = mapToWire(updated);
+      broadcast(EVENTS.MAP_UPDATED, { map: wire });
+      respond({ ok: true, map: wire });
+    });
+
+    socket.on(EVENTS.MAP_DELETE, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (response) => {
+        if (ack) ack(response);
+      };
+
+      if (!repos?.maps?.delete) {
+        respond({ ok: false, reason: 'board_unavailable' });
+        return;
+      }
+      if (!isJoined() || !isDM()) {
+        respond({ ok: false, reason: 'forbidden' });
+        return;
+      }
+
+      const active = currentMap();
+      const campaignId =
+        active?.campaign_id ?? sessionCampaignIds.get(socket.data.sessionId) ?? null;
+
+      let target = null;
+      if (payload.id != null) {
+        const candidate = repos.maps.get?.(payload.id) ?? null;
+        if (candidate && (campaignId == null || candidate.campaign_id === campaignId)) {
+          target = candidate;
+        }
+      } else if (typeof payload.name === 'string' && payload.name.trim() && campaignId != null) {
+        target = repos.maps.findByName?.(campaignId, payload.name.trim()) ?? null;
+      }
+
+      if (!target) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+
+      const { deleted, activeMap: nextActive } = repos.maps.delete(target.id);
+      const maps =
+        campaignId != null && repos.maps.listByCampaign
+          ? repos.maps.listByCampaign(campaignId)
+          : nextActive
+            ? [nextActive]
+            : [];
+      const tokens = nextActive && repos.tokens?.listByMap ? repos.tokens.listByMap(nextActive.id) : [];
+      if (nextActive) markBoardDirty(nextActive, socket.data.playerId);
+
+      const basePayload = {
+        ok: true,
+        deleted,
+        deletedId: target.id,
+        map: mapToWire(nextActive),
+        maps: maps.map(mapToWire),
+      };
+      const rawTokens = tokens.map(tokenToWire);
+      emitPerSocketRole(EVENTS.MAP_DELETED, (viewerRole) => ({
+        ...basePayload,
+        tokens: rawTokens.map((t) => stripHiddenCombatFields(t, viewerRole)),
+      }));
+      respond({
+        ...basePayload,
+        tokens: rawTokens.map((t) => stripHiddenCombatFields(t, socket.data.role)),
+      });
     });
 
     socket.on(EVENTS.DICE_ROLL, (rawPayload, maybeAck) => {

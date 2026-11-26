@@ -7,7 +7,7 @@ export const campaigns = [
     chapter: 'Chapter III · Beneath the tide',
     description:
       'The lighthouse at Greyhaven has gone dark. Beyond the breakwater, an old sanctuary waits beneath the sea.',
-    scene: 'Drowned Sanctuary',
+    scene: 'Untitled Scene',
     sessions: 8,
   },
   {
@@ -17,7 +17,7 @@ export const campaigns = [
     chapter: 'Chapter I · The long road',
     description:
       'A winter caravan, a missing envoy, and a road that no longer appears on any map.',
-    scene: 'Northwatch Crossing',
+    scene: 'Untitled Scene',
     sessions: 2,
   },
 ];
@@ -51,7 +51,7 @@ export const party = [
   },
 ];
 export const assets = {
-  Scenes: ['Drowned Sanctuary', 'Greyhaven Docks', 'The Old Lighthouse'],
+  Scenes: [],
   Characters: ['Mira', 'Thorne', 'Ilyra'],
   Maps: ['Sanctuary floor plan', 'The Sunken Coast'],
   Props: ['Stone altar', 'Iron chest', 'Brazier'],

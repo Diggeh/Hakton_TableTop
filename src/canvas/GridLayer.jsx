@@ -1,17 +1,17 @@
 import { Shape } from 'react-konva';
+import { DEFAULT_GRID_SIZE } from '../../shared/events.js';
 import { canvasStore } from './canvasStore.js';
 
-const MINOR = 'rgba(122, 186, 201, 0.16)';
-const MAJOR = 'rgba(173, 252, 249, 0.26)';
+const GRID_LINE = 'rgba(148, 210, 218, 0.22)';
 
 /**
- * A single Konva shape draws every visible grid line. This scales to large
- * maps (thousands of cells) without creating thousands of React nodes.
+ * A single Konva shape draws every visible grid line uniformly. This scales
+ * to large maps (thousands of cells) without creating thousands of React nodes.
  */
-export default function GridLayer({ map, gridSize }) {
-  const grid = gridSize > 0 ? gridSize : 70;
+export default function GridLayer({ gridSize }) {
+  const grid = gridSize > 0 ? gridSize : DEFAULT_GRID_SIZE;
 
-  const sceneFunc = (context, shape) => {
+  const sceneFunc = (context) => {
     const { viewport, viewportSize } = canvasStore.getState();
     const { x, y, scale } = viewport;
     if (!viewportSize.width || !viewportSize.height || !scale) return;
@@ -27,48 +27,24 @@ export default function GridLayer({ map, gridSize }) {
     const lastColumn = Math.floor(right / grid);
     const firstRow = Math.ceil(top / grid);
     const lastRow = Math.floor(bottom / grid);
-    const isMajor = (n) => ((n % 5) + 5) % 5 === 0;
 
     const line = 1 / scale;
 
     context.save();
-
-    // Minor lines.
     context.beginPath();
     for (let column = firstColumn; column <= lastColumn; column += 1) {
-      if (isMajor(column)) continue;
       const lineX = column * grid;
       context.moveTo(lineX, top);
       context.lineTo(lineX, bottom);
     }
     for (let row = firstRow; row <= lastRow; row += 1) {
-      if (isMajor(row)) continue;
       const lineY = row * grid;
       context.moveTo(left, lineY);
       context.lineTo(right, lineY);
     }
-    context.setAttr('strokeStyle', MINOR);
+    context.setAttr('strokeStyle', GRID_LINE);
     context.setAttr('lineWidth', line);
     context.stroke();
-
-    // Major lines every five squares.
-    context.beginPath();
-    for (let column = firstColumn; column <= lastColumn; column += 1) {
-      if (!isMajor(column)) continue;
-      const lineX = column * grid;
-      context.moveTo(lineX, top);
-      context.lineTo(lineX, bottom);
-    }
-    for (let row = firstRow; row <= lastRow; row += 1) {
-      if (!isMajor(row)) continue;
-      const lineY = row * grid;
-      context.moveTo(left, lineY);
-      context.lineTo(right, lineY);
-    }
-    context.setAttr('strokeStyle', MAJOR);
-    context.setAttr('lineWidth', line * 1.6);
-    context.stroke();
-
     context.restore();
   };
 

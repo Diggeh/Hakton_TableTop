@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { DICE_VISIBILITY } from '../../shared/dice/constants.js';
 import { ROLES } from '../../shared/events.js';
 import { rollFormula } from '../../shared/dice/roller.js';
@@ -21,6 +21,7 @@ import { party } from './fixtures.js';
 import CharacterSheet from './CharacterSheet.jsx';
 import Compendium from './Compendium.jsx';
 import AutosaveStatus from './AutosaveStatus.jsx';
+import InitiativeTracker from './InitiativeTracker.jsx';
 import Soundboard from './Soundboard.jsx';
 import { IconButton, Modal } from './Primitives.jsx';
 
@@ -48,9 +49,11 @@ export default function Tabletop({
   name,
   userId,
   hostUrl: propHostUrl,
+  onScenePersisted,
   onLeave,
 }) {
   const [playersOpen, setPlayersOpen] = useState(false);
+  const [initiativeOpen, setInitiativeOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [diceOpen, setDiceOpen] = useState(false);
   const [soundboardOpen, setSoundboardOpen] = useState(false);
@@ -59,7 +62,14 @@ export default function Tabletop({
   const [assetManagerTab, setAssetManagerTab] = useState('Scenes');
 
   const hostUrl = role === 'Player' ? (propHostUrl ?? campaign?.hostUrl) : undefined;
-  const [scene, setScene] = useState(campaign?.scene ?? 'Drowned Sanctuary');
+  const [scene, setScene] = useState(campaign?.scene || 'Untitled Scene');
+  const activeMapName = useSession((state) => state.map?.name);
+  useEffect(() => {
+    if (activeMapName) {
+      setScene(activeMapName);
+      onScenePersisted?.(activeMapName);
+    }
+  }, [activeMapName, onScenePersisted]);
   const [modal, setModal] = useState(null);
   const soundboardId = useId();
   const soundboardContentId = useId();
@@ -153,9 +163,12 @@ export default function Tabletop({
           displayName={name}
           userId={userId}
           hostUrl={hostUrl}
+          campaignId={campaign?.id}
+          campaignName={campaign?.name}
           scene={scene}
           role={role}
           playersOpen={playersOpen}
+          initiativeOpen={initiativeOpen}
           diceOpen={diceOpen}
           chatOpen={chatOpen}
           soundboardOpen={soundboardOpen}
@@ -166,6 +179,7 @@ export default function Tabletop({
             if (action === 'sheet') inspect('Mira');
             else if (action === 'home') setModal('leave');
             else if (action === 'players') setPlayersOpen((v) => !v);
+            else if (action === 'initiative') setInitiativeOpen((v) => !v);
             else if (action === 'dice') setDiceOpen((v) => !v);
             else if (action === 'chat') setChatOpen((v) => !v);
             else if (action === 'soundboard') {
@@ -186,7 +200,7 @@ export default function Tabletop({
           onInspectAsset={inspect}
         />
 
-        {(playersOpen || diceOpen || soundboardOpen) && (
+        {(playersOpen || initiativeOpen || diceOpen || soundboardOpen) && (
           <div className="floating-stack-top-left">
             {playersOpen && (
               <aside
@@ -208,6 +222,10 @@ export default function Tabletop({
                   <SessionStatus />
                 </div>
               </aside>
+            )}
+
+            {initiativeOpen && (
+              <InitiativeTracker onClose={() => setInitiativeOpen(false)} />
             )}
 
             {diceOpen && (

@@ -1,9 +1,16 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
+  DEFAULT_GRID_SIZE,
+  MAX_GRID_SIZE,
+  MIN_GRID_SIZE,
+} from '../../shared/events.js';
+import {
   connect,
   createToken,
   deleteToken,
   resolveAssetUrl,
+  selectSceneMap,
+  updateSceneMap,
   updateToken,
 } from '../net/socket.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
@@ -11,6 +18,7 @@ import { assetStore } from '../store/assetStore.js';
 import { canvasStore, useCanvas } from '../canvas/canvasStore.js';
 import {
   MAX_SCALE,
+  fitViewport,
   mapToScreen,
   screenToMap,
   snapPoint,
@@ -19,6 +27,8 @@ import DiceOverlay from '../dice/DiceOverlay.jsx';
 import { party } from './fixtures.js';
 import ToolIcon from './ToolIcon.jsx';
 import AddTokenDialog from './AddTokenDialog.jsx';
+import HpRing from './HpRing.jsx';
+import { canViewTokenHp } from '../../shared/combat.js';
 import { useUploadedCategoryAssetEntries } from './AssetsPanel.jsx';
 import { IconButton } from './Primitives.jsx';
 
@@ -30,10 +40,13 @@ export default function Board({
   displayName,
   userId,
   hostUrl,
+  campaignId,
+  campaignName,
   scene,
   role,
   playersOpen = false,
   diceOpen = false,
+  initiativeOpen = false,
   chatOpen = false,
   soundboardOpen = false,
   soundboardId,
@@ -50,9 +63,11 @@ export default function Board({
   const [error, setError] = useState('');
   const [addTokenOpen, setAddTokenOpen] = useState(false);
   const [fogMenuOpen, setFogMenuOpen] = useState(false);
+  const [gridMenuOpen, setGridMenuOpen] = useState(false);
   const [renamingTokenId, setRenamingTokenId] = useState(null);
   const [renameDraft, setRenameDraft] = useState('');
-  const [lightMenuOpen, setLightMenuOpen] = useState(false);
+  const [propertyMenuOpen, setPropertyMenuOpen] = useState(false);
+  const [propertyMenuTab, setPropertyMenuTab] = useState('combat');
 
   const connection = useSession((s) => s.connection);
   const connectionError = useSession((s) => s.connectionError);
@@ -71,10 +86,13 @@ export default function Board({
   const draggingRotations = useCanvas((s) => s.draggingRotations);
   const draggingTransforms = useCanvas((s) => s.draggingTransforms);
   const fogTool = useCanvas((s) => s.fogTool);
+  const selectTool = useCanvas((s) => s.selectTool);
   const playerVisionPreview = useCanvas((s) => s.playerVisionPreview);
 
   const trayEntries = useUploadedCategoryAssetEntries(assetTrayCategory || 'Scenes');
   const lightSyncTimersRef = useRef(new Map());
+  const combatSyncTimersRef = useRef(new Map());
+  const gridSyncTimerRef = useRef(null);
 
   const currentUser = useSession((s) => s.currentUser);
   const isDM =
@@ -82,6 +100,15 @@ export default function Board({
     role === 'dm' ||
     currentUser?.role === 'dm' ||
     currentUser?.isHost;
+  const viewerRole = isDM ? 'dm' : 'player';
+  const myParticipantId = currentUser?.id || currentUser?.userId || userId || null;
+  const connectedParticipants = [...participants]
+    .filter((p) => p.connected)
+    .sort((a, b) => {
+      if (a.role === 'dm' && b.role !== 'dm') return -1;
+      if (b.role === 'dm' && a.role !== 'dm') return 1;
+      return String(a.displayName || '').localeCompare(String(b.displayName || ''));
+    });
   const selectedTokens = selectedIds
     .map((id) => tokens[id])
     .filter(Boolean);
@@ -91,21 +118,30 @@ export default function Board({
   const allSelectedLocked =
     selectedTokens.length > 0 && selectedTokens.every((token) => token.locked);
 
-  // Clean up pending debounced light sync timers on unmount
+  // Clean up pending debounced light, combat & grid sync timers on unmount
   useEffect(() => {
     const timers = lightSyncTimersRef.current;
+    const combatTimers = combatSyncTimersRef.current;
     return () => {
       for (const timer of timers.values()) {
         clearTimeout(timer);
       }
       timers.clear();
+      for (const timer of combatTimers.values()) {
+        clearTimeout(timer);
+      }
+      combatTimers.clear();
+      if (gridSyncTimerRef.current) {
+        clearTimeout(gridSyncTimerRef.current);
+        gridSyncTimerRef.current = null;
+      }
     };
   }, []);
 
-  // Close inline rename & light popover ONLY when switching or clearing selected token ID
+  // Close inline rename & properties popover ONLY when switching or clearing selected token ID
   useEffect(() => {
     setRenamingTokenId(null);
-    setLightMenuOpen(false);
+    setPropertyMenuOpen(false);
   }, [selectedTokenId]);
 
   function handleToggleLight(token) {
@@ -130,10 +166,107 @@ export default function Board({
     sessionStore.getState().upsertToken(updatedToken);
     updateToken(token.id, { light: updatedLight });
     if (!hasLight) {
-      setLightMenuOpen(true);
+      setPropertyMenuTab('light');
+      setPropertyMenuOpen(true);
+    } else if (token.combat?.enabled) {
+      setPropertyMenuTab('combat');
     } else {
-      setLightMenuOpen(false);
+      setPropertyMenuOpen(false);
     }
+  }
+
+  function buildCombatWirePayload(token, nextCombat) {
+    if (canViewTokenHp(token, viewerRole, participants)) {
+      return nextCombat;
+    }
+    // Preserve hidden HP on the server when a viewer without HP visibility edits combat/initiative
+    return {
+      enabled: Boolean(nextCombat.enabled),
+      initiative: nextCombat.initiative ?? null,
+    };
+  }
+
+  function handleToggleCombat(token) {
+    if (!token) return;
+    const timers = combatSyncTimersRef.current;
+    if (timers.has(token.id)) {
+      clearTimeout(timers.get(token.id));
+      timers.delete(token.id);
+    }
+    const wasInCombat = Boolean(token.combat?.enabled);
+    const canViewHp = canViewTokenHp(token, viewerRole, participants);
+    const nextCombat = {
+      enabled: !wasInCombat,
+      initiative: !wasInCombat ? token.combat?.initiative ?? null : null,
+      hp: canViewHp ? token.combat?.hp ?? 10 : token.combat?.hp ?? null,
+      maxHp: canViewHp ? token.combat?.maxHp ?? 10 : token.combat?.maxHp ?? null,
+      ...(token.combat?.hpHidden ? { hpHidden: true } : {}),
+    };
+    const updatedToken = { ...token, combat: nextCombat };
+    sessionStore.getState().upsertToken(updatedToken);
+    updateToken(token.id, { combat: buildCombatWirePayload(token, nextCombat) });
+    if (!wasInCombat) {
+      setPropertyMenuTab('combat');
+      setPropertyMenuOpen(true);
+    } else if (token.light?.enabled) {
+      setPropertyMenuTab('light');
+    } else {
+      setPropertyMenuOpen(false);
+    }
+  }
+
+  function handleUpdateCombat(token, updates, { immediate = false } = {}) {
+    if (!token) return;
+    const canViewHp = canViewTokenHp(token, viewerRole, participants);
+    const currentCombat = token.combat || {
+      enabled: true,
+      initiative: null,
+      hp: canViewHp ? 10 : null,
+      maxHp: canViewHp ? 10 : null,
+    };
+    const nextCombat = {
+      ...currentCombat,
+      ...updates,
+      enabled: updates.enabled ?? currentCombat.enabled ?? true,
+    };
+    sessionStore.getState().upsertToken({ ...token, combat: nextCombat });
+
+    const timers = combatSyncTimersRef.current;
+    if (timers.has(token.id)) {
+      clearTimeout(timers.get(token.id));
+      timers.delete(token.id);
+    }
+    if (immediate) {
+      updateToken(token.id, { combat: buildCombatWirePayload(token, nextCombat) });
+    } else {
+      const timer = setTimeout(() => {
+        timers.delete(token.id);
+        const latest = sessionStore.getState().tokens[token.id] || token;
+        const latestCombat = latest.combat || nextCombat;
+        updateToken(token.id, { combat: buildCombatWirePayload(latest, latestCombat) });
+      }, 120);
+      timers.set(token.id, timer);
+    }
+  }
+
+  function handleChangeTokenOwner(token, nextOwnerId) {
+    if (!token || !isDM) return;
+    const cleanOwnerId = nextOwnerId || null;
+    const target = participants.find((p) => p.id === cleanOwnerId) || null;
+    const nextOwnerRole = target
+      ? target.role === 'dm'
+        ? 'dm'
+        : 'player'
+      : null;
+    sessionStore.getState().upsertToken({
+      ...token,
+      ownerId: cleanOwnerId,
+      ownerRole: nextOwnerRole,
+    });
+    updateToken(token.id, {
+      ownerId: cleanOwnerId,
+      ownerRole: nextOwnerRole,
+    });
   }
 
   function handleUpdateLight(token, updates, { immediate = false } = {}) {
@@ -203,6 +336,42 @@ export default function Board({
   }
 
   function handleResetZoom() {
+    const placedMaps = Object.values(sessionStore.getState().tokens || {}).filter(
+      (t) => t.isMap,
+    );
+    if (placedMaps.length > 0 && size.width > 0 && size.height > 0) {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const m of placedMaps) {
+        const halfW = (m.width || 800) / 2;
+        const halfH = (m.height || 600) / 2;
+        minX = Math.min(minX, m.x - halfW);
+        minY = Math.min(minY, m.y - halfH);
+        maxX = Math.max(maxX, m.x + halfW);
+        maxY = Math.max(maxY, m.y + halfH);
+      }
+      const boxW = Math.max(1, maxX - minX);
+      const boxH = Math.max(1, maxY - minY);
+      const fitted = fitViewport(boxW, boxH, size.width, size.height, 0.92);
+      canvasStore.getState().setViewport({
+        x: fitted.x - minX * fitted.scale,
+        y: fitted.y - minY * fitted.scale,
+        scale: fitted.scale,
+      });
+      return;
+    }
+    const mapW = map?.width || 1920;
+    const mapH = map?.height || 1080;
+    if (size.width > 0 && size.height > 0) {
+      canvasStore.getState().setViewport({
+        x: Math.round((size.width - mapW) / 2),
+        y: Math.round((size.height - mapH) / 2),
+        scale: 1,
+      });
+      return;
+    }
     canvasStore.getState().fit();
   }
 
@@ -210,11 +379,46 @@ export default function Board({
     canvasStore.getState().toggleGrid();
   }
 
+  function handleGridSizeChange(nextValue, { immediate = false } = {}) {
+    const clamped = Math.min(
+      MAX_GRID_SIZE,
+      Math.max(MIN_GRID_SIZE, Math.round(Number(nextValue) || DEFAULT_GRID_SIZE)),
+    );
+    const currentMap = sessionStore.getState().map || {
+      id: 1,
+      name: scene || 'Untitled Scene',
+      width: 1920,
+      height: 1080,
+    };
+    sessionStore.getState().setMap({ ...currentMap, gridSize: clamped });
+
+    if (gridSyncTimerRef.current) {
+      clearTimeout(gridSyncTimerRef.current);
+      gridSyncTimerRef.current = null;
+    }
+    if (immediate) {
+      void updateSceneMap({ id: currentMap.id, gridSize: clamped });
+    } else {
+      gridSyncTimerRef.current = setTimeout(() => {
+        gridSyncTimerRef.current = null;
+        const latestMap = sessionStore.getState().map;
+        void updateSceneMap({
+          id: latestMap?.id ?? currentMap.id,
+          gridSize: latestMap?.gridSize ?? clamped,
+        });
+      }, 100);
+    }
+  }
+
   async function handleDeleteSelected() {
     const ids = [...canvasStore.getState().selectedIds];
     if (ids.length === 0) return;
-    canvasStore.getState().clearSelection();
-    await Promise.all(ids.map((id) => deleteToken(id)));
+    const currentTokens = sessionStore.getState().tokens;
+    const deletable = ids.filter((id) => !currentTokens[id]?.locked);
+    if (deletable.length === 0) return;
+    const remaining = ids.filter((id) => !deletable.includes(id));
+    canvasStore.getState().setSelection(remaining);
+    await Promise.all(deletable.map((id) => deleteToken(id)));
   }
 
   async function handleToggleLock() {
@@ -242,90 +446,89 @@ export default function Board({
 
   async function handleSelectScene(newSceneName, assetHint = null) {
     if (!newSceneName) return;
-    const currentSceneName = scene || map?.name || 'Active Scene';
+    const currentSceneName = scene || map?.name || 'Untitled Scene';
     const nextKey = String(newSceneName).trim().toLowerCase();
     const currKey = String(currentSceneName).trim().toLowerCase();
     if (nextKey === currKey) return;
 
     canvasStore.getState().clearSelection();
-    sessionStore.getState().saveSceneSnapshot(currentSceneName);
-    sessionStore.getState().loadSceneAssets(newSceneName);
 
-    const saved = sessionStore.getState().sceneAssets?.[nextKey];
+    const storeAssets = assetStore.getState().assets;
+    const matchingAsset =
+      (assetHint?.id ? storeAssets.find((a) => a.id === assetHint.id) : null) ||
+      storeAssets.find(
+        (a) =>
+          (a.category || '').toLowerCase() === 'scenes' &&
+          (a.name || '').toLowerCase() === nextKey,
+      ) ||
+      null;
+    const resolvedUrl =
+      assetHint?.url ||
+      matchingAsset?.url ||
+      (matchingAsset?.id
+        ? `/assets/${encodeURIComponent(matchingAsset.id)}/file`
+        : null);
 
-    if (!saved) {
-      const storeAssets = assetStore.getState().assets;
-      const matchingAsset =
-        (assetHint?.id ? storeAssets.find((a) => a.id === assetHint.id) : null) ||
-        storeAssets.find(
-          (a) =>
-            (a.category || '').toLowerCase() === 'scenes' &&
-            (a.name || '').toLowerCase() === nextKey,
-        ) ||
-        null;
-      const resolvedUrl =
-        assetHint?.url ||
-        matchingAsset?.url ||
-        (matchingAsset?.id
-          ? `/assets/${encodeURIComponent(matchingAsset.id)}/file`
-          : null);
+    const rawW = Number(assetHint?.width || matchingAsset?.width) || 1920;
+    const rawH = Number(assetHint?.height || matchingAsset?.height) || 1080;
+    const alignScale =
+      Number(assetHint?.metadata?.scale || matchingAsset?.metadata?.scale) || 100;
+    const placedW = Math.max(80, Math.round(rawW * (alignScale / 100)));
+    const placedH = Math.max(80, Math.round(rawH * (alignScale / 100)));
+    const sceneGridSize =
+      Number(assetHint?.metadata?.gridSize || matchingAsset?.metadata?.gridSize) ||
+      DEFAULT_GRID_SIZE;
 
-      const currentMap = sessionStore.getState().map || {
-        id: 1,
-        width: 1400,
-        height: 980,
-        gridSize: 70,
+    const selectResult = await selectSceneMap({
+      name: newSceneName,
+      createIfMissing: true,
+      width: placedW,
+      height: placedH,
+      gridSize: sceneGridSize,
+    });
+
+    const activeTokens = Object.values(sessionStore.getState().tokens || {});
+    const hasPlacedMap = activeTokens.some((t) => t.isMap);
+    const activeMap = sessionStore.getState().map;
+
+    // Imported scene images are spawned once inside that scene as movable/resizable/rotatable/lockable map objects
+    if (resolvedUrl && !hasPlacedMap) {
+      const centerW = activeMap?.width || placedW;
+      const centerH = activeMap?.height || placedH;
+      const sceneTokenPayload = {
+        label: newSceneName,
+        x: Math.round(centerW / 2),
+        y: Math.round(centerH / 2),
+        color: '#8fd2c5',
+        isMap: true,
+        imageUrl: resolvedUrl,
+        width: placedW,
+        height: placedH,
+        rotation: 0,
       };
-      const sceneWidth = currentMap.width || 1400;
-      const sceneHeight = currentMap.height || 980;
-      sessionStore.getState().setMap({
-        ...currentMap,
-        name: newSceneName,
-        imageUrl: null,
-        width: sceneWidth,
-        height: sceneHeight,
-      });
-      sessionStore.getState().setSelectedMapAsset(null);
-
-      // Imported scene images are spawned once inside that scene as movable/resizable/rotatable/lockable map objects
-      if (resolvedUrl) {
-        let placedW = Number(assetHint?.width || matchingAsset?.width) || 1000;
-        let placedH = Number(assetHint?.height || matchingAsset?.height) || 700;
-        const alignScale =
-          Number(assetHint?.metadata?.scale || matchingAsset?.metadata?.scale) || 100;
-        placedW = Math.round(placedW * (alignScale / 100));
-        placedH = Math.round(placedH * (alignScale / 100));
-        const maxW = sceneWidth * 0.95;
-        const maxH = sceneHeight * 0.95;
-        if (placedW > maxW || placedH > maxH) {
-          const ratio = Math.min(maxW / placedW, maxH / placedH);
-          placedW = Math.round(placedW * ratio);
-          placedH = Math.round(placedH * ratio);
-        }
-
-        const sceneTokenPayload = {
-          label: newSceneName,
-          x: Math.round(sceneWidth / 2),
-          y: Math.round(sceneHeight / 2),
-          color: '#8fd2c5',
-          isMap: true,
-          imageUrl: resolvedUrl,
-          width: placedW,
-          height: placedH,
-          rotation: 0,
-        };
-        const res = await createToken(sceneTokenPayload);
-        if (!res?.ok || !res?.token) {
-          sessionStore.getState().upsertToken({
-            ...sceneTokenPayload,
-            id: `tok_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            mapId: currentMap.id ?? 1,
-            locked: false,
-          });
-        }
+      const res = await createToken(sceneTokenPayload);
+      if (!res?.ok || !res?.token) {
+        sessionStore.getState().upsertToken({
+          ...sceneTokenPayload,
+          id: `tok_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          mapId: activeMap?.id ?? 1,
+          locked: false,
+        });
       }
+    }
 
+    if (selectResult?.ok) {
       sessionStore.getState().saveSceneSnapshot(newSceneName);
+    }
+
+    if (size.width > 0 && size.height > 0) {
+      const viewW = activeMap?.width || placedW;
+      const viewH = activeMap?.height || placedH;
+      canvasStore.getState().setViewport({
+        x: Math.round((size.width - viewW) / 2),
+        y: Math.round((size.height - viewH) / 2),
+        scale: 1,
+      });
     }
 
     onSelectScene?.(newSceneName);
@@ -374,9 +577,7 @@ export default function Board({
       ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
       : { x: size.width / 2, y: size.height / 2 };
     const mapPt = screenToMap(canvasStore.getState().viewport, screenPt);
-    const grid = map?.gridSize || 70;
-    const mapWidth = map?.width || 1400;
-    const mapHeight = map?.height || 980;
+    const grid = map?.gridSize || DEFAULT_GRID_SIZE;
     const isMapAsset =
       category.toLowerCase() === 'maps' ||
       String(payload.category || '').toLowerCase() === 'maps';
@@ -430,15 +631,8 @@ export default function Board({
       placedH = Number(payload.height || matchingAsset?.height) || 600;
       const alignScale =
         Number(payload.metadata?.scale || matchingAsset?.metadata?.scale) || 100;
-      placedW = Math.round(placedW * (alignScale / 100));
-      placedH = Math.round(placedH * (alignScale / 100));
-      const maxW = mapWidth * 0.9;
-      const maxH = mapHeight * 0.9;
-      if (placedW > maxW || placedH > maxH) {
-        const ratio = Math.min(maxW / placedW, maxH / placedH);
-        placedW = Math.round(placedW * ratio);
-        placedH = Math.round(placedH * ratio);
-      }
+      placedW = Math.max(80, Math.round(placedW * (alignScale / 100)));
+      placedH = Math.max(80, Math.round(placedH * (alignScale / 100)));
     }
 
     const tokenPayload = {
@@ -490,19 +684,22 @@ export default function Board({
         userId,
         role: role === 'DM' ? 'dm' : 'player',
         url: hostUrl || undefined,
+        campaignKey: role === 'DM' ? campaignId : undefined,
+        campaignName: role === 'DM' ? campaignName : undefined,
       })
         .then(() => setError(''))
         .catch((e) => setError(e.message));
-  }, [displayName, userId, role, hostUrl]);
+  }, [displayName, userId, role, hostUrl, campaignId, campaignName]);
 
   const activeMapStates = {
     players: playersOpen,
     dice: diceOpen,
+    initiative: initiativeOpen,
     soundboard: soundboardOpen,
   };
 
   // Compute screen coordinates for the single-selected token's floating popup bar & non-obstructing Light menu
-  const grid = map?.gridSize || 70;
+  const grid = map?.gridSize || DEFAULT_GRID_SIZE;
   const isSelectedTokenDragging = Boolean(
     singleSelectedToken &&
       (draggingIds.includes(singleSelectedToken.id) ||
@@ -597,13 +794,12 @@ export default function Board({
                   players: 'Players',
                   dice: 'Dice tray',
                   sheet: 'Character sheet',
-                  initiative: 'Initiative tracker — unavailable',
+                  initiative: 'Initiative tracker',
                   notes: 'DM screen',
                   compendium: 'Compendium',
                   soundboard: 'Music box',
                 }[action]
               }
-              disabled={action === 'initiative'}
               aria-pressed={isToggle ? isOpen : undefined}
               aria-expanded={isToggle ? isOpen : undefined}
               aria-controls={action === 'soundboard' ? soundboardId : undefined}
@@ -614,15 +810,6 @@ export default function Board({
           );
         })}
       </nav>
-      <div className="board-caption" role="status">
-        <span className="scene-indicator" />
-        <strong>{scene || map?.name || 'Active Scene'}</strong>
-        {map?.width && map?.height ? (
-          <span>
-            {map.width} × {map.height}
-          </span>
-        ) : null}
-      </div>
       <div
         ref={host}
         className="board-viewport"
@@ -700,6 +887,27 @@ export default function Board({
 
                 {!singleSelectedToken.isMap && (
                   <>
+                    {/* Sword button to toggle "In combat" property (Initiative + HP in properties popover) */}
+                    <IconButton
+                      label={
+                        singleSelectedToken.combat?.enabled
+                          ? 'Remove from combat'
+                          : 'Mark as in combat'
+                      }
+                      title={
+                        singleSelectedToken.combat?.enabled
+                          ? 'In combat — click to remove from combat'
+                          : 'Give In Combat property (Initiative & HP)'
+                      }
+                      aria-pressed={Boolean(singleSelectedToken.combat?.enabled)}
+                      className={
+                        singleSelectedToken.combat?.enabled ? 'active-combat-btn' : ''
+                      }
+                      onClick={() => handleToggleCombat(singleSelectedToken)}
+                    >
+                      <ToolIcon name="sword" />
+                    </IconButton>
+
                     {/* Lightbulb button to toggle light on token (Cancels Fog of War) */}
                     <IconButton
                       label={
@@ -721,14 +929,35 @@ export default function Board({
                       <ToolIcon name="light" />
                     </IconButton>
 
-                    {/* Triple-dot menu button to configure activated light properties */}
-                    {singleSelectedToken.light?.enabled && (
+                    {/* Triple-dot menu button to configure active properties (Combat & Light) */}
+                    {(singleSelectedToken.light?.enabled ||
+                      singleSelectedToken.combat?.enabled) && (
                       <IconButton
-                        label="Light properties menu"
-                        title="Configure Light & Vision Properties"
-                        aria-pressed={lightMenuOpen}
-                        aria-expanded={lightMenuOpen}
-                        onClick={() => setLightMenuOpen((v) => !v)}
+                        label="Token properties menu"
+                        title="Configure Token Properties"
+                        aria-pressed={propertyMenuOpen}
+                        aria-expanded={propertyMenuOpen}
+                        onClick={() => {
+                          setPropertyMenuOpen((open) => {
+                            const nextOpen = !open;
+                            if (nextOpen) {
+                              if (
+                                propertyMenuTab === 'combat' &&
+                                !singleSelectedToken.combat?.enabled &&
+                                singleSelectedToken.light?.enabled
+                              ) {
+                                setPropertyMenuTab('light');
+                              } else if (
+                                propertyMenuTab === 'light' &&
+                                !singleSelectedToken.light?.enabled &&
+                                singleSelectedToken.combat?.enabled
+                              ) {
+                                setPropertyMenuTab('combat');
+                              }
+                            }
+                            return nextOpen;
+                          });
+                        }}
                       >
                         <ToolIcon name="dots" />
                       </IconButton>
@@ -745,21 +974,26 @@ export default function Board({
                     }
                     title={
                       singleSelectedToken.locked
-                        ? 'Unlock position, resize & rotation'
-                        : 'Lock in place'
+                        ? 'Locked — click to unlock'
+                        : 'Unlocked — click to lock'
                     }
                     aria-pressed={Boolean(singleSelectedToken.locked)}
                     className={singleSelectedToken.locked ? 'active-lock-btn' : ''}
                     onClick={() => handleToggleSingleLock(singleSelectedToken)}
                   >
-                    <ToolIcon name={singleSelectedToken.locked ? 'unlock' : 'lock'} />
+                    <ToolIcon name={singleSelectedToken.locked ? 'lock' : 'unlock'} />
                   </IconButton>
                 )}
 
                 {isDM && singleSelectedToken.isMap && (
                   <IconButton
                     label={`Remove ${singleSelectedToken.label}`}
-                    title="Remove placed map/scene image"
+                    title={
+                      singleSelectedToken.locked
+                        ? 'Unlock before removing'
+                        : 'Remove placed map/scene image'
+                    }
+                    disabled={Boolean(singleSelectedToken.locked)}
                     onClick={handleDeleteSelected}
                   >
                     <ToolIcon name="trash" />
@@ -770,155 +1004,337 @@ export default function Board({
           </div>
         )}
 
-        {/* Non-Obstructing Light Settings Popover Menu (positioned beside token) */}
+        {/* Non-Obstructing Token Properties Popover Menu (Combat & Light tabs beside token) */}
         {singleSelectedToken &&
           tokenScreenPos &&
           !isSelectedTokenDragging &&
           !singleSelectedToken.isMap &&
-          lightMenuOpen &&
-          singleSelectedToken.light?.enabled && (
-            <div
-              className="token-light-menu"
-              style={{
-                left: `${lightMenuLeft}px`,
-                top: `${lightMenuTop}px`,
-              }}
-              role="dialog"
-              aria-label="Light Settings"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="token-light-header">
-                <strong>Light & Vision</strong>
-                <button
-                  type="button"
-                  className="close-menu-btn"
-                  onClick={() => setLightMenuOpen(false)}
-                >
-                  ×
-                </button>
-              </div>
+          propertyMenuOpen &&
+          (singleSelectedToken.light?.enabled || singleSelectedToken.combat?.enabled) && (() => {
+            const hasCombat = Boolean(singleSelectedToken.combat?.enabled);
+            const hasLight = Boolean(singleSelectedToken.light?.enabled);
+            const activeTab =
+              propertyMenuTab === 'combat' && hasCombat
+                ? 'combat'
+                : hasLight
+                  ? 'light'
+                  : 'combat';
+            const canViewHp = canViewTokenHp(
+              singleSelectedToken,
+              viewerRole,
+              participants,
+            );
+            const canEditCombat =
+              isDM ||
+              !singleSelectedToken.ownerId ||
+              (Boolean(myParticipantId) &&
+                singleSelectedToken.ownerId === myParticipantId);
+            const canEditHp =
+              canViewHp &&
+              (isDM ||
+                (Boolean(myParticipantId) &&
+                  singleSelectedToken.ownerId === myParticipantId));
 
-              <div className="token-light-section">
-                <div className="token-light-row">
-                  <label htmlFor="light-range-input">Range</label>
-                  <span className="token-light-value">
-                    {singleSelectedToken.light?.range || 30} ft
-                  </span>
-                </div>
-                <input
-                  id="light-range-input"
-                  type="range"
-                  min="5"
-                  max="120"
-                  step="5"
-                  value={singleSelectedToken.light?.range || 30}
-                  onChange={(e) =>
-                    handleUpdateLight(singleSelectedToken, {
-                      range: Number(e.target.value),
-                    })
-                  }
-                />
-              </div>
-
-              <div className="token-light-section">
-                <span className="token-light-label">Mode</span>
-                <div className="token-light-mode-group">
+            return (
+              <div
+                className="token-light-menu token-properties-menu"
+                style={{
+                  left: `${lightMenuLeft}px`,
+                  top: `${lightMenuTop}px`,
+                }}
+                role="dialog"
+                aria-label="Token Properties"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="token-light-header">
+                  <strong>
+                    {activeTab === 'combat' ? 'In Combat' : 'Light & Vision'}
+                  </strong>
                   <button
                     type="button"
-                    className={`mode-btn ${
-                      singleSelectedToken.light?.type !== 'vision' ? 'active' : ''
-                    }`}
-                    onClick={() =>
-                      handleUpdateLight(
-                        singleSelectedToken,
-                        { type: 'torch' },
-                        { immediate: true },
-                      )
-                    }
-                    title="Torch / Lantern (360° Made Light)"
+                    className="close-menu-btn"
+                    onClick={() => setPropertyMenuOpen(false)}
                   >
-                    <ToolIcon name="torch" />
-                    <span>Torch (360°)</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`mode-btn ${
-                      singleSelectedToken.light?.type === 'vision' ? 'active' : ''
-                    }`}
-                    onClick={() =>
-                      handleUpdateLight(
-                        singleSelectedToken,
-                        { type: 'vision' },
-                        { immediate: true },
-                      )
-                    }
-                    title="Line of Sight (Directional Vision Cone)"
-                  >
-                    <ToolIcon name="cone" />
-                    <span>Line of Sight</span>
+                    ×
                   </button>
                 </div>
-              </div>
 
-              {singleSelectedToken.light?.type === 'vision' && (
-                <>
-                  <div className="token-light-section">
-                    <div className="token-light-row">
-                      <label htmlFor="light-rotation-input">Direction</label>
-                      <span className="token-light-value">
-                        {normalizedDirection}°
-                      </span>
-                    </div>
-                    <input
-                      id="light-rotation-input"
-                      type="range"
-                      min="0"
-                      max="359"
-                      step="1"
-                      value={normalizedDirection}
-                      onChange={(e) =>
-                        handleUpdateLight(singleSelectedToken, {
-                          rotation: Number(e.target.value),
-                        })
-                      }
-                    />
+                {hasCombat && hasLight && (
+                  <div className="token-properties-tabs" role="tablist">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activeTab === 'combat'}
+                      className={activeTab === 'combat' ? 'active' : ''}
+                      onClick={() => setPropertyMenuTab('combat')}
+                    >
+                      Combat
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activeTab === 'light'}
+                      className={activeTab === 'light' ? 'active' : ''}
+                      onClick={() => setPropertyMenuTab('light')}
+                    >
+                      Light
+                    </button>
                   </div>
-                  <div className="token-light-section">
-                    <div className="token-light-row">
-                      <label htmlFor="light-angle-input">Cone Angle</label>
-                      <span className="token-light-value">
-                        {singleSelectedToken.light?.angle || 90}°
-                      </span>
-                    </div>
-                    <input
-                      id="light-angle-input"
-                      type="range"
-                      min="30"
-                      max="180"
-                      step="15"
-                      value={singleSelectedToken.light?.angle || 90}
-                      onChange={(e) =>
-                        handleUpdateLight(singleSelectedToken, {
-                          angle: Number(e.target.value),
-                        })
-                      }
-                    />
-                  </div>
-                </>
-              )}
+                )}
 
-              <div className="token-light-footer">
-                <button
-                  type="button"
-                  className="danger-btn remove-light-btn"
-                  onClick={() => handleToggleLight(singleSelectedToken)}
-                >
-                  Remove Light
-                </button>
+                {activeTab === 'combat' && hasCombat ? (
+                  <>
+                    {isDM && (
+                      <div className="token-light-section">
+                        <label
+                          className="token-light-label"
+                          htmlFor="combat-owner-select"
+                        >
+                          Owner
+                        </label>
+                        <select
+                          id="combat-owner-select"
+                          className="combat-owner-select"
+                          value={singleSelectedToken.ownerId || ''}
+                          onChange={(e) =>
+                            handleChangeTokenOwner(singleSelectedToken, e.target.value)
+                          }
+                        >
+                          <option value="">Unassigned (DM HP)</option>
+                          {connectedParticipants.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.displayName}
+                              {p.role === 'dm' ? ' (DM)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="token-light-section">
+                      <div className="token-light-row">
+                        <label htmlFor="combat-initiative-input">Initiative</label>
+                        <span className="token-light-value">
+                          {singleSelectedToken.combat?.initiative ?? 'Unset'}
+                        </span>
+                      </div>
+                      <input
+                        id="combat-initiative-input"
+                        type="number"
+                        step="1"
+                        placeholder="Enter rolled initiative…"
+                        disabled={!canEditCombat}
+                        value={singleSelectedToken.combat?.initiative ?? ''}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const nextInit =
+                            raw === '' ? null : Math.round(Number(raw));
+                          handleUpdateCombat(singleSelectedToken, {
+                            initiative: Number.isFinite(nextInit) ? nextInit : null,
+                          });
+                        }}
+                      />
+                    </div>
+
+                    <div className="token-light-section">
+                      <span className="token-light-label">HP</span>
+                      {canViewHp ? (
+                        <div className="combat-hp-row">
+                          <HpRing
+                            hp={singleSelectedToken.combat?.hp}
+                            maxHp={singleSelectedToken.combat?.maxHp}
+                          />
+                          <div className="combat-hp-inputs">
+                            <label>
+                              <span>Current</span>
+                              <input
+                                aria-label="Current HP"
+                                type="number"
+                                min="0"
+                                step="1"
+                                disabled={!canEditHp}
+                                value={singleSelectedToken.combat?.hp ?? ''}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const val =
+                                    raw === ''
+                                      ? null
+                                      : Math.max(0, Math.round(Number(raw)));
+                                  handleUpdateCombat(singleSelectedToken, {
+                                    hp: val,
+                                  });
+                                }}
+                              />
+                            </label>
+                            <label>
+                              <span>Max</span>
+                              <input
+                                aria-label="Max HP"
+                                type="number"
+                                min="1"
+                                step="1"
+                                disabled={!canEditHp}
+                                value={singleSelectedToken.combat?.maxHp ?? ''}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const val =
+                                    raw === ''
+                                      ? null
+                                      : Math.max(1, Math.round(Number(raw)));
+                                  handleUpdateCombat(singleSelectedToken, {
+                                    maxHp: val,
+                                  });
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="combat-hp-hidden">
+                          {isDM
+                            ? 'HP hidden (Player-owned token)'
+                            : 'HP hidden (DM-only token)'}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="token-light-footer">
+                      <button
+                        type="button"
+                        className="danger-btn remove-light-btn"
+                        disabled={!canEditCombat}
+                        onClick={() => handleToggleCombat(singleSelectedToken)}
+                      >
+                        Leave Combat
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="token-light-section">
+                      <div className="token-light-row">
+                        <label htmlFor="light-range-input">Range</label>
+                        <span className="token-light-value">
+                          {singleSelectedToken.light?.range || 30} ft
+                        </span>
+                      </div>
+                      <input
+                        id="light-range-input"
+                        type="range"
+                        min="5"
+                        max="120"
+                        step="5"
+                        value={singleSelectedToken.light?.range || 30}
+                        onChange={(e) =>
+                          handleUpdateLight(singleSelectedToken, {
+                            range: Number(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="token-light-section">
+                      <span className="token-light-label">Mode</span>
+                      <div className="token-light-mode-group">
+                        <button
+                          type="button"
+                          className={`mode-btn ${
+                            singleSelectedToken.light?.type !== 'vision' ? 'active' : ''
+                          }`}
+                          onClick={() =>
+                            handleUpdateLight(
+                              singleSelectedToken,
+                              { type: 'torch' },
+                              { immediate: true },
+                            )
+                          }
+                          title="Torch / Lantern (360° Made Light)"
+                        >
+                          <ToolIcon name="torch" />
+                          <span>Torch (360°)</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`mode-btn ${
+                            singleSelectedToken.light?.type === 'vision' ? 'active' : ''
+                          }`}
+                          onClick={() =>
+                            handleUpdateLight(
+                              singleSelectedToken,
+                              { type: 'vision' },
+                              { immediate: true },
+                            )
+                          }
+                          title="Line of Sight (Directional Vision Cone)"
+                        >
+                          <ToolIcon name="cone" />
+                          <span>Line of Sight</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {singleSelectedToken.light?.type === 'vision' && (
+                      <>
+                        <div className="token-light-section">
+                          <div className="token-light-row">
+                            <label htmlFor="light-rotation-input">Direction</label>
+                            <span className="token-light-value">
+                              {normalizedDirection}°
+                            </span>
+                          </div>
+                          <input
+                            id="light-rotation-input"
+                            type="range"
+                            min="0"
+                            max="359"
+                            step="1"
+                            value={normalizedDirection}
+                            onChange={(e) =>
+                              handleUpdateLight(singleSelectedToken, {
+                                rotation: Number(e.target.value),
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="token-light-section">
+                          <div className="token-light-row">
+                            <label htmlFor="light-angle-input">Cone Angle</label>
+                            <span className="token-light-value">
+                              {singleSelectedToken.light?.angle || 90}°
+                            </span>
+                          </div>
+                          <input
+                            id="light-angle-input"
+                            type="range"
+                            min="30"
+                            max="180"
+                            step="15"
+                            value={singleSelectedToken.light?.angle || 90}
+                            onChange={(e) =>
+                              handleUpdateLight(singleSelectedToken, {
+                                angle: Number(e.target.value),
+                              })
+                            }
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    <div className="token-light-footer">
+                      <button
+                        type="button"
+                        className="danger-btn remove-light-btn"
+                        onClick={() => handleToggleLight(singleSelectedToken)}
+                      >
+                        Remove Light
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
         {(error || connectionError || connection !== 'connected') && (
           <div className="board-notice" role="status">
@@ -1043,18 +1459,25 @@ export default function Board({
       <nav className="utility-toolbar" aria-label="VTT utilities">
         <IconButton
           label="Select tokens"
-          aria-pressed={!fogTool}
+          aria-pressed={!fogTool && selectTool === 'select'}
           title="Click to select, Shift-click for multi-select, drag to move"
           onClick={() => {
             canvasStore.getState().setFogTool(null);
+            canvasStore.getState().setSelectTool('select');
             canvasStore.getState().clearSelection();
           }}
         >
           <ToolIcon name="select" />
         </IconButton>
         <IconButton
-          label="Multi select — hold Shift"
-          title="Hold Shift and click tokens, then drag to move the group"
+          label="Lasso multi-select"
+          aria-pressed={!fogTool && selectTool === 'lasso'}
+          title="Lasso tool — drag a loop around tokens (Shift to add)"
+          onClick={() => {
+            canvasStore
+              .getState()
+              .setSelectTool(selectTool === 'lasso' ? 'select' : 'lasso');
+          }}
         >
           <ToolIcon name="multi" />
         </IconButton>
@@ -1086,9 +1509,14 @@ export default function Board({
         )}
         <span className="toolbar-divider" />
         <IconButton
-          label="Toggle grid"
-          aria-pressed={gridOn}
-          onClick={handleToggleGrid}
+          label={isDM ? 'Grid settings' : 'Toggle grid'}
+          title={isDM ? 'Grid visibility & cell size' : 'Toggle grid'}
+          aria-pressed={isDM ? gridOn || gridMenuOpen : gridOn}
+          aria-expanded={isDM ? gridMenuOpen : undefined}
+          onClick={() => {
+            if (isDM) setGridMenuOpen((v) => !v);
+            else handleToggleGrid();
+          }}
         >
           <ToolIcon name="grid" />
         </IconButton>
@@ -1128,19 +1556,30 @@ export default function Board({
             >
               <ToolIcon name="plus" />
             </IconButton>
-            {selectedTokens.length > 0 && (
+              {selectedTokens.length > 0 && (
               <>
                 <IconButton
                   label={
                     allSelectedLocked ? 'Unlock selected tokens' : 'Lock selected tokens'
                   }
+                  title={
+                    allSelectedLocked
+                      ? 'Locked — click to unlock'
+                      : 'Unlocked — click to lock'
+                  }
                   aria-pressed={allSelectedLocked}
                   onClick={handleToggleLock}
                 >
-                  <ToolIcon name={allSelectedLocked ? 'unlock' : 'lock'} />
+                  <ToolIcon name={allSelectedLocked ? 'lock' : 'unlock'} />
                 </IconButton>
                 <IconButton
                   label="Delete selected tokens"
+                  title={
+                    allSelectedLocked
+                      ? 'Unlock selected tokens before deleting'
+                      : 'Delete selected tokens'
+                  }
+                  disabled={allSelectedLocked}
                   onClick={handleDeleteSelected}
                 >
                   <ToolIcon name="trash" />
@@ -1150,6 +1589,88 @@ export default function Board({
           </>
         )}
       </nav>
+      {isDM && gridMenuOpen && (
+        <div
+          className="grid-settings-popover"
+          role="dialog"
+          aria-label="Grid Settings"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="grid-settings-header">
+            <strong>Grid Settings</strong>
+            <button
+              type="button"
+              className="close-menu-btn"
+              aria-label="Close Grid Settings"
+              onClick={() => setGridMenuOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="grid-settings-row">
+            <span>Show Grid</span>
+            <button
+              type="button"
+              className={`grid-toggle-btn ${gridOn ? 'active' : ''}`}
+              aria-pressed={gridOn}
+              onClick={handleToggleGrid}
+            >
+              {gridOn ? 'On' : 'Off'}
+            </button>
+          </div>
+          <div className="grid-settings-section">
+            <div className="grid-settings-row">
+              <label htmlFor="board-grid-size-input">Cell Size</label>
+              <span className="grid-size-value">{grid} px</span>
+            </div>
+            <input
+              id="board-grid-size-input"
+              type="range"
+              min={MIN_GRID_SIZE}
+              max={MAX_GRID_SIZE}
+              step={1}
+              value={Math.min(MAX_GRID_SIZE, Math.max(MIN_GRID_SIZE, grid))}
+              onChange={(e) => handleGridSizeChange(Number(e.target.value))}
+            />
+            <div className="grid-size-steppers">
+              <button
+                type="button"
+                aria-label="Decrease grid size"
+                title="Decrease cell size (−5 px, Shift −1 px)"
+                onClick={(e) =>
+                  handleGridSizeChange(grid - (e.shiftKey ? 1 : 5), {
+                    immediate: true,
+                  })
+                }
+              >
+                −
+              </button>
+              <button
+                type="button"
+                className="grid-reset-btn"
+                onClick={() =>
+                  handleGridSizeChange(DEFAULT_GRID_SIZE, { immediate: true })
+                }
+              >
+                Reset ({DEFAULT_GRID_SIZE} px)
+              </button>
+              <button
+                type="button"
+                aria-label="Increase grid size"
+                title="Increase cell size (+5 px, Shift +1 px)"
+                onClick={(e) =>
+                  handleGridSizeChange(grid + (e.shiftKey ? 1 : 5), {
+                    immediate: true,
+                  })
+                }
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {role === 'DM' && (
         <div className="asset-dock-region">
           {assetTrayCategory && (

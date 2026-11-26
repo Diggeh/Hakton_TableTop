@@ -1,5 +1,6 @@
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
+import { parseTimestampMs } from '../ui/chatTimeline.js';
 
 const initial = {
   scope: null,
@@ -23,7 +24,10 @@ function mergeMessages(current, incoming) {
   );
   for (const message of incoming) rows.set(message.id, message);
   return [...rows.values()]
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .sort((a, b) => {
+      const diff = parseTimestampMs(a.createdAt) - parseTimestampMs(b.createdAt);
+      return diff !== 0 ? diff : String(a.id).localeCompare(String(b.id));
+    })
     .slice(-300);
 }
 export const chatStore = createStore((set) => ({

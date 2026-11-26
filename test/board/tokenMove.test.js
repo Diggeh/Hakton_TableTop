@@ -225,6 +225,21 @@ describe('token:move realtime pipeline', () => {
     assert.equal(updatedWire.locked, true);
     assert.equal(repos.tokens.get(created.token.id).locked, 1);
 
+    // Locked tokens cannot be deleted until unlocked
+    const lockedDelete = await emitWithAck(dm, EVENTS.TOKEN_DELETE, {
+      id: created.token.id,
+    });
+    assert.equal(lockedDelete.ok, false);
+    assert.equal(lockedDelete.reason, 'locked');
+    assert.ok(repos.tokens.get(created.token.id));
+
+    const unlocked = await emitWithAck(dm, EVENTS.TOKEN_UPDATE, {
+      id: created.token.id,
+      locked: false,
+    });
+    assert.equal(unlocked.ok, true);
+    assert.equal(unlocked.token.locked, false);
+
     const deletedNotice = waitForEvent(player, EVENTS.TOKEN_DELETED);
     const deleted = await emitWithAck(dm, EVENTS.TOKEN_DELETE, {
       id: created.token.id,
@@ -375,5 +390,274 @@ describe('token:move realtime pipeline', () => {
     assert.equal(stored.height, 1015);
     assert.equal(stored.rotation, 90);
     assert.equal(stored.locked, 1);
+  });
+
+  it('persists scene switching, isolates tokens per scene, and restores active scene after reconnect', async () => {
+    const selectedNotice = waitForEvent(player, EVENTS.MAP_SELECTED);
+    const selectRes = await emitWithAck(dm, EVENTS.MAP_SELECT, {
+      name: 'Moonlit Tavern',
+      width: 2400,
+      height: 1600,
+      gridSize: 35,
+    });
+    const playerSelected = await selectedNotice;
+
+    assert.equal(selectRes.ok, true);
+    assert.equal(selectRes.map.name, 'Moonlit Tavern');
+    assert.equal(selectRes.map.gridSize, 35);
+    assert.equal(playerSelected.map.name, 'Moonlit Tavern');
+    assert.equal(selectRes.tokens.length, 0);
+
+    // Create a scene map image token inside Moonlit Tavern (must persist to the active scene map_id)
+    const tavernTokenRes = await emitWithAck(dm, EVENTS.TOKEN_CREATE, {
+      label: 'Moonlit Tavern',
+      x: 1200,
+      y: 800,
+      isMap: true,
+      imageUrl: '/assets/tavern/file',
+      width: 2400,
+      height: 1600,
+    });
+    assert.equal(tavernTokenRes.ok, true);
+    assert.equal(tavernTokenRes.token.mapId, selectRes.map.id);
+
+    // Update grid size and fog shapes for Moonlit Tavern
+    const mapUpdateNotice = waitForEvent(player, EVENTS.MAP_UPDATED);
+    const updateRes = await emitWithAck(dm, EVENTS.MAP_UPDATE, {
+      id: selectRes.map.id,
+      gridSize: 45,
+      sceneData: {
+        fogShapes: [{ id: 'fog-1', type: 'rect', x: 10, y: 10, width: 100, height: 100 }],
+        walls: [],
+      },
+    });
+    const broadcastedMap = await mapUpdateNotice;
+    assert.equal(updateRes.ok, true);
+    assert.equal(updateRes.map.gridSize, 45);
+    assert.equal(broadcastedMap.map.gridSize, 45);
+    assert.equal(broadcastedMap.map.sceneData.fogShapes.length, 1);
+
+    // Simulate closing and reopening Electron by disconnecting DM and joining with a fresh client socket
+    dm.disconnect();
+    const freshDm = await connectRaw(server.localUrl);
+    const statePromise = waitForEvent(freshDm, EVENTS.SESSION_STATE);
+    await join(freshDm, {
+      displayName: 'Dungeon Master',
+      role: ROLES.DM,
+      hostToken: server.hostSecret,
+    });
+    const restoredState = await statePromise;
+
+    assert.equal(restoredState.map.name, 'Moonlit Tavern');
+    assert.equal(restoredState.map.gridSize, 45);
+    assert.equal(restoredState.map.sceneData.fogShapes.length, 1);
+    assert.equal(restoredState.tokens.length, 1);
+    assert.equal(restoredState.tokens[0].label, 'Moonlit Tavern');
+
+    // Switch back to original Map and verify Moonlit Tavern token is isolated
+    const backRes = await emitWithAck(freshDm, EVENTS.MAP_SELECT, {
+      name: 'Map',
+    });
+    freshDm.disconnect();
+    assert.equal(backRes.ok, true);
+    assert.equal(backRes.map.name, 'Map');
+    assert.equal(backRes.tokens.length, 1);
+    assert.equal(backRes.tokens[0].id, 'tok-free');
+  });
+
+  it('isolates scenes per campaignKey across DM joins', async () => {
+    dm.disconnect();
+    const dmCampaignA = await connectRaw(server.localUrl);
+    const stateA = waitForEvent(dmCampaignA, EVENTS.SESSION_STATE);
+    await join(dmCampaignA, {
+      displayName: 'Dungeon Master',
+      role: ROLES.DM,
+      hostToken: server.hostSecret,
+      campaignKey: 'camp-a',
+      campaignName: 'Campaign Alpha',
+    });
+    const snapA = await stateA;
+    assert.equal(snapA.map.name, 'Untitled Scene');
+    assert.equal(snapA.map.gridSize, 35);
+
+    const selA = await emitWithAck(dmCampaignA, EVENTS.MAP_SELECT, {
+      name: 'Alpha Keep',
+    });
+    assert.equal(selA.ok, true);
+    assert.equal(selA.map.name, 'Alpha Keep');
+    dmCampaignA.disconnect();
+
+    const dmCampaignB = await connectRaw(server.localUrl);
+    const stateB = waitForEvent(dmCampaignB, EVENTS.SESSION_STATE);
+    await join(dmCampaignB, {
+      displayName: 'Dungeon Master',
+      role: ROLES.DM,
+      hostToken: server.hostSecret,
+      campaignKey: 'camp-b',
+      campaignName: 'Campaign Beta',
+    });
+    const snapB = await stateB;
+    assert.equal(snapB.map.name, 'Untitled Scene');
+    dmCampaignB.disconnect();
+
+    const dmReturnA = await connectRaw(server.localUrl);
+    const stateReturnA = waitForEvent(dmReturnA, EVENTS.SESSION_STATE);
+    await join(dmReturnA, {
+      displayName: 'Dungeon Master',
+      role: ROLES.DM,
+      hostToken: server.hostSecret,
+      campaignKey: 'camp-a',
+      campaignName: 'Campaign Alpha',
+    });
+    const snapReturnA = await stateReturnA;
+    assert.equal(snapReturnA.map.name, 'Alpha Keep');
+    dmReturnA.disconnect();
+  });
+
+  it('persists combat properties, isolates DM vs Player HP visibility, and preserves Player HP when DM updates initiative', async () => {
+    const dmUserId = dm.playerId;
+    const playerUserId = 'user-aria-1';
+    const playerTokenRes = await emitWithAck(dm, EVENTS.TOKEN_CREATE, {
+      label: 'Aria',
+      x: 150,
+      y: 160,
+      ownerId: playerUserId,
+      ownerRole: 'player',
+      combat: { enabled: true, initiative: 18, hp: 27, maxHp: 32 },
+    });
+    assert.equal(playerTokenRes.ok, true);
+    const ariaId = playerTokenRes.token.id;
+
+    // DM creates a DM-owned monster token
+    const monsterRes = await emitWithAck(dm, EVENTS.TOKEN_CREATE, {
+      label: 'Owlbear',
+      x: 240,
+      y: 260,
+      ownerId: dmUserId,
+      ownerRole: 'dm',
+      combat: { enabled: true, initiative: 11, hp: 59, maxHp: 59 },
+    });
+    assert.equal(monsterRes.ok, true);
+    const monsterId = monsterRes.token.id;
+
+    // DM updates Aria's initiative without sending HP — stored Player HP must remain intact
+    const dmInitUpdate = await emitWithAck(dm, EVENTS.TOKEN_UPDATE, {
+      id: ariaId,
+      combat: { enabled: true, initiative: 21 },
+    });
+    assert.equal(dmInitUpdate.ok, true);
+    assert.equal(dmInitUpdate.token.combat.initiative, 21);
+    assert.equal(dmInitUpdate.token.combat.hpHidden, true);
+    assert.equal(dmInitUpdate.token.combat.hp, null);
+
+    // Reconnect both DM and Player to verify SESSION_STATE role filtering + SQLite persistence
+    dm.disconnect();
+    player.disconnect();
+
+    const freshDm = await connectRaw(server.localUrl);
+    const dmSnapPromise = waitForEvent(freshDm, EVENTS.SESSION_STATE);
+    await join(freshDm, {
+      displayName: 'Dungeon Master',
+      role: ROLES.DM,
+      hostToken: server.hostSecret,
+    });
+    const dmSnap = await dmSnapPromise;
+
+    const dmAria = dmSnap.tokens.find((t) => t.id === ariaId);
+    const dmMonster = dmSnap.tokens.find((t) => t.id === monsterId);
+    assert.equal(dmAria.combat.initiative, 21);
+    assert.equal(dmAria.combat.hpHidden, true);
+    assert.equal(dmAria.combat.hp, null);
+    assert.equal(dmMonster.combat.hp, 59);
+    assert.equal(dmMonster.combat.maxHp, 59);
+    freshDm.disconnect();
+
+    const freshPlayer = await connectRaw(server.localUrl);
+    const playerSnapPromise = waitForEvent(freshPlayer, EVENTS.SESSION_STATE);
+    await join(freshPlayer, {
+      displayName: 'Aria',
+      role: ROLES.PLAYER,
+      userId: playerUserId,
+    });
+    const playerSnap = await playerSnapPromise;
+
+    const playerAria = playerSnap.tokens.find((t) => t.id === ariaId);
+    const playerMonster = playerSnap.tokens.find((t) => t.id === monsterId);
+    assert.equal(playerAria.combat.initiative, 21);
+    assert.equal(playerAria.combat.hp, 27);
+    assert.equal(playerAria.combat.maxHp, 32);
+    assert.equal(playerMonster.combat.initiative, 11);
+    assert.equal(playerMonster.combat.hpHidden, true);
+    assert.equal(playerMonster.combat.hp, null);
+    freshPlayer.disconnect();
+  });
+
+  it('replays saved dice rolls on reconnect in SESSION_STATE.rollHistory while keeping DM-secret rolls private', async () => {
+    const dmUserId = dm.playerId;
+    repos.chat.append({
+      id: 'roll-public',
+      senderId: dmUserId,
+      senderName: 'Dungeon Master',
+      type: 'dice_roll',
+      payload: {
+        id: 'roll-public',
+        formula: '1d20',
+        total: 19,
+        rolls: [{ die: 20, value: 19 }],
+      },
+    });
+    repos.chat.append({
+      id: 'roll-secret',
+      senderId: dmUserId,
+      senderName: 'Dungeon Master',
+      recipientId: dmUserId,
+      type: 'dice_roll',
+      payload: {
+        id: 'roll-secret',
+        formula: '1d20',
+        total: 2,
+        isSecret: true,
+        rolls: [{ die: 20, value: 2 }],
+      },
+    });
+
+    dm.disconnect();
+    player.disconnect();
+
+    const freshDm = await connectRaw(server.localUrl);
+    const dmSnapPromise = waitForEvent(freshDm, EVENTS.SESSION_STATE);
+    await join(freshDm, {
+      displayName: 'Dungeon Master',
+      role: ROLES.DM,
+      hostToken: server.hostSecret,
+    });
+    const dmSnap = await dmSnapPromise;
+    assert.equal(
+      dmSnap.rollHistory.some((r) => r.id === 'roll-public'),
+      true,
+    );
+    assert.equal(
+      dmSnap.rollHistory.some((r) => r.id === 'roll-secret'),
+      true,
+    );
+    freshDm.disconnect();
+
+    const freshPlayer = await connectRaw(server.localUrl);
+    const playerSnapPromise = waitForEvent(freshPlayer, EVENTS.SESSION_STATE);
+    await join(freshPlayer, {
+      displayName: 'Aria',
+      role: ROLES.PLAYER,
+      userId: 'user-aria-2',
+    });
+    const playerSnap = await playerSnapPromise;
+    assert.equal(
+      playerSnap.rollHistory.some((r) => r.id === 'roll-public'),
+      true,
+    );
+    assert.equal(
+      playerSnap.rollHistory.some((r) => r.id === 'roll-secret'),
+      false,
+    );
+    freshPlayer.disconnect();
   });
 });

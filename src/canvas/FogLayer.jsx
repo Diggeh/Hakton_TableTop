@@ -1,4 +1,5 @@
 import { Circle, Group, Line, Rect } from 'react-konva';
+import { DEFAULT_GRID_SIZE } from '../../shared/events.js';
 import { canvasStore, useCanvas } from './canvasStore.js';
 import { visibleBounds } from './viewport.js';
 import { useSession } from '../store/sessionStore.js';
@@ -116,7 +117,7 @@ export default function FogLayer({
         ? { x: live.x, y: live.y }
         : { x: token.x, y: token.y };
       const rangeFt = Number(token.light?.range) || 30;
-      const maxDistance = (rangeFt / 5) * (map?.gridSize || 70);
+      const maxDistance = (rangeFt / 5) * (map?.gridSize || DEFAULT_GRID_SIZE);
       const pad = maxDistance + 64;
       const minX = Math.min(baseMinX, origin.x - pad);
       const minY = Math.min(baseMinY, origin.y - pad);
@@ -203,7 +204,7 @@ export default function FogLayer({
           <Circle
             x={origin.x}
             y={origin.y}
-            radius={Math.max(6, (map?.gridSize || 70) * 0.18)}
+            radius={Math.max(6, (map?.gridSize || DEFAULT_GRID_SIZE) * 0.18)}
             fill="rgba(255, 230, 150, 0.25)"
             stroke="#ffd57a"
             strokeWidth={1.5}

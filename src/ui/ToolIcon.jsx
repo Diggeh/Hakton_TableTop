@@ -6,6 +6,7 @@ export default function ToolIcon({ name }) {
     players:
       'M9 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6 M3 21v-5a6 6 0 0 1 12 0v5 M17 4a3 3 0 0 1 0 6 M18 13a5 5 0 0 1 3 5v3',
     initiative: 'M4 20L20 4 M13 4h7v7 M4 13v7h7',
+    sword: 'M14.5 17.5L3 6V3h3l11.5 11.5 M13 19l6-6 M16 16l4 4 M19 21l2-2',
     multi: 'M4 10a6 6 0 1 1 7 6l-5 4v-5a6 6 0 0 1-2-5z',
     chat: 'M3 4h18v13H9l-6 4z M7 10h1 M11 10h1 M15 10h1',
     sheet: 'M5 3h10l4 4v14H5z M14 3v5h5 M8 12h8 M8 16h6',
@@ -45,6 +46,52 @@ export default function ToolIcon({ name }) {
       'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6',
     close: 'M18 6L6 18 M6 6l12 12',
   };
+  if (name === 'lock') {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        width="17"
+        height="17"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+        <rect
+          x="5"
+          y="11"
+          width="14"
+          height="10"
+          rx="2"
+          fill="currentColor"
+          stroke="currentColor"
+        />
+        <circle cx="12" cy="15.2" r="1.2" fill="#0d171f" stroke="none" />
+        <path d="M12 16.2v2.1" stroke="#0d171f" strokeWidth="1.5" />
+      </svg>
+    );
+  }
+  if (name === 'unlock') {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        width="17"
+        height="17"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M8 11V6.5a4 4 0 0 1 7.6-1.6" />
+        <rect x="5" y="11" width="14" height="10" rx="2" fill="none" />
+      </svg>
+    );
+  }
   return (
     <svg
       viewBox="0 0 24 24"

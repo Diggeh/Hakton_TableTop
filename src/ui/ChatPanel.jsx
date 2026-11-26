@@ -4,6 +4,7 @@ import { isRollCommand } from '../../shared/dice/parser.js';
 import { rollFormula } from '../../shared/dice/roller.js';
 import { emitDiceRoll } from '../net/socket.js';
 import { useSession } from '../store/sessionStore.js';
+import { mergeChatTimeline } from './chatTimeline.js';
 import LiveChatPanel from './LiveChatPanel.jsx';
 import { IconButton, Tabs } from './Primitives.jsx';
 import { party } from './fixtures.js';
@@ -67,29 +68,35 @@ function PreviewChatPanel({ name, onClose, hidden, width }) {
   const [recipient, setRecipient] = useState('Dungeon Master');
   const [draft, setDraft] = useState('');
   const [rollError, setRollError] = useState('');
-  const [messages, setMessages] = useState([
-    {
-      id: 'a',
-      name: 'Dungeon Master',
-      text: 'The tide recedes, revealing a stairway cut into the stone.',
-      channel: 'Table',
-      time: '20:14',
-    },
-    {
-      id: 'b',
-      name: 'Mira',
-      text: 'I check the steps for tracks.',
-      channel: 'Table',
-      time: '20:15',
-    },
-    {
-      id: 'c',
-      name: 'Thorne',
-      text: 'I’ll take the lead. Stay close.',
-      channel: 'Table',
-      time: '20:16',
-    },
-  ]);
+  const [messages, setMessages] = useState(() => {
+    const base = Date.now() - 180000;
+    return [
+      {
+        id: 'a',
+        name: 'Dungeon Master',
+        text: 'The tide recedes, revealing a stairway cut into the stone.',
+        channel: 'Table',
+        createdAt: new Date(base).toISOString(),
+        time: '20:14',
+      },
+      {
+        id: 'b',
+        name: 'Mira',
+        text: 'I check the steps for tracks.',
+        channel: 'Table',
+        createdAt: new Date(base + 60000).toISOString(),
+        time: '20:15',
+      },
+      {
+        id: 'c',
+        name: 'Thorne',
+        text: 'I’ll take the lead. Stay close.',
+        channel: 'Table',
+        createdAt: new Date(base + 120000).toISOString(),
+        time: '20:16',
+      },
+    ];
+  });
 
   const rollHistory = useSession((s) => s.rollHistory);
   const end = useRef(null);
@@ -109,6 +116,7 @@ function PreviewChatPanel({ name, onClose, hidden, width }) {
       : tab === 'Table'
         ? rollHistory.filter((r) => r.visibility !== DICE_VISIBILITY.DM)
         : [];
+  const timeline = mergeChatTimeline(tab === 'Rolls' ? [] : shownMessages, shownRolls);
 
   return (
     <aside className="chat-panel" hidden={hidden} style={{ width }}>
@@ -146,9 +154,13 @@ function PreviewChatPanel({ name, onClose, hidden, width }) {
         aria-label={`${tab} preview messages`}
       >
         <div className="log-divider">Session 08</div>
-        {tab !== 'Rolls' &&
-          shownMessages.map((m) => (
-            <article className="message" key={m.id}>
+        {timeline.map((entry) => {
+          if (entry.kind === 'roll') {
+            return <RollLogEntry key={entry.id} roll={entry.item} />;
+          }
+          const m = entry.item;
+          return (
+            <article className="message" key={entry.id}>
               <span className="message-avatar" aria-hidden="true">
                 {m.name.slice(0, 1)}
               </span>
@@ -161,11 +173,9 @@ function PreviewChatPanel({ name, onClose, hidden, width }) {
                 {m.recipient && <small>Whisper to {m.recipient}</small>}
               </div>
             </article>
-          ))}
-        {shownRolls.map((roll) => (
-          <RollLogEntry key={roll.id} roll={roll} />
-        ))}
-        {shownMessages.length === 0 && shownRolls.length === 0 && (
+          );
+        })}
+        {timeline.length === 0 && (
           <p className="empty-inline">
             {tab === 'Rolls' ? 'No rolls yet.' : `No whispers to ${recipient}.`}
           </p>
@@ -199,6 +209,7 @@ function PreviewChatPanel({ name, onClose, hidden, width }) {
               text: trimmed,
               channel: tab,
               recipient: tab === 'Whispers' ? recipient : null,
+              createdAt: new Date().toISOString(),
               time: new Date().toLocaleTimeString([], {
                 hour: '2-digit',
                 minute: '2-digit',

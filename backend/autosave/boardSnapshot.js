@@ -1,3 +1,5 @@
+import { DEFAULT_GRID_SIZE } from '../../shared/events.js';
+
 /**
  * Builds the server-authoritative board blueprint for a campaign.
  *
@@ -23,24 +25,23 @@ export function buildBoardSnapshot(repos, campaignId) {
     maps: maps.map((map) => ({
       id: map.id,
       name: map.name,
-      gridSize: map.grid_size ?? 70,
+      gridSize: map.grid_size ?? DEFAULT_GRID_SIZE,
       width: map.width,
       height: map.height,
       imageFile: map.image_file ?? null,
     })),
     tokens: tokens.map((token) => {
-      let light = null;
-      if (token.light) {
-        if (typeof token.light === 'string') {
+      const parseJson = (raw) => {
+        if (!raw) return null;
+        if (typeof raw === 'string') {
           try {
-            light = JSON.parse(token.light);
+            return JSON.parse(raw);
           } catch {
-            light = null;
+            return null;
           }
-        } else if (typeof token.light === 'object') {
-          light = token.light;
         }
-      }
+        return typeof raw === 'object' ? raw : null;
+      };
       return {
         id: token.id,
         mapId: token.map_id ?? null,
@@ -48,19 +49,21 @@ export function buildBoardSnapshot(repos, campaignId) {
         x: token.x,
         y: token.y,
         ownerId: token.owner_id ?? null,
+        ownerRole: token.owner_role ?? null,
         locked: Boolean(token.locked),
         color: token.color ?? null,
         isMap: Boolean(token.is_map ?? token.isMap),
         imageUrl: token.image_url ?? token.imageUrl ?? null,
         width: token.width ?? null,
         height: token.height ?? null,
-        light,
+        light: parseJson(token.light),
+        combat: parseJson(token.combat),
         rotation: Number.isFinite(Number(token.rotation))
           ? ((Number(token.rotation) % 360) + 360) % 360
           : 0,
       };
     }),
-    settings: { gridSize: active?.grid_size ?? 70 },
+    settings: { gridSize: active?.grid_size ?? DEFAULT_GRID_SIZE },
     overlays: { fog: [], drawings: [], markers: [] },
     tokenOrder: tokens.map((token) => token.id),
     capturedAt: new Date().toISOString(),
