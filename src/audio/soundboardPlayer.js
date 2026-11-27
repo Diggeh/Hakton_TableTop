@@ -107,7 +107,11 @@ export function createSoundboardPlayer({ onError, onStarted }) {
   const urls = new Map();
   const effects = new Set();
   const layers = { music: null, ambience: null };
-  let volume = 0.6;
+  const volumes = { master: 0.6, music: 1, ambience: 1 };
+
+  function layerVolume(name) {
+    return Math.max(0, Math.min(1, volumes.master * (volumes[name] ?? 1)));
+  }
 
   function sourceUrl(id, resolveCustom) {
     const cue = findSoundCue(id);
@@ -141,7 +145,7 @@ export function createSoundboardPlayer({ onError, onStarted }) {
     if (!url) return stopLayer(name);
     if (layers[name]?.url !== url) {
       stopLayer(name);
-      layers[name] = makeEntry(url);
+      layers[name] = makeEntry(url, layerVolume(name));
     }
     schedule(layers[name], track, clock);
   }
@@ -225,10 +229,10 @@ export function createSoundboardPlayer({ onError, onStarted }) {
       audio.addEventListener('loadedmetadata', start, { once: true, signal });
   }
 
-  function makeEntry(url) {
+  function makeEntry(url, entryVolume = volumes.master) {
     const audio = new Audio();
     audio.preload = 'auto';
-    audio.volume = volume;
+    audio.volume = entryVolume;
     audio.src = url;
     return { audio, url };
   }
@@ -259,7 +263,7 @@ export function createSoundboardPlayer({ onError, onStarted }) {
       const url = sourceUrl(cue.id, resolveCustom);
       if (!url || clock() >= startsAt + cue.seconds * 1000) return;
       if (effects.size >= 8) endEffect(effects.values().next().value);
-      const entry = makeEntry(url);
+      const entry = makeEntry(url, volumes.master);
       effects.add(entry);
       schedule(
         entry,
@@ -274,11 +278,16 @@ export function createSoundboardPlayer({ onError, onStarted }) {
         () => endEffect(entry),
       );
     },
+    setVolumes({ master, music, ambience } = {}) {
+      if (Number.isFinite(master)) volumes.master = Math.max(0, Math.min(1, master));
+      if (Number.isFinite(music)) volumes.music = Math.max(0, Math.min(1, music));
+      if (Number.isFinite(ambience)) volumes.ambience = Math.max(0, Math.min(1, ambience));
+      if (layers.music) layers.music.audio.volume = layerVolume('music');
+      if (layers.ambience) layers.ambience.audio.volume = layerVolume('ambience');
+      for (const entry of effects) entry.audio.volume = volumes.master;
+    },
     setVolume(value) {
-      volume = value;
-      if (layers.music) layers.music.audio.volume = value;
-      if (layers.ambience) layers.ambience.audio.volume = value;
-      for (const entry of effects) entry.audio.volume = value;
+      this.setVolumes({ master: value });
     },
     stop() {
       stopTrack();

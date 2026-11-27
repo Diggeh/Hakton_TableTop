@@ -28,7 +28,8 @@ import { party } from './fixtures.js';
 import ToolIcon from './ToolIcon.jsx';
 import AddTokenDialog from './AddTokenDialog.jsx';
 import HpRing from './HpRing.jsx';
-import { canViewTokenHp } from '../../shared/combat.js';
+import { applyCombatHpChange, canViewTokenHp } from '../../shared/combat.js';
+import { RULER_MODES } from '../../shared/ruler.js';
 import { useUploadedCategoryAssetEntries } from './AssetsPanel.jsx';
 import { IconButton } from './Primitives.jsx';
 
@@ -81,6 +82,7 @@ export default function Board({
   const viewport = useCanvas((s) => s.viewport);
   const liveScale = viewport.scale;
   const gridVisible = useCanvas((s) => s.gridVisible);
+  const canvasTheme = useCanvas((s) => s.canvasTheme);
   const snapEnabled = useCanvas((s) => s.snap);
   const selectedIds = useCanvas((s) => s.selectedIds);
   const draggingIds = useCanvas((s) => s.draggingIds);
@@ -88,6 +90,8 @@ export default function Board({
   const draggingTransforms = useCanvas((s) => s.draggingTransforms);
   const fogTool = useCanvas((s) => s.fogTool);
   const selectTool = useCanvas((s) => s.selectTool);
+  const rulerMode = useCanvas((s) => s.rulerMode);
+  const rulerShareWithTable = useCanvas((s) => s.rulerShareWithTable);
   const playerVisionPreview = useCanvas((s) => s.playerVisionPreview);
 
   const trayEntries = useUploadedCategoryAssetEntries(assetTrayCategory || 'Scenes');
@@ -201,6 +205,7 @@ export default function Board({
       initiative: !wasInCombat ? token.combat?.initiative ?? null : null,
       hp: canViewHp ? token.combat?.hp ?? 10 : token.combat?.hp ?? null,
       maxHp: canViewHp ? token.combat?.maxHp ?? 10 : token.combat?.maxHp ?? null,
+      tempHp: canViewHp ? token.combat?.tempHp ?? 0 : token.combat?.tempHp ?? null,
       ...(token.combat?.hpHidden ? { hpHidden: true } : {}),
     };
     const updatedToken = { ...token, combat: nextCombat };
@@ -224,12 +229,20 @@ export default function Board({
       initiative: null,
       hp: canViewHp ? 10 : null,
       maxHp: canViewHp ? 10 : null,
+      tempHp: canViewHp ? 0 : null,
     };
-    const nextCombat = {
+    const baseCombat = {
       ...currentCombat,
       ...updates,
       enabled: updates.enabled ?? currentCombat.enabled ?? true,
     };
+    const nextCombat =
+      'hp' in updates || 'maxHp' in updates || 'tempHp' in updates
+        ? applyCombatHpChange(currentCombat, {
+            ...updates,
+            enabled: baseCombat.enabled,
+          })
+        : baseCombat;
     sessionStore.getState().upsertToken({ ...token, combat: nextCombat });
 
     const timers = combatSyncTimersRef.current;
@@ -773,7 +786,11 @@ export default function Board({
   }
 
   return (
-    <section className="board" aria-label="Tabletop canvas">
+    <section
+      className="board"
+      data-canvas-theme={canvasTheme}
+      aria-label="Tabletop canvas"
+    >
       <nav className="extension-toolbar" aria-label="VTT extensions">
         {[
           'home',
@@ -1146,6 +1163,7 @@ export default function Board({
                           <HpRing
                             hp={singleSelectedToken.combat?.hp}
                             maxHp={singleSelectedToken.combat?.maxHp}
+                            tempHp={singleSelectedToken.combat?.tempHp ?? 0}
                           />
                           <div className="combat-hp-inputs">
                             <label>
@@ -1186,6 +1204,27 @@ export default function Board({
                                       : Math.max(1, Math.round(Number(raw)));
                                   handleUpdateCombat(singleSelectedToken, {
                                     maxHp: val,
+                                  });
+                                }}
+                              />
+                            </label>
+                            <label>
+                              <span>Temp</span>
+                              <input
+                                aria-label="Temp HP"
+                                type="number"
+                                min="0"
+                                step="1"
+                                disabled={!canEditHp}
+                                value={singleSelectedToken.combat?.tempHp ?? 0}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const val =
+                                    raw === ''
+                                      ? 0
+                                      : Math.max(0, Math.round(Number(raw)));
+                                  handleUpdateCombat(singleSelectedToken, {
+                                    tempHp: val,
                                   });
                                 }}
                               />
@@ -1491,7 +1530,19 @@ export default function Board({
         >
           <ToolIcon name="chat" />
         </IconButton>
-        <IconButton label="Measure distance — unavailable" disabled>
+        <IconButton
+          label="Measure distance"
+          title="Ruler — drag to measure (Space or Right-click to add waypoint)"
+          aria-pressed={!fogTool && selectTool === 'ruler'}
+          onClick={() => {
+            canvasStore.getState().setFogTool(null);
+            canvasStore
+              .getState()
+              .setSelectTool(
+                !fogTool && selectTool === 'ruler' ? 'select' : 'ruler',
+              );
+          }}
+        >
           <ToolIcon name="ruler" />
         </IconButton>
         {isDM ? (
@@ -1511,14 +1562,15 @@ export default function Board({
         )}
         <span className="toolbar-divider" />
         <IconButton
-          label={isDM ? 'Grid settings' : 'Toggle grid'}
-          title={isDM ? 'Grid visibility & cell size' : 'Toggle grid'}
-          aria-pressed={isDM ? gridOn || gridMenuOpen : gridOn}
-          aria-expanded={isDM ? gridMenuOpen : undefined}
-          onClick={() => {
-            if (isDM) setGridMenuOpen((v) => !v);
-            else handleToggleGrid();
-          }}
+          label="Grid settings"
+          title={
+            isDM
+              ? 'Grid visibility, canvas theme & cell size'
+              : 'Grid visibility & canvas theme'
+          }
+          aria-pressed={gridOn || gridMenuOpen}
+          aria-expanded={gridMenuOpen}
+          onClick={() => setGridMenuOpen((v) => !v)}
         >
           <ToolIcon name="grid" />
         </IconButton>
@@ -1591,7 +1643,67 @@ export default function Board({
           </>
         )}
       </nav>
-      {isDM && gridMenuOpen && (
+      {!fogTool && selectTool === 'ruler' && (
+        <div
+          className="ruler-settings-popover"
+          role="dialog"
+          aria-label="Ruler Settings"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="grid-settings-header">
+            <strong>Measure</strong>
+            <button
+              type="button"
+              className="close-menu-btn"
+              aria-label="Close ruler tool"
+              onClick={() => canvasStore.getState().setSelectTool('select')}
+            >
+              ×
+            </button>
+          </div>
+          <div className="ruler-mode-group" role="group" aria-label="Distance rule">
+            {[
+              { id: RULER_MODES.CHEBYSHEV, label: '5e' },
+              { id: RULER_MODES.ALTERNATING, label: '5/10' },
+              { id: RULER_MODES.EUCLIDEAN, label: 'Direct' },
+              { id: RULER_MODES.MANHATTAN, label: 'Grid' },
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                className={rulerMode === opt.id ? 'active' : ''}
+                aria-pressed={rulerMode === opt.id}
+                onClick={() => canvasStore.getState().setRulerMode(opt.id)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {isDM && (
+            <div className="grid-settings-row">
+              <span>Share with table</span>
+              <button
+                type="button"
+                className={`grid-toggle-btn ${rulerShareWithTable ? 'active' : ''}`}
+                aria-pressed={rulerShareWithTable}
+                onClick={() =>
+                  canvasStore
+                    .getState()
+                    .setRulerShareWithTable(!rulerShareWithTable)
+                }
+              >
+                {rulerShareWithTable ? 'On' : 'Off'}
+              </button>
+            </div>
+          )}
+          <p className="ruler-hint">
+            Drag to measure. Press Space or Right-click to drop a waypoint; Alt
+            bypasses snap.
+          </p>
+        </div>
+      )}
+      {gridMenuOpen && (
         <div
           className="grid-settings-popover"
           role="dialog"
@@ -1621,56 +1733,83 @@ export default function Board({
               {gridOn ? 'On' : 'Off'}
             </button>
           </div>
-          <div className="grid-settings-section">
-            <div className="grid-settings-row">
-              <label htmlFor="board-grid-size-input">Cell Size</label>
-              <span className="grid-size-value">{grid} px</span>
-            </div>
-            <input
-              id="board-grid-size-input"
-              type="range"
-              min={MIN_GRID_SIZE}
-              max={MAX_GRID_SIZE}
-              step={1}
-              value={Math.min(MAX_GRID_SIZE, Math.max(MIN_GRID_SIZE, grid))}
-              onChange={(e) => handleGridSizeChange(Number(e.target.value))}
-            />
-            <div className="grid-size-steppers">
+          <div className="grid-settings-row">
+            <span>Canvas Theme</span>
+            <div
+              className="grid-theme-group"
+              role="group"
+              aria-label="Canvas theme"
+            >
               <button
                 type="button"
-                aria-label="Decrease grid size"
-                title="Decrease cell size (−5 px, Shift −1 px)"
-                onClick={(e) =>
-                  handleGridSizeChange(grid - (e.shiftKey ? 1 : 5), {
-                    immediate: true,
-                  })
-                }
+                className={canvasTheme === 'dark' ? 'active' : ''}
+                aria-pressed={canvasTheme === 'dark'}
+                onClick={() => canvasStore.getState().setCanvasTheme('dark')}
               >
-                −
+                Dark
               </button>
               <button
                 type="button"
-                className="grid-reset-btn"
-                onClick={() =>
-                  handleGridSizeChange(DEFAULT_GRID_SIZE, { immediate: true })
-                }
+                className={canvasTheme === 'light' ? 'active' : ''}
+                aria-pressed={canvasTheme === 'light'}
+                onClick={() => canvasStore.getState().setCanvasTheme('light')}
               >
-                Reset ({DEFAULT_GRID_SIZE} px)
-              </button>
-              <button
-                type="button"
-                aria-label="Increase grid size"
-                title="Increase cell size (+5 px, Shift +1 px)"
-                onClick={(e) =>
-                  handleGridSizeChange(grid + (e.shiftKey ? 1 : 5), {
-                    immediate: true,
-                  })
-                }
-              >
-                +
+                Light
               </button>
             </div>
           </div>
+          {isDM && (
+            <div className="grid-settings-section">
+              <div className="grid-settings-row">
+                <label htmlFor="board-grid-size-input">Cell Size</label>
+                <span className="grid-size-value">{grid} px</span>
+              </div>
+              <input
+                id="board-grid-size-input"
+                type="range"
+                min={MIN_GRID_SIZE}
+                max={MAX_GRID_SIZE}
+                step={1}
+                value={Math.min(MAX_GRID_SIZE, Math.max(MIN_GRID_SIZE, grid))}
+                onChange={(e) => handleGridSizeChange(Number(e.target.value))}
+              />
+              <div className="grid-size-steppers">
+                <button
+                  type="button"
+                  aria-label="Decrease grid size"
+                  title="Decrease cell size (−5 px, Shift −1 px)"
+                  onClick={(e) =>
+                    handleGridSizeChange(grid - (e.shiftKey ? 1 : 5), {
+                      immediate: true,
+                    })
+                  }
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  className="grid-reset-btn"
+                  onClick={() =>
+                    handleGridSizeChange(DEFAULT_GRID_SIZE, { immediate: true })
+                  }
+                >
+                  Reset ({DEFAULT_GRID_SIZE} px)
+                </button>
+                <button
+                  type="button"
+                  aria-label="Increase grid size"
+                  title="Increase cell size (+5 px, Shift +1 px)"
+                  onClick={(e) =>
+                    handleGridSizeChange(grid + (e.shiftKey ? 1 : 5), {
+                      immediate: true,
+                    })
+                  }
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       {role === 'DM' && (

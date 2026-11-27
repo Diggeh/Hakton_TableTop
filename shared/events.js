@@ -70,6 +70,10 @@ export const EVENTS = Object.freeze({
   MAP_DELETE: 'map:delete',
   MAP_DELETED: 'map:deleted',
 
+  // Ephemeral live measurement ruler
+  RULER_UPDATE: 'ruler:update',
+  RULER_CLEAR: 'ruler:clear',
+
   // Continuous auto-save
   AUTOSAVE_COMMIT: 'autosave:commit',
   AUTOSAVE_SAVED: 'autosave:saved',

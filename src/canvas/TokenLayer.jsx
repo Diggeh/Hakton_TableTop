@@ -66,6 +66,7 @@ const TokenNode = memo(function TokenNode({
   draggable,
   canTransform,
   panMode,
+  livePosition,
   liveRotation,
   liveTransform,
   onSelect,
@@ -81,6 +82,7 @@ const TokenNode = memo(function TokenNode({
   const [hovered, setHovered] = useState(false);
   const startRef = useRef({ x: token.x, y: token.y });
   const lastValidPosRef = useRef({ x: token.x, y: token.y });
+  const pendingSingleSelectRef = useRef(false);
   const nodeRef = useRef(null);
   const rotateCleanupRef = useRef(null);
   const resizeCleanupRef = useRef(null);
@@ -113,8 +115,20 @@ const TokenNode = memo(function TokenNode({
   const radius = Math.max(8, grid / 2 - 4);
   const fontSize = Math.max(9, Math.round(grid * 0.2));
   const fill = token.color || DEFAULT_COLOR;
-  const displayX = liveTransform ? liveTransform.x : dragging ? startRef.current.x : token.x;
-  const displayY = liveTransform ? liveTransform.y : dragging ? startRef.current.y : token.y;
+  const displayX = liveTransform
+    ? liveTransform.x
+    : dragging
+      ? startRef.current.x
+      : livePosition
+        ? livePosition.x
+        : token.x;
+  const displayY = liveTransform
+    ? liveTransform.y
+    : dragging
+      ? startRef.current.y
+      : livePosition
+        ? livePosition.y
+        : token.y;
   const mapW = liveTransform?.width ?? (token.width || image?.naturalWidth || 800);
   const mapH = liveTransform?.height ?? (token.height || image?.naturalHeight || 600);
   const displayRotation =
@@ -337,13 +351,29 @@ const TokenNode = memo(function TokenNode({
         // Middle-click / space-pan gestures must reach the Stage handler.
         if (panMode || event.evt.button !== 0) return;
         event.cancelBubble = true;
-        onSelect(token.id, Boolean(event.evt.shiftKey));
+        const additive = Boolean(event.evt.shiftKey);
+        const currentSelected = canvasStore.getState().selectedIds;
+        if (!additive && currentSelected.length > 1 && currentSelected.includes(token.id)) {
+          // Defer collapsing a multi-selection until mouseup without drag so group dragging works cleanly
+          pendingSingleSelectRef.current = true;
+          return;
+        }
+        pendingSingleSelectRef.current = false;
+        onSelect(token.id, additive);
+      }}
+      onMouseUp={(event) => {
+        if (event.evt.button !== 0) return;
+        if (pendingSingleSelectRef.current) {
+          pendingSingleSelectRef.current = false;
+          onSelect(token.id, false);
+        }
       }}
       onTouchStart={(event) => {
         event.cancelBubble = true;
         onSelect(token.id, false);
       }}
       onDragStart={(event) => {
+        pendingSingleSelectRef.current = false;
         const curPos = { x: event.target.x(), y: event.target.y() };
         startRef.current = curPos;
         lastValidPosRef.current = curPos;
@@ -571,6 +601,7 @@ export default function TokenLayer({
   const currentUser = useSession((state) => state.currentUser);
   const selectedIds = useCanvas((state) => state.selectedIds);
   const snapEnabled = useCanvas((state) => state.snap);
+  const draggingPositions = useCanvas((state) => state.draggingPositions);
   const draggingRotations = useCanvas((state) => state.draggingRotations);
   const draggingTransforms = useCanvas((state) => state.draggingTransforms);
 
@@ -766,6 +797,7 @@ export default function TokenLayer({
             draggable={canDrag}
             canTransform={canTransform}
             panMode={panMode}
+            livePosition={draggingPositions[token.id]}
             liveRotation={draggingRotations[token.id]}
             liveTransform={draggingTransforms[token.id]}
             onSelect={handleSelect}

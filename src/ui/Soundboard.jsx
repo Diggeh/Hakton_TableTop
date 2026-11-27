@@ -57,65 +57,94 @@ async function resizeCustomIconImage(file) {
   }
 }
 
-function LayerBar({ label, layerName, slot, cue, ready, canControl, onCommand }) {
+function LayerBar({
+  label,
+  layerName,
+  layerVolume = 100,
+  slot,
+  cue,
+  ready,
+  canControl,
+  onCommand,
+}) {
   const isPlaying = Boolean(slot?.playing);
   return (
     <div
       className={`soundboard-layer-bar ${slot ? (isPlaying ? 'playing' : 'paused') : 'idle'}`}
       data-layer={layerName}
     >
-      <div className="soundboard-layer-info">
-        <span className={`soundboard-eq ${isPlaying ? 'active' : ''}`} aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
-        <div className="soundboard-layer-text">
-          <small>{label}</small>
-          <span role="status">
-            {cue
-              ? `${cue.name}${isPlaying ? '' : ' · Paused'}`
-              : 'Idle'}
+      <div className="soundboard-layer-top">
+        <div className="soundboard-layer-info">
+          <span className={`soundboard-eq ${isPlaying ? 'active' : ''}`} aria-hidden="true">
+            <i />
+            <i />
+            <i />
           </span>
+          <div className="soundboard-layer-text">
+            <small>{label}</small>
+            <span role="status">
+              {cue
+                ? `${cue.name}${isPlaying ? '' : ' · Paused'}`
+                : 'Idle'}
+            </span>
+          </div>
         </div>
+        {canControl && (
+          <div className="soundboard-actions">
+            <button
+              type="button"
+              className="soundboard-icon-btn"
+              aria-label={`Loop ${label}`}
+              title={`Toggle loop for ${label}`}
+              disabled={!ready || !slot}
+              aria-pressed={slot?.loop ?? false}
+              onClick={() =>
+                void onCommand('loop', slot?.cueId, !(slot?.loop ?? false), layerName)
+              }
+            >
+              <ToolIcon name="loop" />
+            </button>
+            <button
+              type="button"
+              className="soundboard-icon-btn"
+              aria-label={isPlaying ? `Pause ${label}` : `Resume ${label}`}
+              title={isPlaying ? `Pause ${label}` : `Resume ${label}`}
+              disabled={!ready || !slot}
+              onClick={() =>
+                void onCommand(isPlaying ? 'pause' : 'resume', slot?.cueId, undefined, layerName)
+              }
+            >
+              <ToolIcon name={isPlaying ? 'pause' : 'play'} />
+            </button>
+            <button
+              type="button"
+              className="soundboard-icon-btn danger-hover"
+              aria-label={`Stop ${label}`}
+              title={`Stop ${label}`}
+              disabled={!ready || !slot}
+              onClick={() => void onCommand('stop', slot?.cueId, undefined, layerName)}
+            >
+              <ToolIcon name="stop" />
+            </button>
+          </div>
+        )}
       </div>
       {canControl && (
-        <div className="soundboard-actions">
-          <button
-            type="button"
-            className="soundboard-icon-btn"
-            aria-label={`Loop ${label}`}
-            title={`Toggle loop for ${label}`}
-            disabled={!ready || !slot}
-            aria-pressed={slot?.loop ?? false}
-            onClick={() =>
-              void onCommand('loop', slot?.cueId, !(slot?.loop ?? false), layerName)
+        <div className="soundboard-layer-volume">
+          <ToolIcon name={layerVolume === 0 ? 'mute' : 'volume'} />
+          <input
+            aria-label={`${label} volume`}
+            title={`${label} volume (${layerVolume}%)`}
+            type="range"
+            min="0"
+            max="100"
+            value={layerVolume}
+            disabled={!ready}
+            onChange={(e) =>
+              void onCommand('volume', undefined, e.target.valueAsNumber, layerName)
             }
-          >
-            <ToolIcon name="loop" />
-          </button>
-          <button
-            type="button"
-            className="soundboard-icon-btn"
-            aria-label={isPlaying ? `Pause ${label}` : `Resume ${label}`}
-            title={isPlaying ? `Pause ${label}` : `Resume ${label}`}
-            disabled={!ready || !slot}
-            onClick={() =>
-              void onCommand(isPlaying ? 'pause' : 'resume', slot?.cueId, undefined, layerName)
-            }
-          >
-            <ToolIcon name={isPlaying ? 'pause' : 'play'} />
-          </button>
-          <button
-            type="button"
-            className="soundboard-icon-btn danger-hover"
-            aria-label={`Stop ${label}`}
-            title={`Stop ${label}`}
-            disabled={!ready || !slot}
-            onClick={() => void onCommand('stop', slot?.cueId, undefined, layerName)}
-          >
-            <ToolIcon name="stop" />
-          </button>
+          />
+          <span aria-hidden="true">{layerVolume}%</span>
         </div>
       )}
     </div>
@@ -156,7 +185,7 @@ function MixerSlider({ label, icon, value, onChange, disabled }) {
 }
 
 export default function Soundboard({ controls, canControl, preview }) {
-  const { state, cues, ready, enabled, volume, error, command, importing } =
+  const { state, cues, ready, audioBlocked, volume, error, command, importing } =
     controls;
   const [search, setSearch] = useState('');
   const [importTarget, setImportTarget] = useState({ kind: 'effect', layer: 'ambience' });
@@ -233,6 +262,7 @@ export default function Soundboard({ controls, canControl, preview }) {
           <LayerBar
             label="Music"
             layerName="music"
+            layerVolume={state.musicVolume ?? 100}
             slot={musicSlot}
             cue={musicCue}
             ready={ready}
@@ -242,6 +272,7 @@ export default function Soundboard({ controls, canControl, preview }) {
           <LayerBar
             label="Ambience"
             layerName="ambience"
+            layerVolume={state.ambienceVolume ?? 100}
             slot={ambienceSlot}
             cue={ambienceCue}
             ready={ready}
@@ -400,14 +431,14 @@ export default function Soundboard({ controls, canControl, preview }) {
       {/* Pinned Bottom Region: Dual Volume Sliders & Status */}
       <div className="soundboard-pinned-bottom">
         <div className="soundboard-mixer">
-          {!enabled && (
+          {audioBlocked && (
             <button
               type="button"
               className="primary soundboard-enable-btn"
               onClick={() => void controls.enable()}
             >
               <ToolIcon name="headphones" />
-              <span>Enable Audio</span>
+              <span>Unmute Table Audio</span>
             </button>
           )}
           {canControl && (

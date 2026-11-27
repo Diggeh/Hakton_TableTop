@@ -9,6 +9,7 @@ import {
   isValidCueIcon,
   MAX_AUDIO_BYTES,
   MAX_AUDIO_SECONDS,
+  MAX_EFFECT_SECONDS,
   SOUNDBOARD_EVENTS,
 } from '../../shared/soundboard.js';
 import { getSocket, resolveAssetUrl } from '../net/socket.js';
@@ -27,6 +28,7 @@ export function useSoundboard(preview) {
   const sessionId = useSession((state) => state.session?.id);
   const userId = useSession((state) => state.currentUser?.id);
   const [enabled, setEnabled] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const [volume, setVolume] = useState(60);
   const [state, setState] = useState(initialSoundboard);
   const [cues, setCues] = useState([]);
@@ -67,20 +69,30 @@ export function useSoundboard(preview) {
     setCues(items);
   }
 
+  function syncVolumes(nextState = current.current) {
+    playback.current?.setVolumes({
+      master: (personalVolume.current * (nextState?.volume ?? 100)) / 10000,
+      music: (nextState?.musicVolume ?? 100) / 100,
+      ambience: (nextState?.ambienceVolume ?? 100) / 100,
+    });
+  }
+
   function getPlayer() {
     playback.current ??= createSoundboardPlayer({
-      onStarted: () => setEnabled(true),
+      onStarted: () => {
+        setEnabled(true);
+        setAudioBlocked(false);
+      },
       onError(failure) {
         if (failure.name === 'NotAllowedError') {
           audible.current = false;
           setEnabled(false);
-          setError('Enable audio to listen on this device.');
+          setAudioBlocked(true);
+          setError('Audio output blocked by browser — click Unmute Table Audio.');
         } else setError('This cue could not play.');
       },
     });
-    playback.current.setVolume(
-      (personalVolume.current * current.current.volume) / 10000,
-    );
+    syncVolumes(current.current);
     return playback.current;
   }
 
@@ -89,9 +101,7 @@ export function useSoundboard(preview) {
     const updated = currentSoundboard(next, clock());
     current.current = updated;
     setState(updated);
-    playback.current?.setVolume(
-      (personalVolume.current * updated.volume) / 10000,
-    );
+    syncVolumes(updated);
     if (
       !force &&
       updated.music === prior.music &&
@@ -228,6 +238,7 @@ export function useSoundboard(preview) {
       if (scope !== generation.current) return false;
       audible.current = true;
       setEnabled(true);
+      setAudioBlocked(false);
       apply(current.current, true);
       return true;
     } catch {
@@ -286,6 +297,11 @@ export function useSoundboard(preview) {
       if (scope !== generation.current) return;
       if (seconds > MAX_AUDIO_SECONDS)
         throw new Error('Audio must be two hours or shorter.');
+      if (kind === 'effect' && seconds > MAX_EFFECT_SECONDS) {
+        throw new Error(
+          `Sound effects must be ${MAX_EFFECT_SECONDS} seconds or shorter. Import longer files under Music or Ambience.`,
+        );
+      }
       const name =
         file.name
           .replace(/\.[^.]+$/, '')
@@ -367,6 +383,7 @@ export function useSoundboard(preview) {
 
   return {
     enabled,
+    audioBlocked,
     volume,
     state,
     cues,
@@ -382,7 +399,7 @@ export function useSoundboard(preview) {
     changeVolume(value) {
       personalVolume.current = value;
       setVolume(value);
-      playback.current?.setVolume((value * current.current.volume) / 10000);
+      syncVolumes(current.current);
     },
   };
 }

@@ -3,10 +3,10 @@ import Konva from 'konva';
 import { Stage, Layer, Line } from 'react-konva';
 import { DEFAULT_GRID_SIZE } from '../../shared/events.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
-import { updateSceneMap } from '../net/socket.js';
+import { emitRulerClear, emitRulerUpdate, updateSceneMap } from '../net/socket.js';
 import { canvasStore, useCanvas } from './canvasStore.js';
 import { selectTokensInLasso } from './lasso.js';
-import { screenToMap } from './viewport.js';
+import { screenToMap, snapPoint } from './viewport.js';
 import {
   detectClosedLoop,
   findNearestWallSegment,
@@ -17,6 +17,7 @@ import MapLayer from './MapLayer.jsx';
 import GridLayer from './GridLayer.jsx';
 import TokenLayer from './TokenLayer.jsx';
 import FogLayer from './FogLayer.jsx';
+import RulerLayer from './RulerLayer.jsx';
 
 // Only the primary mouse button starts a token drag; middle-click always pans.
 Konva.dragButtons = [0];
@@ -49,14 +50,18 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
 
   const gridVisible = useCanvas((state) => state.gridVisible);
   const selectTool = useCanvas((state) => state.selectTool);
+  const rulerMode = useCanvas((state) => state.rulerMode);
+  const rulerShareWithTable = useCanvas((state) => state.rulerShareWithTable);
   const viewportScale = useCanvas((state) => state.viewport.scale);
   const fogTool = useCanvas((state) => state.fogTool);
   const fogShapes = useCanvas((state) => state.fogShapes);
   const walls = useCanvas((state) => state.walls);
   const fogSyncTimerRef = useRef(null);
+  const rulerDraftRef = useRef(null);
   const [panMode, setPanMode] = useState(false);
   const [draftShape, setDraftShape] = useState(null);
   const [lassoDraft, setLassoDraft] = useState(null);
+  const [rulerDraft, setRulerDraft] = useState(null);
   const [polygonDraft, setPolygonDraft] = useState([]);
   const [mouseMapPos, setMouseMapPos] = useState(null);
 
@@ -153,13 +158,39 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
   }, [fogTool]);
 
   useEffect(() => {
-    if (selectTool === 'lasso' && !fogTool && !panMode) {
+    if ((selectTool === 'lasso' || selectTool === 'ruler') && !fogTool && !panMode) {
       setCursor('crosshair');
     } else if (!panMode && !panRef.current) {
       setCursor('default');
       setLassoDraft(null);
+      if (rulerDraftRef.current) {
+        rulerDraftRef.current = null;
+        setRulerDraft(null);
+        emitRulerClear();
+      }
     }
   }, [selectTool, fogTool, panMode, setCursor]);
+
+  const broadcastRulerDraft = useCallback(
+    (points) => {
+      if (!Array.isArray(points) || points.length < 2) return;
+      emitRulerUpdate({
+        points,
+        mode: rulerMode,
+        feetPerCell: 5,
+        color: isDM ? '#adfcf9' : '#ffd57a',
+        shared: isDM ? rulerShareWithTable : true,
+      });
+    },
+    [isDM, rulerMode, rulerShareWithTable],
+  );
+
+  // Sync DM share toggle immediately if toggled mid-drag
+  useEffect(() => {
+    if (rulerDraftRef.current?.points?.length >= 2) {
+      broadcastRulerDraft(rulerDraftRef.current.points);
+    }
+  }, [rulerShareWithTable, rulerMode, broadcastRulerDraft]);
 
   // Keyboard: space pans, +/- zooms, 0 fits, Enter finishes polygon, Escape clears selection/tool, Delete removes selection.
   useEffect(() => {
@@ -169,6 +200,16 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       if (event.code === 'Space') {
         if (event.target?.tagName === 'BUTTON') return;
         event.preventDefault();
+        if (rulerDraftRef.current) {
+          if (event.repeat) return;
+          const cur = rulerDraftRef.current.points;
+          const tail = cur[cur.length - 1];
+          const next = [...cur, { ...tail }];
+          rulerDraftRef.current = { points: next };
+          setRulerDraft({ points: next });
+          broadcastRulerDraft(next);
+          return;
+        }
         if (!spaceRef.current) {
           spaceRef.current = true;
           setPanMode(true);
@@ -195,6 +236,11 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
         canvasStore.getState().clearSelection();
         setDraftShape(null);
         setLassoDraft(null);
+        if (rulerDraftRef.current) {
+          rulerDraftRef.current = null;
+          setRulerDraft(null);
+          emitRulerClear();
+        }
         setPolygonDraft([]);
         canvasStore.getState().setSelectTool('select');
         if (canvasStore.getState().fogTool) {
@@ -231,7 +277,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [onDeleteSelection, polygonDraft, role, setCursor]);
+  }, [broadcastRulerDraft, onDeleteSelection, polygonDraft, role, setCursor]);
 
   const handleMouseDown = (event) => {
     const stage = stageRef.current;
@@ -352,6 +398,40 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       }
     }
 
+    // Right-click while dragging a ruler drops a waypoint
+    if (rulerDraftRef.current && native.button === 2) {
+      native.preventDefault();
+      const cur = rulerDraftRef.current.points;
+      const tail = cur[cur.length - 1];
+      const next = [...cur, { ...tail }];
+      rulerDraftRef.current = { points: next };
+      setRulerDraft({ points: next });
+      broadcastRulerDraft(next);
+      return;
+    }
+
+    // Ruler / Measure distance tool (Owlbear-style drag + waypoints)
+    if (
+      selectTool === 'ruler' &&
+      !fogTool &&
+      native.button === 0 &&
+      !spaceRef.current
+    ) {
+      native.preventDefault();
+      const mapPt = screenToMap(canvasStore.getState().viewport, pointer);
+      const grid = map?.gridSize || DEFAULT_GRID_SIZE;
+      const startPt =
+        canvasStore.getState().snap && !native.altKey
+          ? snapPoint(mapPt, grid)
+          : { x: Math.round(mapPt.x), y: Math.round(mapPt.y) };
+      const initial = { points: [startPt, startPt] };
+      rulerDraftRef.current = initial;
+      setRulerDraft(initial);
+      broadcastRulerDraft(initial.points);
+      setCursor('crosshair');
+      return;
+    }
+
     // Freehand Lasso multi-select tool
     if (
       selectTool === 'lasso' &&
@@ -386,7 +466,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
     setCursor('grabbing');
   };
 
-  const handleMouseMove = () => {
+  const handleMouseMove = (event) => {
     const stage = stageRef.current;
     if (!stage) return;
     const pointer = stage.getPointerPosition();
@@ -394,6 +474,21 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
 
     const mapPt = screenToMap(canvasStore.getState().viewport, pointer);
     setMouseMapPos(mapPt);
+
+    if (rulerDraftRef.current) {
+      const grid = map?.gridSize || DEFAULT_GRID_SIZE;
+      const altBypass = Boolean(event?.evt?.altKey);
+      const endPt =
+        canvasStore.getState().snap && !altBypass
+          ? snapPoint(mapPt, grid)
+          : { x: Math.round(mapPt.x), y: Math.round(mapPt.y) };
+      const prevPts = rulerDraftRef.current.points;
+      const nextPts = [...prevPts.slice(0, -1), endPt];
+      rulerDraftRef.current = { points: nextPts };
+      setRulerDraft({ points: nextPts });
+      broadcastRulerDraft(nextPts);
+      return;
+    }
 
     if (lassoDraft) {
       setLassoDraft((prev) => {
@@ -466,7 +561,16 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
     });
   };
 
-  const endPan = () => {
+  const endPan = (event) => {
+    if (rulerDraftRef.current) {
+      if (event?.evt?.button === 2) return;
+      rulerDraftRef.current = null;
+      setRulerDraft(null);
+      emitRulerClear();
+      setCursor(spaceRef.current ? 'grab' : 'crosshair');
+      return;
+    }
+
     if (lassoDraft) {
       const current = lassoDraft;
       setLassoDraft(null);
@@ -588,6 +692,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
   };
 
   const gridSize = map?.gridSize ?? DEFAULT_GRID_SIZE;
+  const interactiveTokens = selectTool !== 'lasso' && selectTool !== 'ruler';
 
   return (
     <Stage
@@ -598,13 +703,18 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       onMouseMove={handleMouseMove}
       onMouseUp={endPan}
       onMouseLeave={endPan}
+      onContextMenu={(event) => {
+        if (selectTool === 'ruler' || rulerDraftRef.current) {
+          event.evt.preventDefault();
+        }
+      }}
       onWheel={handleWheel}
       onDblClick={handleDoubleClick}
     >
       <Layer listening={false}>
         <MapLayer map={map} />
       </Layer>
-      <Layer listening={selectTool !== 'lasso'}>
+      <Layer listening={interactiveTokens}>
         <TokenLayer
           map={map}
           gridSize={gridSize}
@@ -617,7 +727,7 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
       <Layer listening={false}>
         {gridVisible && <GridLayer map={map} gridSize={gridSize} />}
       </Layer>
-      <Layer>
+      <Layer listening={interactiveTokens}>
         <TokenLayer
           map={map}
           gridSize={gridSize}
@@ -637,6 +747,11 @@ export default function MapStage({ width, height, role, onDeleteSelection }) {
           onFinishPolygon={handleFinishPolygon}
         />
       </Layer>
+      <RulerLayer
+        localPoints={rulerDraft?.points || null}
+        gridSize={gridSize}
+        mode={rulerMode}
+      />
       {lassoDraft && lassoDraft.points.length >= 4 && (
         <Layer listening={false}>
           <Line

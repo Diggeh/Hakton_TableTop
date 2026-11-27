@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  applyCombatHpChange,
   canViewTokenHp,
   sortInitiativeEntries,
   stripHiddenCombatFields,
@@ -71,6 +72,36 @@ describe('combat initiative & role-based HP visibility helpers', () => {
     const playerViewOfDm = stripHiddenCombatFields(dmToken, 'player', participants);
     assert.equal(playerViewOfDm.combat.initiative, 15);
     assert.equal(playerViewOfDm.combat.hp, null);
+    assert.equal(playerViewOfDm.combat.maxHp, null);
+    assert.equal(playerViewOfDm.combat.tempHp, null);
     assert.equal(playerViewOfDm.combat.hpHidden, true);
+  });
+
+  it('clamps Current HP at Max HP, converts overflow into Temp HP, and clamps down when Max HP lowers', () => {
+    // Entering 60 HP when Max HP is 15 clamps Current to 15 and sets Temp HP to 45
+    const overflow = applyCombatHpChange(
+      { enabled: true, hp: 10, maxHp: 15, tempHp: 0 },
+      { hp: 60 },
+    );
+    assert.equal(overflow.hp, 15);
+    assert.equal(overflow.maxHp, 15);
+    assert.equal(overflow.tempHp, 45);
+
+    // Explicitly setting Temp HP updates it independently without altering Current HP
+    const directTemp = applyCombatHpChange(
+      { enabled: true, hp: 12, maxHp: 20, tempHp: 0 },
+      { tempHp: 8 },
+    );
+    assert.equal(directTemp.hp, 12);
+    assert.equal(directTemp.tempHp, 8);
+
+    // Lowering Max HP below Current HP clamps Current HP down to the new Max
+    const loweredMax = applyCombatHpChange(
+      { enabled: true, hp: 18, maxHp: 20, tempHp: 5 },
+      { maxHp: 12 },
+    );
+    assert.equal(loweredMax.hp, 12);
+    assert.equal(loweredMax.maxHp, 12);
+    assert.equal(loweredMax.tempHp, 5);
   });
 });

@@ -181,6 +181,9 @@ export const sessionStore = createStore((set) => ({
   selectedMapAsset: null, // { id, name, url, width, height, format, mimeType } | null
   selectedTokenAsset: null, // { id, name, url, width, height, format, mimeType } | null
 
+  // Ephemeral remote ruler measurements keyed by senderId
+  remoteRulers: {}, // senderId -> { senderId, senderName, role, points, mode, feetPerCell, color }
+
   // 3D Dice Rolling state (client-sided 3D simulation + synchronized roll log)
   activeRoll: null, // Currently tumbling 3D roll on this client
   settledTrayRoll: null, // Roll result that popped into the Dice Tray after settling
@@ -266,6 +269,7 @@ export const sessionStore = createStore((set) => ({
       participants: [],
       connectionError: null,
       sessionJoinedAt: null,
+      remoteRulers: {},
     }),
 
   // Board actions (existing)
@@ -340,6 +344,7 @@ export const sessionStore = createStore((set) => ({
           )
         : {},
       selectedMapAsset: null,
+      remoteRulers: {},
     }));
     canvasStore.getState().clearSelection();
     canvasStore.getState().setFogState({
@@ -638,6 +643,27 @@ export const sessionStore = createStore((set) => ({
         return { rollHistory: updated };
       }
       return { rollHistory: [...state.rollHistory, normalized] };
+    }),
+
+  upsertRemoteRuler: (ruler) =>
+    set((state) => {
+      if (!ruler?.senderId || !Array.isArray(ruler.points) || ruler.points.length < 2) {
+        return state;
+      }
+      return {
+        remoteRulers: {
+          ...state.remoteRulers,
+          [ruler.senderId]: ruler,
+        },
+      };
+    }),
+
+  removeRemoteRuler: (senderId) =>
+    set((state) => {
+      if (!senderId || !(senderId in state.remoteRulers)) return state;
+      const next = { ...state.remoteRulers };
+      delete next[senderId];
+      return { remoteRulers: next };
     }),
 }));
 

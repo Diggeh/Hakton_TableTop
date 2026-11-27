@@ -9,6 +9,7 @@ export const SOUNDBOARD_EVENTS = {
 
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 export const MAX_AUDIO_SECONDS = 7200;
+export const MAX_EFFECT_SECONDS = 15;
 export const AUDIO_PATH = '/soundboard/audio';
 export const MAX_CUE_ICON_LENGTH = 65536;
 
@@ -67,6 +68,8 @@ export const initialSoundboard = {
   music: null,
   ambience: null,
   volume: 100,
+  musicVolume: 100,
+  ambienceVolume: 100,
 };
 
 export function trackPosition(track, now) {
@@ -254,6 +257,12 @@ export function changeSoundboard(state, input, cue, now, lead = 0) {
         input.value > 100
       )
         return null;
+      if (input.layer === 'music') {
+        return { ...state, musicVolume: input.value };
+      }
+      if (input.layer === 'ambience') {
+        return { ...state, ambienceVolume: input.value };
+      }
       return { ...state, volume: input.value };
     default:
       return null;

@@ -189,13 +189,14 @@ describe('Socket.IO Networking Bus Integration (Router, Client & Store)', () => 
       wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
       wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28);
       wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(16000, 40);
-      const upload = (access, body) => fetch(server.localUrl + AUDIO_PATH + '?name=Chime&kind=effect&seconds=1', {
+      const upload = (access, body, seconds = 1) => fetch(server.localUrl + AUDIO_PATH + '?name=Chime&kind=effect&seconds=' + seconds, {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + access, 'Content-Type': 'application/octet-stream' },
         body,
       });
       assert.equal((await upload(player.access, wav)).status, 403);
       assert.equal((await upload(host.access, Buffer.alloc(48))).status, 400);
+      assert.equal((await upload(host.access, wav, 16)).status, 400);
       const catalog = waitForEvent(player.socket, SOUNDBOARD_EVENTS.CATALOG);
       assert.equal((await upload(host.access, wav)).status, 201);
       const [cue] = (await catalog).cues;
@@ -445,5 +446,65 @@ describe('Socket.IO Networking Bus Integration (Router, Client & Store)', () => 
     assert.equal(getSocket(), null);
     assert.equal(sessionStore.getState().connection, CONNECTION_STATUS.DISCONNECTED);
     assert.equal(sessionStore.getState().currentUser, null);
+  });
+
+  it('broadcasts player rulers to everyone and respects DM Share with table toggle', async () => {
+    const dmSocket = connectRawClient();
+    const p1Socket = connectRawClient();
+    await Promise.all([waitForEvent(dmSocket, 'connect'), waitForEvent(p1Socket, 'connect')]);
+
+    await emitWithAck(dmSocket, EVENTS.SESSION_JOIN, {
+      sessionId: DEFAULT_SESSION_ID,
+      displayName: 'Dungeon Master',
+      role: ROLES.DM,
+      hostToken: server.hostSecret,
+    });
+    await emitWithAck(p1Socket, EVENTS.SESSION_JOIN, {
+      sessionId: DEFAULT_SESSION_ID,
+      displayName: 'Lyra',
+      role: ROLES.PLAYER,
+    });
+
+    // Player ruler is always broadcast to DM & other players, even if shared: false is sent
+    const dmReceivedPlayerRuler = waitForEvent(dmSocket, EVENTS.RULER_UPDATE);
+    p1Socket.emit(EVENTS.RULER_UPDATE, {
+      points: [
+        { x: 0, y: 0 },
+        { x: 128, y: 0 },
+      ],
+      mode: '5e',
+      feet: 10,
+      shared: false,
+    });
+    const playerBroadcast = await dmReceivedPlayerRuler;
+    assert.equal(playerBroadcast.senderName, 'Lyra');
+    assert.equal(playerBroadcast.points.length, 2);
+    assert.equal(playerBroadcast.mode, '5e');
+
+    // DM shared ruler reaches players
+    const p1ReceivedDmRuler = waitForEvent(p1Socket, EVENTS.RULER_UPDATE);
+    dmSocket.emit(EVENTS.RULER_UPDATE, {
+      points: [
+        { x: 64, y: 64 },
+        { x: 192, y: 64 },
+      ],
+      mode: '5e',
+      shared: true,
+    });
+    const dmBroadcast = await p1ReceivedDmRuler;
+    assert.equal(dmBroadcast.senderName, 'Dungeon Master');
+
+    // DM unchecks Share with table -> emits ruler:clear to clear prior measurement & suppresses broadcast
+    const p1Cleared = waitForEvent(p1Socket, EVENTS.RULER_CLEAR);
+    dmSocket.emit(EVENTS.RULER_UPDATE, {
+      points: [
+        { x: 64, y: 64 },
+        { x: 256, y: 64 },
+      ],
+      mode: '5e',
+      shared: false,
+    });
+    const clearEvt = await p1Cleared;
+    assert.ok(clearEvt.senderId);
   });
 });

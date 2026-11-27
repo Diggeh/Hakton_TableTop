@@ -874,8 +874,17 @@
 }
 .board {
   border-radius: 7px;
-  background: #aab8b2;
+  background: #0b1829;
   border-color: #4e6667;
+  transition: background-color 180ms ease;
+}
+
+.board[data-canvas-theme='dark'] {
+  background: #0b1829;
+}
+
+.board[data-canvas-theme='light'] {
+  background: #c5d1cc;
 }
 .board-caption {
   top: 48px;
@@ -3692,13 +3701,29 @@
   font-weight: 700;
   color: #ebfaf7;
   pointer-events: none;
+  transition: color 180ms ease, text-shadow 180ms ease;
+}
+
+.hakton-app .hp-ring-value.has-temp {
+  color: #5ef2ff;
+  text-shadow: 0 0 8px rgba(94, 242, 255, 0.45);
+}
+
+.hakton-app .hp-ring-temp-arc {
+  filter: drop-shadow(0 0 4px rgba(76, 230, 255, 0.55));
 }
 
 .hakton-app .combat-hp-inputs {
   flex: 1;
+  min-width: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.hakton-app .combat-hp-inputs input {
+  width: 100%;
+  min-width: 0;
 }
 
 .hakton-app .combat-hp-inputs label {
@@ -4345,6 +4370,82 @@
 .hakton-app .minimized-note-close:hover {
   color: #ffb2b2;
 }
+
+/* Canvas Theme Selector inside Grid Settings & Ruler Settings Popover */
+.grid-theme-group {
+  display: inline-flex;
+  border-radius: 999px;
+  border: 1px solid rgba(116, 198, 184, 0.35);
+  background: rgba(15, 31, 41, 0.85);
+  padding: 2px;
+  gap: 2px;
+}
+
+.hakton-app .grid-theme-group button {
+  padding: 2px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #96b8c4;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hakton-app .grid-theme-group button.active {
+  background: rgba(116, 198, 184, 0.28);
+  color: #adfcf9;
+}
+
+.ruler-settings-popover {
+  position: absolute;
+  top: 76px;
+  right: 54px;
+  width: 228px;
+  background: rgba(11, 23, 31, 0.96);
+  border: 1px solid rgba(116, 198, 184, 0.5);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  z-index: 30;
+  pointer-events: auto;
+}
+
+.ruler-mode-group {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.hakton-app .ruler-mode-group button {
+  padding: 4px 2px;
+  border-radius: 6px;
+  border: 1px solid rgba(116, 198, 184, 0.3);
+  background: rgba(16, 33, 44, 0.85);
+  color: #9ec0cc;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hakton-app .ruler-mode-group button.active {
+  border-color: #74cee0;
+  background: rgba(116, 206, 224, 0.22);
+  color: #eafdff;
+}
+
+.ruler-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #88acb8;
+}
+
 
 
 

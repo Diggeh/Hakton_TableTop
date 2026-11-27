@@ -8,6 +8,7 @@ import {
   isValidCueIcon,
   MAX_AUDIO_BYTES,
   MAX_AUDIO_SECONDS,
+  MAX_EFFECT_SECONDS,
 } from '../../shared/soundboard.js';
 
 const MAX_CUES = 64;
@@ -178,6 +179,11 @@ export function createSoundboardLibrary(dataDir, sessionManager) {
           ) {
             return res.status(400).json({
               error: 'Choose a valid MP3, WAV, Ogg, or FLAC audio file.',
+            });
+          }
+          if (kind === 'effect' && seconds > MAX_EFFECT_SECONDS) {
+            return res.status(400).json({
+              error: `Sound effects must be ${MAX_EFFECT_SECONDS} seconds or shorter. Import longer files under Music or Ambience.`,
             });
           }
           const entries = catalog(id);

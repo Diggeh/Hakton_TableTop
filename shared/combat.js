@@ -1,5 +1,5 @@
 /**
- * Pure combat, initiative sorting, and role-based HP visibility helpers.
+ * Pure combat, initiative sorting, Temporary HP overflow, and role-based HP visibility helpers.
  * Runtime-agnostic: safe for both Node backend and React/Zustand renderer.
  */
 
@@ -16,15 +16,59 @@ export function normalizeOwnerRole(role) {
   return null;
 }
 
+/**
+ * Normalizes HP / Max HP / Temp HP changes according to the table's combat rules:
+ * - Current HP never exceeds Max HP: any overflow above Max becomes Temporary HP
+ *   and Current HP clamps to Max.
+ * - Lowering Max HP below Current HP clamps Current HP down to the new Max.
+ */
+export function applyCombatHpChange(currentCombat = {}, patch = {}) {
+  const cur = currentCombat && typeof currentCombat === 'object' ? currentCombat : {};
+  const hasHp = 'hp' in patch;
+  const hasMax = 'maxHp' in patch;
+  const hasTemp = 'tempHp' in patch;
+
+  let hp = hasHp ? parseOptionalInt(patch.hp, 0, 99999) : parseOptionalInt(cur.hp, 0, 99999);
+  const maxHp = hasMax
+    ? parseOptionalInt(patch.maxHp, 1, 99999)
+    : parseOptionalInt(cur.maxHp, 1, 99999);
+  let tempHp = hasTemp
+    ? parseOptionalInt(patch.tempHp, 0, 99999) ?? 0
+    : parseOptionalInt(cur.tempHp, 0, 99999) ?? 0;
+
+  if (maxHp !== null && hp !== null && hp > maxHp) {
+    if (hasHp && !hasMax) {
+      tempHp = hp - maxHp;
+    }
+    hp = maxHp;
+  }
+
+  return {
+    ...cur,
+    ...patch,
+    hp,
+    maxHp,
+    tempHp,
+  };
+}
+
 export function sanitizeCombat(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const maxHp = parseOptionalInt(raw.maxHp, 1, 99999);
-  const hp = parseOptionalInt(raw.hp, 0, 99999);
+  let hp = parseOptionalInt(raw.hp, 0, 99999);
+  let tempHp = parseOptionalInt(raw.tempHp, 0, 99999) ?? 0;
+  if (maxHp !== null && hp !== null && hp > maxHp) {
+    if (raw.tempHp === undefined || raw.tempHp === null || Number(raw.tempHp) === 0) {
+      tempHp = hp - maxHp;
+    }
+    hp = maxHp;
+  }
   return {
     enabled: Boolean(raw.enabled),
     initiative: parseOptionalInt(raw.initiative, -99, 999),
     hp,
     maxHp,
+    tempHp,
   };
 }
 
@@ -71,6 +115,7 @@ export function stripHiddenCombatFields(token, viewerRole, participants = []) {
       ...token.combat,
       hp: null,
       maxHp: null,
+      tempHp: null,
       hpHidden: true,
     },
   };

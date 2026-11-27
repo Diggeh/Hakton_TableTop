@@ -19,6 +19,7 @@ import {
   sanitizeCombat,
   stripHiddenCombatFields,
 } from '../../shared/combat.js';
+import { sanitizeRulerPayload } from '../../shared/ruler.js';
 import { SessionManager, sanitizeParticipant } from '../session/sessionManager.js';
 import { announceVoicePeerLeft, registerVoiceHandlers } from '../voice/handlers.js';
 
@@ -465,6 +466,9 @@ export function registerSocketRouter(io, repos, opts = {}) {
         socket.data.role = null;
 
         socket.to(room).emit(EVENTS.SESSION_PARTICIPANT_LEFT, leaveResult.participant);
+        socket.to(room).emit(EVENTS.RULER_CLEAR, {
+          senderId: leaveResult.participant.id,
+        });
         announceVoicePeerLeft(
           io,
           { sessionManager, roomFor: getSessionRoom },
@@ -723,6 +727,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
                 ...sanitized,
                 hp: existingWire.combat?.hp ?? null,
                 maxHp: existingWire.combat?.maxHp ?? null,
+                tempHp: existingWire.combat?.tempHp ?? 0,
               };
         }
       }
@@ -1131,11 +1136,42 @@ export function registerSocketRouter(io, repos, opts = {}) {
       }
     });
 
+    socket.on(EVENTS.RULER_UPDATE, (rawPayload = {}) => {
+      if (!isJoined()) return;
+      const room = getSessionRoom(socket.data.sessionId);
+      if (isDM() && rawPayload?.shared === false) {
+        socket.to(room).emit(EVENTS.RULER_CLEAR, { senderId: socket.data.playerId });
+        return;
+      }
+      const clean = sanitizeRulerPayload(rawPayload);
+      if (!clean) return;
+      socket.to(room).emit(EVENTS.RULER_UPDATE, {
+        senderId: socket.data.playerId,
+        senderName: socket.data.displayName || 'Adventurer',
+        role: socket.data.role || ROLES.PLAYER,
+        points: clean.points,
+        mode: clean.mode,
+        feetPerCell: clean.feetPerCell,
+        color: clean.color,
+      });
+    });
+
+    socket.on(EVENTS.RULER_CLEAR, () => {
+      if (!isJoined()) return;
+      const room = getSessionRoom(socket.data.sessionId);
+      socket.to(room).emit(EVENTS.RULER_CLEAR, {
+        senderId: socket.data.playerId,
+      });
+    });
+
     socket.on('disconnect', (reason) => {
       const disconnectResult = sessionManager.handleDisconnect(socket.id);
       if (!disconnectResult) return;
 
       const room = getSessionRoom(disconnectResult.session.id);
+      socket.to(room).emit(EVENTS.RULER_CLEAR, {
+        senderId: disconnectResult.participant.id,
+      });
       socket.to(room).emit(EVENTS.SESSION_PARTICIPANT_LEFT, {
         ...disconnectResult.participant,
         reason,

@@ -29,6 +29,9 @@ let recoveryInfo = null;
 let stopBackups = null;
 let currentUser = null;
 
+// Unlock desktop audio playback without requiring an extra click barrier.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 // Only one Hakton instance: a second one would fight over the port and SQLite file.
 if (!app.requestSingleInstanceLock()) app.quit();
 else {

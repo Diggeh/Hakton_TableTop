@@ -11,6 +11,7 @@ import {
   ROLES,
 } from '../../shared/events.js';
 import { sessionStore } from '../store/sessionStore.js';
+import { sanitizeRulerPayload } from '../../shared/ruler.js';
 import { canvasStore } from '../canvas/canvasStore.js';
 import { autosave } from '../autosave/index.js';
 import { setAutosaveTransport } from '../autosave/transport.js';
@@ -642,6 +643,16 @@ export async function connect(options) {
     sessionStore.getState().applyAutosaveSaved(payload);
   });
 
+  // Ephemeral measurement ruler broadcasts
+  socket.on(EVENTS.RULER_UPDATE, (payload) => {
+    sessionStore.getState().upsertRemoteRuler(payload);
+  });
+  socket.on(EVENTS.RULER_CLEAR, (payload = {}) => {
+    if (payload?.senderId) {
+      sessionStore.getState().removeRemoteRuler(payload.senderId);
+    }
+  });
+
   return socket;
 }
 
@@ -918,4 +929,20 @@ export function emitDiceRoll(roll, { senderName, animate = true } = {}) {
       resolve(ack ?? { success: true });
     });
   });
+}
+
+/** Broadcasts the user's active ruler measurement ephemerally to peers. */
+export function emitRulerUpdate(payload = {}) {
+  const sanitized = sanitizeRulerPayload(payload);
+  if (!sanitized || !socket?.connected) return;
+  socket.emit(EVENTS.RULER_UPDATE, {
+    ...sanitized,
+    shared: payload.shared !== false,
+  });
+}
+
+/** Clears this user's active ruler measurement for remote peers. */
+export function emitRulerClear() {
+  if (!socket?.connected) return;
+  socket.emit(EVENTS.RULER_CLEAR, {});
 }

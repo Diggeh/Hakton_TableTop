@@ -7,6 +7,23 @@ import {
 } from './viewport.js';
 
 const EMPTY_SIZE = { width: 0, height: 0 };
+const CANVAS_THEME_KEY = 'hakton:canvas-theme:v1';
+
+function readCanvasTheme() {
+  try {
+    return localStorage.getItem(CANVAS_THEME_KEY) === 'light' ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+function writeCanvasTheme(theme) {
+  try {
+    localStorage.setItem(CANVAS_THEME_KEY, theme);
+  } catch {
+    // Ignore storage errors outside browser contexts
+  }
+}
 
 /**
  * Viewport & interaction state for the live canvas. Lives outside React so
@@ -32,18 +49,45 @@ export const canvasStore = createStore((set, get) => {
     draggingRotations: {},
     draggingTransforms: {},
 
-    // Selection & Fog of War / Dynamic Vision state
-    selectTool: 'select', // 'select' | 'lasso'
+    // Selection, Canvas Theme, Ruler & Fog of War / Dynamic Vision state
+    canvasTheme: readCanvasTheme(), // 'dark' | 'light'
+    selectTool: 'select', // 'select' | 'lasso' | 'ruler'
+    rulerMode: '5e', // '5e' | 'alternating' | 'euclidean' | 'manhattan'
+    rulerShareWithTable: true,
     fogTool: null, // 'rect' | 'circle' | 'polygon' | 'line' | 'wall' | 'door' | 'erase' | null
     fogShapes: [],
     walls: [],
     playerVisionPreview: false,
 
+    setCanvasTheme: (theme) => {
+      const next = theme === 'light' ? 'light' : 'dark';
+      writeCanvasTheme(next);
+      set({ canvasTheme: next });
+    },
+
+    toggleCanvasTheme: () =>
+      set((state) => {
+        const next = state.canvasTheme === 'light' ? 'dark' : 'light';
+        writeCanvasTheme(next);
+        return { canvasTheme: next };
+      }),
+
     setSelectTool: (selectTool) =>
       set({
-        selectTool: selectTool === 'lasso' ? 'lasso' : 'select',
-        ...(selectTool === 'lasso' ? { fogTool: null } : {}),
+        selectTool:
+          selectTool === 'lasso' || selectTool === 'ruler' ? selectTool : 'select',
+        ...(selectTool === 'lasso' || selectTool === 'ruler' ? { fogTool: null } : {}),
       }),
+
+    setRulerMode: (rulerMode) =>
+      set({
+        rulerMode: ['5e', 'alternating', 'euclidean', 'manhattan'].includes(rulerMode)
+          ? rulerMode
+          : '5e',
+      }),
+
+    setRulerShareWithTable: (shared) =>
+      set({ rulerShareWithTable: Boolean(shared) }),
 
     setFogTool: (fogTool) =>
       set((state) => {
