@@ -348,7 +348,7 @@ export default function AssetsPanel({
 
   return (
     <section
-      className="assets-panel"
+      className={`assets-panel${inModal ? ' in-modal' : ''}`}
       aria-label="Asset manager"
       onClick={() => setOpenMenuFor(null)}
     >

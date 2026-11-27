@@ -1,26 +1,5 @@
 // Presentation fixtures only. Never applied to the network session store.
-export const campaigns = [
-  {
-    id: 'salt',
-    name: 'The Sunken Coast',
-    system: 'D&D 5e',
-    chapter: 'Chapter III · Beneath the tide',
-    description:
-      'The lighthouse at Greyhaven has gone dark. Beyond the breakwater, an old sanctuary waits beneath the sea.',
-    scene: 'Untitled Scene',
-    sessions: 8,
-  },
-  {
-    id: 'ash',
-    name: 'Ashes of the North',
-    system: 'D&D 5.5e',
-    chapter: 'Chapter I · The long road',
-    description:
-      'A winter caravan, a missing envoy, and a road that no longer appears on any map.',
-    scene: 'Untitled Scene',
-    sessions: 2,
-  },
-];
+export const campaigns = [];
 export const party = [
   {
     name: 'Mira',

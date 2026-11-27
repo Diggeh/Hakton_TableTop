@@ -72,19 +72,12 @@ export const DEMO_CHARACTERS = Object.freeze([
 ]);
 
 /**
- * Seeds a default campaign/map so a fresh install starts on a clean blank gridded
- * tabletop and backfills any missing demo character sheets.
+ * Backfills demo character sheets when missing without creating any pre-existing campaigns.
  *
  * Idempotent: existing rows are never overwritten.
  */
 export async function seedIfEmpty(repos) {
-  if (!repos?.maps) return;
-
-  const map = repos.maps.first();
-
-  if (!map) {
-    repos.maps.createWithCampaign('First Campaign', 'Untitled Scene');
-  }
+  if (!repos) return;
 
   if (repos.characters?.get) {
     for (const character of DEMO_CHARACTERS) {

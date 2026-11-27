@@ -30,6 +30,17 @@ function renderCue(cue, samples) {
             0.035 * wave(261.666667, t)) *
           (0.6 + 0.32 * wave(1 / 6, t) + 0.08 * wave(1 / 4, t));
         break;
+      case 'hearthfire': {
+        const beatPos = t % 1.5;
+        const root = beatPos < 0.75 ? 196 : 220;
+        const fifth = root * 1.498;
+        const pluck = Math.exp(-3.8 * (t % 0.75));
+        sample =
+          (0.16 * wave(root, t) + 0.11 * wave(fifth, t) + 0.06 * wave(root * 2, t)) *
+            pluck +
+          (slowNoise * 0.65 + fastNoise * 0.25) * 0.22;
+        break;
+      }
       case 'battle-drums': {
         const kick = beat(t, 1);
         const tom = beat(t + 0.25, 0.5);
@@ -95,7 +106,7 @@ function resetAudio(audio) {
 export function createSoundboardPlayer({ onError, onStarted }) {
   const urls = new Map();
   const effects = new Set();
-  let background = null;
+  const layers = { music: null, ambience: null };
   let volume = 0.6;
 
   function sourceUrl(id, resolveCustom) {
@@ -114,9 +125,25 @@ export function createSoundboardPlayer({ onError, onStarted }) {
     resetAudio(entry.audio);
   }
 
+  function stopLayer(name) {
+    if (layers[name]) cancel(layers[name]);
+    layers[name] = null;
+  }
+
   function stopTrack() {
-    if (background) cancel(background);
-    background = null;
+    stopLayer('music');
+    stopLayer('ambience');
+  }
+
+  function syncLayer(name, track, clock, resolveCustom) {
+    if (!track) return stopLayer(name);
+    const url = sourceUrl(track.cueId, resolveCustom);
+    if (!url) return stopLayer(name);
+    if (layers[name]?.url !== url) {
+      stopLayer(name);
+      layers[name] = makeEntry(url);
+    }
+    schedule(layers[name], track, clock);
   }
 
   function schedule(entry, track, clock, onEnd) {
@@ -222,14 +249,11 @@ export function createSoundboardPlayer({ onError, onStarted }) {
       }
     },
     setTrack(track, clock, resolveCustom) {
-      if (!track) return stopTrack();
-      const url = sourceUrl(track.cueId, resolveCustom);
-      if (!url) return stopTrack();
-      if (background?.url !== url) {
-        stopTrack();
-        background = makeEntry(url);
-      }
-      schedule(background, track, clock);
+      syncLayer('ambience', track, clock, resolveCustom);
+    },
+    setLayers({ music = null, ambience = null } = {}, clock, resolveCustom) {
+      syncLayer('music', music, clock, resolveCustom);
+      syncLayer('ambience', ambience, clock, resolveCustom);
     },
     effect(cue, startsAt, clock, resolveCustom) {
       const url = sourceUrl(cue.id, resolveCustom);
@@ -252,7 +276,8 @@ export function createSoundboardPlayer({ onError, onStarted }) {
     },
     setVolume(value) {
       volume = value;
-      if (background) background.audio.volume = value;
+      if (layers.music) layers.music.audio.volume = value;
+      if (layers.ambience) layers.ambience.audio.volume = value;
       for (const entry of effects) entry.audio.volume = value;
     },
     stop() {

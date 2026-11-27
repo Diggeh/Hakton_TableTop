@@ -4,14 +4,11 @@ import { ROLES } from '../../shared/events.js';
 import { rollFormula } from '../../shared/dice/roller.js';
 import { disconnect, emitDiceRoll, resolveAssetUrl } from '../net/socket.js';
 import { sessionStore, useSession } from '../store/sessionStore.js';
+import { notesStore, useNotes } from '../store/notesStore.js';
 import { useAssets } from '../store/assetStore.js';
 import { useSoundboard } from '../audio/useSoundboard.js';
 import { autosave } from '../autosave/index.js';
-import {
-  characterDocument,
-  dmNotesRecordId,
-  dmRecordDocument,
-} from '../autosave/documents.js';
+import { characterDocument } from '../autosave/documents.js';
 import Board from './Board.jsx';
 import { SessionStatus, LiveRoster } from './SessionStatus.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
@@ -22,11 +19,10 @@ import CharacterSheet from './CharacterSheet.jsx';
 import Compendium from './Compendium.jsx';
 import AutosaveStatus from './AutosaveStatus.jsx';
 import InitiativeTracker from './InitiativeTracker.jsx';
+import NotesPopup from './NotesPopup.jsx';
+import { MinimizedNotesBar, NoteEditorWindow } from './NoteEditorWindow.jsx';
 import Soundboard from './Soundboard.jsx';
 import { IconButton, Modal } from './Primitives.jsx';
-
-const DEFAULT_NOTES =
-  'The keeper’s journal mentions a sealed chamber beneath the altar.\n\nThe sentinel wakes when the tide returns.';
 
 /** Fixture name -> seeded SQLite character id. */
 const DEMO_CHARACTER_IDS = { mira: 'char-mira', thorne: 'char-thorne', ilyra: 'char-ilyra' };
@@ -54,6 +50,7 @@ export default function Tabletop({
 }) {
   const [playersOpen, setPlayersOpen] = useState(false);
   const [initiativeOpen, setInitiativeOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [diceOpen, setDiceOpen] = useState(false);
   const [soundboardOpen, setSoundboardOpen] = useState(false);
@@ -86,29 +83,18 @@ export default function Tabletop({
   const dmRecords = useSession((state) => state.dmRecords);
   const currentUser = useSession((state) => state.currentUser);
   const storeAssets = useAssets((state) => state.assets);
+  const openNoteWindows = useNotes((state) => state.openWindows);
   const soundboard = useSoundboard(false);
 
-  const notesRecordId = dmNotesRecordId(campaign?.id ?? 'default');
-  const notesRecord = dmRecords[notesRecordId];
-  const notes = notesRecord?.data?.text ?? DEFAULT_NOTES;
-
-  function handleNotesChange(value) {
-    const store = sessionStore.getState();
-    if (store.dmRecords[notesRecordId]) {
-      store.patchDmRecord(notesRecordId, { data: { text: value } });
-    } else {
-      // First keystroke creates the row; baseRevision null means "insert".
-      store.upsertDmRecord({
-        id: notesRecordId,
-        category: 'session-notes',
-        title: 'Session notes',
-        data: { text: value },
-        revision: null,
-      });
-    }
-    const updated = sessionStore.getState().dmRecords[notesRecordId];
-    if (updated) autosave.markDirty(dmRecordDocument(updated));
-  }
+  const notesOwnerId = userId || currentUser?.id || name;
+  const dmRecordsCount = Object.keys(dmRecords || {}).length;
+  useEffect(() => {
+    if (!notesOwnerId) return;
+    void notesStore.getState().loadForOwner(notesOwnerId, {
+      importLegacyDm: role === 'DM',
+      legacyRecords: Object.values(sessionStore.getState().dmRecords || {}),
+    });
+  }, [notesOwnerId, role, dmRecordsCount]);
 
   function canEditCharacter(character) {
     if (!character) return false;
@@ -169,6 +155,7 @@ export default function Tabletop({
           role={role}
           playersOpen={playersOpen}
           initiativeOpen={initiativeOpen}
+          notesOpen={notesOpen}
           diceOpen={diceOpen}
           chatOpen={chatOpen}
           soundboardOpen={soundboardOpen}
@@ -180,6 +167,7 @@ export default function Tabletop({
             else if (action === 'home') setModal('leave');
             else if (action === 'players') setPlayersOpen((v) => !v);
             else if (action === 'initiative') setInitiativeOpen((v) => !v);
+            else if (action === 'notes') setNotesOpen((v) => !v);
             else if (action === 'dice') setDiceOpen((v) => !v);
             else if (action === 'chat') setChatOpen((v) => !v);
             else if (action === 'soundboard') {
@@ -200,7 +188,7 @@ export default function Tabletop({
           onInspectAsset={inspect}
         />
 
-        {(playersOpen || initiativeOpen || diceOpen || soundboardOpen) && (
+        {(playersOpen || initiativeOpen || diceOpen || soundboardOpen || notesOpen) && (
           <div className="floating-stack-top-left">
             {playersOpen && (
               <aside
@@ -227,6 +215,8 @@ export default function Tabletop({
             {initiativeOpen && (
               <InitiativeTracker onClose={() => setInitiativeOpen(false)} />
             )}
+
+            {notesOpen && <NotesPopup onClose={() => setNotesOpen(false)} />}
 
             {diceOpen && (
               <aside
@@ -303,6 +293,11 @@ export default function Tabletop({
             </div>
           </div>
         )}
+
+        <MinimizedNotesBar />
+        {openNoteWindows.map((win) => (
+          <NoteEditorWindow key={win.noteId} windowState={win} />
+        ))}
       </div>
 
       {role === 'DM' && assetManagerOpen && (
@@ -329,7 +324,6 @@ export default function Tabletop({
           title={
             {
               leave: role === 'DM' ? 'Return home?' : 'Leave the table?',
-              notes: 'DM screen',
               compendium: 'Compendium',
               dice: 'Roll prepared',
               inspect: inspected?.name,
@@ -355,24 +349,6 @@ export default function Tabletop({
                   Yes
                 </button>
                 <button onClick={() => setModal(null)}>No</button>
-              </div>
-            </>
-          )}
-          {modal === 'notes' && (
-            <>
-              <AutosaveStatus />
-              <label>
-                Session notes
-                <textarea
-                  className="notes-editor"
-                  value={notes}
-                  onChange={(e) => handleNotesChange(e.target.value)}
-                />
-              </label>
-              <div className="form-actions">
-                <button className="primary" onClick={() => setModal(null)}>
-                  Done
-                </button>
               </div>
             </>
           )}

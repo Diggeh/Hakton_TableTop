@@ -6,6 +6,7 @@ import {
   currentSoundboard,
   findSoundCue,
   initialSoundboard,
+  isValidCueIcon,
   MAX_AUDIO_BYTES,
   MAX_AUDIO_SECONDS,
   SOUNDBOARD_EVENTS,
@@ -43,7 +44,7 @@ export function useSoundboard(preview) {
   const upload = useRef(null);
   const serverOffset = useRef(null);
   const generation = useRef(0);
-  const endTimer = useRef(null);
+  const endTimers = useRef({ music: null, ambience: null });
 
   const clock = () =>
     performance.now() + (preview ? 0 : (serverOffset.current ?? 0));
@@ -91,20 +92,37 @@ export function useSoundboard(preview) {
     playback.current?.setVolume(
       (personalVolume.current * updated.volume) / 10000,
     );
-    if (!force && updated.track === prior.track) return;
-    clearTimeout(endTimer.current);
-    const { track } = updated;
-    if (!track) playback.current?.setTrack(null, clock, urlFor);
-    else if (audible.current) getPlayer().setTrack(track, clock, urlFor);
-    if (track?.playing && !track.loop) {
-      const finishAt = track.startsAt + track.durationMs - track.positionMs;
-      endTimer.current = setTimeout(
-        () => {
-          if (current.current.track === track)
-            apply({ ...current.current, track: null });
-        },
-        Math.max(0, finishAt - clock()),
-      );
+    if (
+      !force &&
+      updated.music === prior.music &&
+      updated.ambience === prior.ambience &&
+      updated.track === prior.track
+    ) {
+      return;
+    }
+    clearTimeout(endTimers.current.music);
+    clearTimeout(endTimers.current.ambience);
+    const activeLayers = {
+      music: updated.music ?? null,
+      ambience: updated.ambience ?? (!updated.music ? updated.track : null),
+    };
+    if (!activeLayers.music && !activeLayers.ambience) {
+      playback.current?.setLayers({ music: null, ambience: null }, clock, urlFor);
+    } else if (audible.current) {
+      getPlayer().setLayers(activeLayers, clock, urlFor);
+    }
+    for (const [layerName, track] of Object.entries(activeLayers)) {
+      if (track?.playing && !track.loop) {
+        const finishAt = track.startsAt + track.durationMs - track.positionMs;
+        endTimers.current[layerName] = setTimeout(
+          () => {
+            if (current.current[layerName] === track) {
+              apply({ ...current.current, [layerName]: null });
+            }
+          },
+          Math.max(0, finishAt - clock()),
+        );
+      }
     }
   }
 
@@ -148,9 +166,15 @@ export function useSoundboard(preview) {
       if (update.action === 'trigger') trigger(update.cueId, update.startsAt);
       else if (
         update.action === 'volume' &&
-        update.state.track?.cueId === current.current.track?.cueId
+        update.state.music?.cueId === current.current.music?.cueId &&
+        update.state.ambience?.cueId === current.current.ambience?.cueId
       ) {
-        apply({ ...update.state, track: current.current.track });
+        apply({
+          ...update.state,
+          track: current.current.track,
+          music: current.current.music,
+          ambience: current.current.ambience,
+        });
       } else apply(update.state);
     };
     const receiveCatalog = (update) => {
@@ -169,7 +193,8 @@ export function useSoundboard(preview) {
       socket?.off(SOUNDBOARD_EVENTS.UPDATE, receive);
       socket?.off(SOUNDBOARD_EVENTS.CATALOG, receiveCatalog);
       socket?.off(EVENTS.SESSION_WELCOME, refresh);
-      clearTimeout(endTimer.current);
+      clearTimeout(endTimers.current.music);
+      clearTimeout(endTimers.current.ambience);
       playback.current?.stop();
       upload.current?.abort();
       upload.current = null;
@@ -223,25 +248,25 @@ export function useSoundboard(preview) {
     });
   }
 
-  async function command(action, cueId, value) {
+  async function command(action, cueId, value, layer) {
     setError('');
     const scope = generation.current;
     if (['play', 'resume', 'trigger'].includes(action) && !enabled)
       await enable();
     if (scope !== generation.current) return;
     if (!preview)
-      return send(SOUNDBOARD_EVENTS.COMMAND, { action, cueId, value });
+      return send(SOUNDBOARD_EVENTS.COMMAND, { action, cueId, value, layer });
     if (action === 'trigger') return trigger(cueId, clock());
     const next = changeSoundboard(
       current.current,
-      { action, value },
+      { action, cueId, value, layer },
       lookup(cueId),
       clock(),
     );
     if (next) apply(next);
   }
 
-  async function importAudio(file, kind) {
+  async function importAudio(file, kind, layer = 'ambience') {
     if (!file || upload.current || (!preview && !accessToken.current)) return;
     setError('');
     if (
@@ -266,17 +291,28 @@ export function useSoundboard(preview) {
           .replace(/\.[^.]+$/, '')
           .trim()
           .slice(0, 80) || 'Imported audio';
+      const cleanLayer = kind === 'loop' && layer === 'music' ? 'music' : 'ambience';
       if (preview) {
         if (catalog.current.length >= 64)
           throw new Error('The preview audio library is full.');
         const id = 'custom-' + crypto.randomUUID();
         previewFiles.current.set(id, url);
-        updateCatalog([...catalog.current, { id, name, kind, seconds }]);
+        updateCatalog([
+          ...catalog.current,
+          {
+            id,
+            name,
+            kind,
+            ...(kind === 'loop' ? { layer: cleanLayer } : {}),
+            seconds,
+          },
+        ]);
         return;
       }
       const params = new URLSearchParams({
         name,
         kind,
+        ...(kind === 'loop' ? { layer: cleanLayer } : {}),
         seconds: String(seconds),
       });
       const response = await fetch(resolveAssetUrl(AUDIO_PATH + '?' + params), {
@@ -313,6 +349,22 @@ export function useSoundboard(preview) {
     updateCatalog(catalog.current.filter((cue) => cue.id !== id));
   }
 
+  function setCueIcon(cueId, icon) {
+    if (!cueId || !isValidCueIcon(icon ?? null)) return;
+    setError('');
+    const nextCues = catalog.current.map((cue) => {
+      if (cue.id !== cueId) return cue;
+      const updated = { ...cue };
+      if (icon === null) delete updated.icon;
+      else updated.icon = icon;
+      return updated;
+    });
+    updateCatalog(nextCues);
+    if (!preview) {
+      send(SOUNDBOARD_EVENTS.ICON, { cueId, icon: icon ?? null });
+    }
+  }
+
   return {
     enabled,
     volume,
@@ -324,6 +376,7 @@ export function useSoundboard(preview) {
     enable,
     importAudio,
     removeAudio,
+    setCueIcon,
     canImport: preview || Boolean(access),
     ready: preview || ready,
     changeVolume(value) {

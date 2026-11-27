@@ -47,6 +47,7 @@ export default function Board({
   playersOpen = false,
   diceOpen = false,
   initiativeOpen = false,
+  notesOpen = false,
   chatOpen = false,
   soundboardOpen = false,
   soundboardId,
@@ -695,6 +696,7 @@ export default function Board({
     players: playersOpen,
     dice: diceOpen,
     initiative: initiativeOpen,
+    notes: notesOpen,
     soundboard: soundboardOpen,
   };
 
@@ -780,7 +782,7 @@ export default function Board({
           'sheet',
           'initiative',
           'soundboard',
-          ...(role === 'DM' ? ['notes'] : []),
+          'notes',
           'compendium',
         ].map((action) => {
           const isToggle = Object.hasOwn(activeMapStates, action);
@@ -795,7 +797,7 @@ export default function Board({
                   dice: 'Dice tray',
                   sheet: 'Character sheet',
                   initiative: 'Initiative tracker',
-                  notes: 'DM screen',
+                  notes: 'Notes',
                   compendium: 'Compendium',
                   soundboard: 'Music box',
                 }[action]

@@ -11,6 +11,12 @@ import './prototype.css';
 const LOCAL_USERS_KEY = 'hakton:local-users:v1';
 const LOCAL_ACTIVE_USER_KEY = 'hakton:active-user-id:v1';
 const LOCAL_CAMPAIGNS_KEY = 'hakton:campaigns:v1';
+const LEGACY_PRESET_CAMPAIGN_IDS = new Set(['salt', 'ash']);
+const LEGACY_PRESET_CAMPAIGN_NAMES = new Set([
+  'first campaign',
+  'the sunken coast',
+  'ashes of the north',
+]);
 const LEGACY_PRESET_SCENES = new Set([
   'drowned sanctuary',
   'greyhaven docks',
@@ -26,18 +32,27 @@ function sanitizeCampaignScene(sceneName) {
   return clean;
 }
 
+function isLegacyPresetCampaign(campaign) {
+  if (!campaign) return false;
+  const id = String(campaign.id || '').toLowerCase();
+  const name = String(campaign.name || '').trim().toLowerCase();
+  return LEGACY_PRESET_CAMPAIGN_IDS.has(id) || LEGACY_PRESET_CAMPAIGN_NAMES.has(name);
+}
+
 function readLocalCampaigns() {
   try {
     const raw = localStorage.getItem(LOCAL_CAMPAIGNS_KEY);
     if (!raw) return initialCampaigns;
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return initialCampaigns;
-    return parsed.map((c) => ({
-      ...c,
-      scene: sanitizeCampaignScene(c?.scene),
-    }));
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((c) => !isLegacyPresetCampaign(c))
+      .map((c) => ({
+        ...c,
+        scene: sanitizeCampaignScene(c?.scene),
+      }));
   } catch {
-    return initialCampaigns;
+    return [];
   }
 }
 
@@ -162,15 +177,43 @@ export default function HaktonUI() {
   const [authConfirmPassword, setAuthConfirmPassword] = useState('');
   const [authError, setAuthError] = useState('');
 
+  const hasCampaignIpc =
+    typeof window !== 'undefined' && Boolean(window.hakton?.campaigns?.list);
+
   const [role, setRole] = useState('DM');
-  const [campaigns, setCampaigns] = useState(() => readLocalCampaigns());
-  const [selected, setSelected] = useState(() => readLocalCampaigns()[0]?.id || 'salt');
+  const [campaigns, setCampaigns] = useState(() =>
+    hasCampaignIpc ? [] : readLocalCampaigns(),
+  );
+  const [selected, setSelected] = useState(() =>
+    hasCampaignIpc ? '' : readLocalCampaigns()[0]?.id || '',
+  );
   const [modal, setModal] = useState(null);
   const [name, setName] = useState('Adventurer');
 
   useEffect(() => {
-    writeLocalCampaigns(campaigns);
-  }, [campaigns]);
+    if (!hasCampaignIpc) {
+      writeLocalCampaigns(campaigns);
+      return undefined;
+    }
+    let cancelled = false;
+    window.hakton.campaigns.list().then((res) => {
+      if (cancelled || !res?.ok) return;
+      const list = Array.isArray(res.campaigns) ? res.campaigns : [];
+      setCampaigns(list);
+      setSelected((curr) =>
+        list.some((c) => c.id === curr) ? curr : list[0]?.id || '',
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasCampaignIpc]);
+
+  useEffect(() => {
+    if (!hasCampaignIpc) {
+      writeLocalCampaigns(campaigns);
+    }
+  }, [campaigns, hasCampaignIpc]);
 
   // Player Room Code join state
   const [roomCodeInput, setRoomCodeInput] = useState('');
@@ -639,21 +682,29 @@ export default function HaktonUI() {
           {modal === 'edit-campaign' && campaign && (
             <form
               className="campaign-edit-form"
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
                 const cleanName = editDraft.name.trim();
                 if (!cleanName) return;
+                const patch = {
+                  name: cleanName,
+                  description: editDraft.description,
+                  coverPhoto: editDraft.coverPhoto,
+                  sessions: Math.max(0, Number(editDraft.sessions) || 0),
+                };
+                if (window.hakton?.campaigns?.update) {
+                  const res = await window.hakton.campaigns.update(campaign.id, patch);
+                  if (res?.ok && res.campaign) {
+                    setCampaigns((prev) =>
+                      prev.map((c) => (c.id === campaign.id ? res.campaign : c)),
+                    );
+                    setModal('campaign');
+                    return;
+                  }
+                }
                 setCampaigns((prev) =>
                   prev.map((c) =>
-                    c.id === campaign.id
-                      ? {
-                          ...c,
-                          name: cleanName,
-                          description: editDraft.description,
-                          coverPhoto: editDraft.coverPhoto,
-                          sessions: Math.max(0, Number(editDraft.sessions) || 0),
-                        }
-                      : c,
+                    c.id === campaign.id ? { ...c, ...patch } : c,
                   ),
                 );
                 setModal('campaign');
@@ -783,23 +834,30 @@ export default function HaktonUI() {
           )}
           {modal === 'add' && (
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
                 const data = new FormData(e.currentTarget);
-                const id = crypto.randomUUID();
-                setCampaigns([
-                  ...campaigns,
-                  {
-                    id,
-                    name: data.get('name').trim(),
-                    description: '',
-                    system: data.get('system'),
-                    chapter: 'Chapter I',
-                    scene: 'Untitled Scene',
-                    sessions: 0,
-                  },
-                ]);
-                setSelected(id);
+                const draft = {
+                  id: crypto.randomUUID(),
+                  name: String(data.get('name') || '').trim(),
+                  description: '',
+                  system: String(data.get('system') || 'D&D 5e'),
+                  chapter: 'Chapter I',
+                  scene: 'Untitled Scene',
+                  sessions: 0,
+                };
+                if (!draft.name) return;
+                if (window.hakton?.campaigns?.create) {
+                  const res = await window.hakton.campaigns.create(draft);
+                  if (res?.ok && res.campaign) {
+                    setCampaigns((prev) => [...prev, res.campaign]);
+                    setSelected(res.campaign.id);
+                    setModal(null);
+                    return;
+                  }
+                }
+                setCampaigns((prev) => [...prev, draft]);
+                setSelected(draft.id);
                 setModal(null);
               }}
             >
@@ -835,9 +893,14 @@ export default function HaktonUI() {
                 <button onClick={() => setModal(null)}>Cancel</button>
                 <button
                   className="danger"
-                  onClick={() => {
-                    setCampaigns(campaigns.filter((c) => c.id !== selected));
-                    setSelected(campaigns.find((c) => c.id !== selected)?.id);
+                  onClick={async () => {
+                    const targetId = selected;
+                    if (window.hakton?.campaigns?.delete && targetId) {
+                      await window.hakton.campaigns.delete(targetId);
+                    }
+                    const next = campaigns.filter((c) => c.id !== targetId);
+                    setCampaigns(next);
+                    setSelected(next[0]?.id || '');
                     setModal(null);
                   }}
                 >

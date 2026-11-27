@@ -2290,6 +2290,7 @@
   max-height: calc(100vh - 110px);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: rgba(23, 42, 53, 0.94);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -2298,21 +2299,52 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
-.floating-stack-top-left .workspace-soundboard > header {
+.floating-stack-top-left .workspace-soundboard > header,
+.floating-stack-top-left .initiative-window > header,
+.floating-stack-top-left .notes-window > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
   border-bottom: 1px solid #304854;
+  flex-shrink: 0;
 }
 
-.floating-stack-top-left .workspace-soundboard > header h2 {
+.floating-stack-top-left .workspace-soundboard > header h2,
+.floating-stack-top-left .initiative-window > header h2,
+.floating-stack-top-left .notes-window > header h2 {
+  margin: 0;
   font-size: 13px;
+}
+
+.floating-stack-top-left .workspace-soundboard > header .icon-button,
+.floating-stack-top-left .initiative-window > header .icon-button,
+.floating-stack-top-left .notes-window > header .icon-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.floating-stack-top-left .initiative-window,
+.floating-stack-top-left .notes-window {
+  display: flex;
+  flex-direction: column;
+  background: rgba(23, 42, 53, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid #3c5664;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
 }
 
 .floating-stack-top-left .workspace-soundboard-body {
   padding: 12px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .floating-stack-right {
@@ -3435,11 +3467,44 @@
   font-size: 11px;
 }
 
-/* Asset Manager Multi-Row Wrapping Grid & Long Filename Ellipsis */
+/* Asset Manager Multi-Row Wrapping Grid, Balanced Card Spacing & Long Filename Ellipsis */
 .hakton-app .asset-manager-modal .asset-items {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  column-gap: 14px;
+  row-gap: 16px;
+  padding: 14px 2px;
+}
+
+.hakton-app .asset-manager-modal .asset-item,
+.hakton-app .assets-panel .asset-item {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 6px;
+  border-radius: 8px;
+  background: rgba(16, 31, 41, 0.55);
+  border: 1px solid rgba(56, 89, 102, 0.45);
+}
+
+.hakton-app .assets-panel:not(.in-modal) .asset-item {
+  width: 152px;
+  flex-shrink: 0;
+}
+
+.hakton-app .assets-panel:not(.in-modal) .asset-items {
+  gap: 14px;
+  padding: 12px 2px;
+}
+
+.hakton-app .asset-item.selected {
+  background: #28494f;
+  border-color: #76b9ae;
+}
+
+.hakton-app .asset-item.active-scene:not(.selected) {
+  border-color: rgba(134, 201, 189, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(173, 252, 249, 0.2);
 }
 
 .hakton-app .asset-manager-modal .asset-item strong {
@@ -3495,7 +3560,7 @@
   gap: 6px;
   max-height: 280px;
   overflow-y: auto;
-  padding: 6px 2px;
+  padding: 10px;
 }
 
 .hakton-app .initiative-row {
@@ -3651,6 +3716,634 @@
   font-size: 12px;
   color: #8aaab3;
   font-style: italic;
+}
+
+/* Private Per-User Notes Explorer Popup */
+.hakton-app .notes-window {
+  width: 296px;
+  position: relative;
+}
+
+.hakton-app .notes-window > header {
+  gap: 8px;
+}
+
+.hakton-app .notes-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.hakton-app .notes-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #355463;
+  background: rgba(18, 36, 47, 0.9);
+  color: #d7efec;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hakton-app .notes-add-btn:hover {
+  border-color: #7bcab9;
+  color: #adfcf9;
+}
+
+.hakton-app .notes-add-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.hakton-app .notes-popup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.hakton-app .notes-empty {
+  margin: 4px 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(13, 25, 34, 0.72);
+  color: #8eb1b9;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.hakton-app .notes-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hakton-app .notes-folder-group,
+.hakton-app .notes-root-zone {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.hakton-app .notes-folder-group {
+  background: rgba(15, 29, 39, 0.72);
+  border-color: #27404e;
+  padding: 4px;
+}
+
+.hakton-app .notes-folder-group.drag-over,
+.hakton-app .notes-root-zone.drag-over {
+  border-color: #adfcf9;
+  background: rgba(29, 64, 74, 0.65);
+}
+
+.hakton-app .notes-folder-row,
+.hakton-app .notes-item-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  border-radius: 6px;
+}
+
+.hakton-app .notes-item-row {
+  padding: 2px 4px;
+}
+
+.hakton-app .notes-item-row.indented {
+  padding-left: 10px;
+}
+
+.hakton-app .notes-item-row:hover,
+.hakton-app .notes-folder-row:hover {
+  background: rgba(31, 57, 70, 0.55);
+}
+
+.hakton-app .notes-folder-toggle,
+.hakton-app .notes-item-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: #dff3f0;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hakton-app .notes-folder-toggle small {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(114, 214, 198, 0.14);
+  color: #9ed9d0;
+  font-size: 10px;
+}
+
+.hakton-app .notes-folder-name,
+.hakton-app .notes-item-open > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hakton-app .notes-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0.75;
+}
+
+.hakton-app .notes-item-row:hover .notes-row-actions,
+.hakton-app .notes-folder-row:hover .notes-row-actions {
+  opacity: 1;
+}
+
+.hakton-app .notes-row-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #9fc2c9;
+  cursor: pointer;
+}
+
+.hakton-app .notes-row-actions button:hover {
+  background: rgba(34, 68, 82, 0.75);
+  color: #adfcf9;
+}
+
+.hakton-app .notes-row-actions button.danger-hover:hover {
+  background: rgba(115, 34, 42, 0.55);
+  color: #ff9c9c;
+}
+
+.hakton-app .notes-row-actions svg {
+  width: 14px;
+  height: 14px;
+}
+
+.hakton-app .notes-folder-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 3px;
+}
+
+.hakton-app .notes-folder-drop-hint {
+  padding: 5px 10px;
+  font-size: 11px;
+  color: #70939c;
+  font-style: italic;
+}
+
+.hakton-app .notes-root-zone {
+  min-height: 28px;
+  padding: 2px;
+}
+
+.hakton-app .notes-root-heading {
+  padding: 2px 6px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7da2ac;
+}
+
+.hakton-app .notes-inline-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 2px;
+}
+
+.hakton-app .notes-inline-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  border-radius: 5px;
+  border: 1px solid #416878;
+  background: rgba(11, 22, 30, 0.94);
+  color: #e6f8f5;
+  font-size: 12px;
+}
+
+.hakton-app .notes-inline-form button {
+  padding: 4px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.hakton-app .notes-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 12, 18, 0.65);
+}
+
+.hakton-app .notes-confirm-dialog {
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #3c5d6d;
+  background: rgba(19, 35, 45, 0.98);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  color: #e2f5f2;
+}
+
+.hakton-app .notes-confirm-dialog h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.hakton-app .notes-confirm-dialog p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #b5cfd4;
+}
+
+/* Floating Resizable / Minimizable Rich-Text Note Editor Window */
+.hakton-app .note-editor-window {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid #355463;
+  background: rgba(18, 33, 43, 0.97);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+  color: #e4f7f4;
+}
+
+.hakton-app .note-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(25, 46, 59, 0.95);
+  border-bottom: 1px solid #2e4b59;
+  cursor: move;
+  user-select: none;
+}
+
+.hakton-app .note-editor-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.hakton-app .note-editor-title-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #eefbf8;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 3px 6px;
+}
+
+.hakton-app .note-editor-title-input:focus {
+  outline: none;
+  border-color: #558899;
+  background: rgba(12, 24, 33, 0.85);
+}
+
+.hakton-app .note-save-badge {
+  font-size: 11px;
+  color: #8bb4bd;
+  white-space: nowrap;
+}
+
+.hakton-app .note-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hakton-app .note-win-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid #355261;
+  background: rgba(15, 29, 38, 0.85);
+  color: #cbe6e7;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.hakton-app .note-win-btn:hover {
+  border-color: #7bcab9;
+  color: #adfcf9;
+}
+
+.hakton-app .note-win-btn.close:hover {
+  border-color: #e47d7d;
+  color: #ffb2b2;
+}
+
+.hakton-app .note-format-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px;
+  background: rgba(15, 28, 37, 0.96);
+  border-bottom: 1px solid #284250;
+}
+
+.hakton-app .note-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: #2f4d5b;
+  margin: 0 4px;
+}
+
+.hakton-app .note-block-dropdown {
+  position: relative;
+}
+
+.hakton-app .note-block-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #314e5d;
+  background: rgba(23, 41, 52, 0.92);
+  color: #e5f6f4;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.hakton-app .note-block-trigger:hover {
+  border-color: #7bcab9;
+}
+
+.hakton-app .note-block-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 188px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid #395a6a;
+  background: #172731;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hakton-app .note-block-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #d8efec;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hakton-app .note-block-option:hover,
+.hakton-app .note-block-option.active {
+  background: rgba(45, 79, 94, 0.65);
+  color: #adfcf9;
+}
+
+.hakton-app .note-block-option.is-p {
+  font-size: 13px;
+}
+.hakton-app .note-block-option.is-h1 {
+  font-size: 20px;
+  font-weight: 700;
+}
+.hakton-app .note-block-option.is-h2 {
+  font-size: 17px;
+  font-weight: 600;
+}
+.hakton-app .note-block-option.is-h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hakton-app .note-fmt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #cbe2e5;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.hakton-app .note-fmt-btn:hover {
+  background: rgba(38, 67, 81, 0.72);
+  color: #ffffff;
+}
+
+.hakton-app .note-fmt-btn.active {
+  background: rgba(42, 92, 99, 0.85);
+  border-color: #7bcab9;
+  color: #adfcf9;
+}
+
+.hakton-app .note-fmt-fx {
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-weight: 600;
+}
+
+.hakton-app .note-fmt-clear {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hakton-app .note-editor-canvas {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
+  outline: none;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #e6f6f3;
+  background: rgba(13, 24, 32, 0.92);
+  user-select: text;
+}
+
+.hakton-app .note-editor-canvas:empty::before {
+  content: attr(data-placeholder);
+  color: #62848e;
+  pointer-events: none;
+}
+
+.hakton-app .note-editor-canvas h1 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  font-weight: 700;
+  color: #f4fcfb;
+}
+
+.hakton-app .note-editor-canvas h2 {
+  margin: 8px 0 8px;
+  font-size: 19px;
+  font-weight: 600;
+  color: #e4f8f5;
+}
+
+.hakton-app .note-editor-canvas h3 {
+  margin: 6px 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #d1eeea;
+}
+
+.hakton-app .note-editor-canvas p {
+  margin: 0 0 8px;
+}
+
+.hakton-app .note-editor-canvas ul,
+.hakton-app .note-editor-canvas ol {
+  margin: 4px 0 10px;
+  padding-left: 22px;
+}
+
+.hakton-app .note-editor-canvas code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(114, 214, 198, 0.14);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12.5px;
+  color: #adfcf9;
+}
+
+.hakton-app .note-resize-handle.is-e {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  width: 6px;
+  bottom: 14px;
+  cursor: ew-resize;
+}
+
+.hakton-app .note-resize-handle.is-s {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.hakton-app .note-resize-handle.is-se {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 55%, rgba(123, 202, 185, 0.55) 55%);
+}
+
+/* Minimized Notes Dock Bar */
+.hakton-app .minimized-notes-bar {
+  position: fixed;
+  left: 64px;
+  bottom: 14px;
+  z-index: 48;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.hakton-app .minimized-note-pill {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid #3c5f6f;
+  background: rgba(18, 35, 46, 0.94);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.hakton-app .minimized-note-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 170px;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: #e1f5f2;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hakton-app .minimized-note-restore span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hakton-app .minimized-note-restore:hover {
+  color: #adfcf9;
+}
+
+.hakton-app .minimized-note-close {
+  padding: 6px 9px 6px 4px;
+  border: 0;
+  background: transparent;
+  color: #93b5bd;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.hakton-app .minimized-note-close:hover {
+  color: #ffb2b2;
 }
 
 

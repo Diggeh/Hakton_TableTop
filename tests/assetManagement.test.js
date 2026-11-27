@@ -436,9 +436,13 @@ test('Upload Tests: valid map and token uploads succeed across PNG, JPEG, WebP, 
   assert.equal(gifAsset.width, 64);
   assert.equal(gifAsset.height, 64);
 
-  // 5. Verify seedIfEmpty(repos) creates a clean blank gridded tabletop without preset scenes or starter-map.svg
+  // 5. Verify seedIfEmpty(repos) creates no preset campaigns while still seeding demo characters cleanly
   await seedIfEmpty(env.repos, env.storage);
-  const seededMap = env.repos.maps.first();
+  assert.equal(env.repos.campaigns.list().length, 0);
+  assert.equal(env.repos.maps.first(), null);
+  assert.ok(env.repos.characters.get('char-mira'));
+  const createdCampaign = env.repos.campaigns.create({ name: 'Custom Table' });
+  const seededMap = env.repos.maps.activeForCampaign(createdCampaign.dbId);
   assert.equal(seededMap?.name, 'Untitled Scene');
   assert.equal(seededMap?.image_file, null);
   assert.equal(seededMap?.grid_size, 35);
@@ -912,9 +916,13 @@ test('Integration Tests: Express /assets/:id/file streaming, catalog endpoints, 
     },
   };
 
+  const activeMap =
+    env.repos.maps.first() ||
+    env.repos.maps.createWithCampaign('Integration Campaign', 'Untitled Scene');
+
   env.repos.tokens.create({
     id: 'tok-test-move',
-    mapId: env.repos.maps.first().id,
+    mapId: activeMap.id,
     label: 'Mira',
     x: 105,
     y: 105,
@@ -956,12 +964,12 @@ test('Migration 009 strips legacy preset scene defaults and upgrades grid_size t
   )`);
 
   for (const file of listMigrationFiles()) {
-    if (file.startsWith('009_')) continue;
+    if (Number(file.slice(0, 3)) >= 9) continue;
     db.exec(fs.readFileSync(path.join(migrationsDir, file), 'utf8'));
     db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(file);
   }
 
-  db.prepare('INSERT INTO campaigns (id, name) VALUES (1, ?)').run('First Campaign');
+  db.prepare('INSERT INTO campaigns (id, name) VALUES (1, ?)').run('Bandit Campaign');
   db.prepare(
     'INSERT INTO maps (id, campaign_id, name, grid_size, image_file) VALUES (1, 1, ?, 70, ?)',
   ).run('Drowned Sanctuary', 'starter-map.svg');

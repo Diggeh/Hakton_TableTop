@@ -105,7 +105,12 @@ export function registerSoundboard(
         error: 'Only the Dungeon Master can remove imported audio.',
       });
     }
-    if (stateFor(session).track?.cueId === id) {
+    const activeState = stateFor(session);
+    if (
+      activeState.track?.cueId === id ||
+      activeState.music?.cueId === id ||
+      activeState.ambience?.cueId === id
+    ) {
       return ack({ ok: false, error: 'Stop this track before removing it.' });
     }
     try {
@@ -117,6 +122,30 @@ export function registerSoundboard(
       ack({ ok: true });
     } catch {
       ack({ ok: false, error: 'Audio could not be removed.' });
+    }
+  });
+
+  socket.on(SOUNDBOARD_EVENTS.ICON, (input, ack) => {
+    if (typeof ack !== 'function') return;
+    const { participant, session } = membership();
+    if (!session || participant.role !== ROLES.DM || !library) {
+      return ack({
+        ok: false,
+        error: 'Only the Dungeon Master can customize soundboard icons.',
+      });
+    }
+    const cueId = input?.cueId;
+    const icon = input?.icon ?? null;
+    try {
+      if (!library.updateIcon(session.id, cueId, icon)) {
+        return ack({ ok: false, error: 'Invalid soundboard cue or icon.' });
+      }
+      broadcast(session.id, SOUNDBOARD_EVENTS.CATALOG, {
+        cues: library.list(session.id),
+      });
+      ack({ ok: true });
+    } catch {
+      ack({ ok: false, error: 'Could not update cue icon.' });
     }
   });
 }

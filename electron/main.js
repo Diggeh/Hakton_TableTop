@@ -117,6 +117,117 @@ function registerIpcHandlers() {
     return { ok: true };
   });
 
+  ipcMain.handle('hakton:campaigns:list', () => {
+    try {
+      return { ok: true, campaigns: repos.campaigns.list() };
+    } catch (err) {
+      return { ok: false, error: err.message, campaigns: [] };
+    }
+  });
+
+  ipcMain.handle('hakton:campaigns:create', (_event, payload = {}) => {
+    try {
+      const campaign = repos.campaigns.create(payload);
+      return { ok: true, campaign };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:campaigns:update', (_event, payload = {}) => {
+    try {
+      const campaign = repos.campaigns.update(payload?.id, payload);
+      return { ok: Boolean(campaign), campaign };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:campaigns:delete', (_event, payload = {}) => {
+    try {
+      const deleted = repos.campaigns.delete(payload?.id);
+      return { ok: true, deleted };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  const resolveNotesOwner = (payload) =>
+    currentUser?.id || (typeof payload?.ownerId === 'string' ? payload.ownerId.trim() : '');
+
+  ipcMain.handle('hakton:notes:list', (_event, payload = {}) => {
+    try {
+      const ownerId = resolveNotesOwner(payload);
+      if (!ownerId) return { ok: false, error: 'Account required.', folders: [], notes: [] };
+      if (payload?.importLegacyDm && repos?.dmRecords?.listAll) {
+        repos.notes.importLegacyDmNotes(ownerId, repos.dmRecords.listAll());
+      }
+      return { ok: true, ...repos.notes.list(ownerId) };
+    } catch (err) {
+      return { ok: false, error: err.message, folders: [], notes: [] };
+    }
+  });
+
+  ipcMain.handle('hakton:notes:create-folder', (_event, payload = {}) => {
+    try {
+      const ownerId = resolveNotesOwner(payload);
+      const folder = repos.notes.createFolder({ ...payload, ownerId });
+      return { ok: true, folder };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:notes:rename-folder', (_event, payload = {}) => {
+    try {
+      const ownerId = resolveNotesOwner(payload);
+      const folder = repos.notes.renameFolder({ ...payload, ownerId });
+      return { ok: Boolean(folder), folder };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:notes:delete-folder', (_event, payload = {}) => {
+    try {
+      const ownerId = resolveNotesOwner(payload);
+      const result = repos.notes.deleteFolder({ id: payload?.id, ownerId });
+      return { ok: true, ...result };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:notes:create-note', (_event, payload = {}) => {
+    try {
+      const ownerId = resolveNotesOwner(payload);
+      const note = repos.notes.createNote({ ...payload, ownerId });
+      return { ok: true, note };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:notes:update-note', (_event, payload = {}) => {
+    try {
+      const ownerId = resolveNotesOwner(payload);
+      const note = repos.notes.updateNote({ ...payload, ownerId });
+      return { ok: Boolean(note), note };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hakton:notes:delete-note', (_event, payload = {}) => {
+    try {
+      const ownerId = resolveNotesOwner(payload);
+      const deleted = repos.notes.deleteNote({ id: payload?.id, ownerId });
+      return { ok: true, deleted };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('hakton:server-info', () => buildServerInfo());
 
   ipcMain.handle('hakton:server-status', () => getServerStatus());

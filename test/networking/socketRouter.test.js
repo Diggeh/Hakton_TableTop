@@ -214,9 +214,26 @@ describe('Socket.IO Networking Bus Integration (Router, Client & Store)', () => 
       await restart();
       const newHost = await joinAudio('Host', DEFAULT_SESSION_ID, true);
       assert.deepEqual(newHost.cues, [cue]);
+
+      // DM customizes the imported cue's icon and verifies catalog sync + persistence
+      const iconCatalog = waitForEvent(newHost.socket, SOUNDBOARD_EVENTS.CATALOG);
+      assert.equal(
+        (
+          await emitWithAck(newHost.socket, SOUNDBOARD_EVENTS.ICON, {
+            cueId: cue.id,
+            icon: 'sword',
+          })
+        ).ok,
+        true,
+      );
+      assert.equal((await iconCatalog).cues[0].icon, 'sword');
+
+      await restart();
+      const reloadedHost = await joinAudio('Host', DEFAULT_SESSION_ID, true);
+      assert.equal(reloadedHost.cues[0].icon, 'sword');
       assert.equal((await fetch(cueUrl() + '?access=' + player.access)).status, 404);
-      assert.equal((await emitWithAck(newHost.socket, SOUNDBOARD_EVENTS.REMOVE, cue.id)).ok, true);
-      assert.equal((await fetch(cueUrl() + '?access=' + newHost.access)).status, 404);
+      assert.equal((await emitWithAck(reloadedHost.socket, SOUNDBOARD_EVENTS.REMOVE, cue.id)).ok, true);
+      assert.equal((await fetch(cueUrl() + '?access=' + reloadedHost.access)).status, 404);
     } finally {
       await stopServer();
       await rm(dataDir, { recursive: true, force: true });

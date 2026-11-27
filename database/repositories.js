@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createCharacterModel } from './models/characters.js';
 import { createCompendiumModel } from './models/compendium.js';
 import { createChatModel } from './models/chat.js';
@@ -7,6 +8,7 @@ import { createBoardModel } from './models/board.js';
 import { createSessionModel } from './models/sessions.js';
 import { createAutosaveReceiptModel } from './models/autosaveReceipts.js';
 import { createUserModel } from './models/users.js';
+import { createNotesModel } from './models/notes.js';
 import {
   DEFAULT_GRID_SIZE,
   MAX_GRID_SIZE,
@@ -51,10 +53,20 @@ export function createRepositories(db) {
   };
 
   const stmts = {
-    insertCampaign: db.prepare('INSERT INTO campaigns (name, campaign_key) VALUES (?, ?)'),
+    insertCampaign: db.prepare(
+      'INSERT INTO campaigns (name, campaign_key) VALUES (?, ?)',
+    ),
+    insertFullCampaign: db.prepare(`
+      INSERT INTO campaigns (name, campaign_key, system, description, chapter, cover_photo, sessions, updated_at)
+      VALUES (@name, @campaignKey, @system, @description, @chapter, @coverPhoto, @sessions, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    listCampaigns: db.prepare('SELECT * FROM campaigns ORDER BY id ASC'),
     campaignById: db.prepare('SELECT * FROM campaigns WHERE id = ?'),
     campaignByKey: db.prepare('SELECT * FROM campaigns WHERE campaign_key = ?'),
     updateCampaignName: db.prepare('UPDATE campaigns SET name = ? WHERE id = ?'),
+    clearCampaignActiveMap: db.prepare(
+      'UPDATE campaigns SET active_map_id = NULL WHERE id = ?',
+    ),
+    deleteCampaign: db.prepare('DELETE FROM campaigns WHERE id = ?'),
     firstMap: db.prepare('SELECT * FROM maps ORDER BY id LIMIT 1'),
     mapById: db.prepare('SELECT * FROM maps WHERE id = ?'),
     mapByName: db.prepare(
@@ -114,12 +126,122 @@ export function createRepositories(db) {
     return stmts.mapById.get(mapId);
   };
 
+  const hydrateCampaign = (row) => {
+    if (!row) return null;
+    const activeMap =
+      stmts.activeMapForCampaign.get(row.id) ??
+      stmts.mapsByCampaign.all(row.id)[0] ??
+      null;
+    return {
+      id: row.campaign_key || `camp-${row.id}`,
+      dbId: row.id,
+      name: row.name,
+      system: row.system || 'D&D 5e',
+      description: row.description || '',
+      chapter: row.chapter || 'Chapter I',
+      coverPhoto: row.cover_photo || '',
+      sessions: Math.max(0, Number(row.sessions) || 0),
+      scene: activeMap?.name || 'Untitled Scene',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at || row.created_at,
+    };
+  };
+
+  const resolveCampaignRow = (idOrKey) => {
+    if (typeof idOrKey === 'number' && Number.isInteger(idOrKey)) {
+      return stmts.campaignById.get(idOrKey) ?? null;
+    }
+    const clean = typeof idOrKey === 'string' ? idOrKey.trim() : '';
+    if (!clean) return null;
+    const byKey = stmts.campaignByKey.get(clean);
+    if (byKey) return byKey;
+    const prefixed = clean.match(/^camp-(\d+)$/);
+    if (prefixed) return stmts.campaignById.get(Number(prefixed[1])) ?? null;
+    if (/^\d+$/.test(clean)) return stmts.campaignById.get(Number(clean)) ?? null;
+    return null;
+  };
+
   const campaigns = {
     get: (id) => stmts.campaignById.get(id) ?? null,
     findByKey: (campaignKey) =>
       typeof campaignKey === 'string' && campaignKey.trim()
         ? stmts.campaignByKey.get(campaignKey.trim()) ?? null
         : null,
+    list: () => stmts.listCampaigns.all().map(hydrateCampaign),
+    create: ({
+      id,
+      name,
+      system = 'D&D 5e',
+      description = '',
+      chapter = 'Chapter I',
+      coverPhoto = '',
+      sessions = 0,
+    } = {}) =>
+      db.transaction(() => {
+        const cleanName =
+          typeof name === 'string' && name.trim() ? name.trim().slice(0, 60) : '';
+        if (!cleanName) throw new TypeError('Campaign name is required');
+        const campaignKey =
+          typeof id === 'string' && id.trim() ? id.trim().slice(0, 80) : randomUUID();
+        const existing = stmts.campaignByKey.get(campaignKey);
+        if (existing) return hydrateCampaign(existing);
+        const { lastInsertRowid: campaignId } = stmts.insertFullCampaign.run({
+          name: cleanName,
+          campaignKey,
+          system: typeof system === 'string' && system.trim() ? system.trim() : 'D&D 5e',
+          description: typeof description === 'string' ? description.slice(0, 400) : '',
+          chapter: typeof chapter === 'string' && chapter.trim() ? chapter.trim() : 'Chapter I',
+          coverPhoto: typeof coverPhoto === 'string' && coverPhoto ? coverPhoto : null,
+          sessions: Math.max(0, Math.round(Number(sessions) || 0)),
+        });
+        const map = createMapRow({ campaignId, name: 'Untitled Scene' });
+        stmts.setActiveMap.run(map.id, campaignId);
+        return hydrateCampaign(stmts.campaignById.get(campaignId));
+      })(),
+    update: (idOrKey, patch = {}) => {
+      const existing = resolveCampaignRow(idOrKey);
+      if (!existing) return null;
+      const assignments = ["updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')"];
+      const params = { id: existing.id };
+      if (typeof patch.name === 'string' && patch.name.trim()) {
+        assignments.push('name = @name');
+        params.name = patch.name.trim().slice(0, 60);
+      }
+      if (typeof patch.system === 'string' && patch.system.trim()) {
+        assignments.push('system = @system');
+        params.system = patch.system.trim();
+      }
+      if (typeof patch.description === 'string') {
+        assignments.push('description = @description');
+        params.description = patch.description.slice(0, 400);
+      }
+      if (typeof patch.chapter === 'string' && patch.chapter.trim()) {
+        assignments.push('chapter = @chapter');
+        params.chapter = patch.chapter.trim();
+      }
+      if ('coverPhoto' in patch) {
+        assignments.push('cover_photo = @coverPhoto');
+        params.coverPhoto =
+          typeof patch.coverPhoto === 'string' && patch.coverPhoto
+            ? patch.coverPhoto
+            : null;
+      }
+      if ('sessions' in patch) {
+        assignments.push('sessions = @sessions');
+        params.sessions = Math.max(0, Math.round(Number(patch.sessions) || 0));
+      }
+      db.prepare(`UPDATE campaigns SET ${assignments.join(', ')} WHERE id = @id`).run(
+        params,
+      );
+      return hydrateCampaign(stmts.campaignById.get(existing.id));
+    },
+    delete: (idOrKey) =>
+      db.transaction(() => {
+        const existing = resolveCampaignRow(idOrKey);
+        if (!existing) return false;
+        stmts.clearCampaignActiveMap.run(existing.id);
+        return stmts.deleteCampaign.run(existing.id).changes > 0;
+      })(),
     ensureByKey: (campaignKey, campaignName = 'Campaign') =>
       db.transaction(() => {
         const key = typeof campaignKey === 'string' ? campaignKey.trim() : '';
@@ -259,6 +381,7 @@ export function createRepositories(db) {
     sessions: createSessionModel(db),
     autosaveReceipts: createAutosaveReceiptModel(db),
     users: createUserModel(db),
+    notes: createNotesModel(db),
     campaigns,
     maps,
     tokens: {

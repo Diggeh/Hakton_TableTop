@@ -168,6 +168,7 @@ describe('database integrity check, backups, and recovery', () => {
       '008_token_rotation.sql',
       '009_scene_persistence.sql',
       '010_token_combat.sql',
+      '011_campaigns_and_notes.sql',
     ]);
     assert.ok(recovery.backedUpBeforeMigration);
     assert.ok(fs.existsSync(recovery.backedUpBeforeMigration));

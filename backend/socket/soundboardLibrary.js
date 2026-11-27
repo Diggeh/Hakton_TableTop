@@ -5,6 +5,7 @@ import express from 'express';
 import { ROLES } from '../../shared/events.js';
 import {
   AUDIO_PATH,
+  isValidCueIcon,
   MAX_AUDIO_BYTES,
   MAX_AUDIO_SECONDS,
 } from '../../shared/soundboard.js';
@@ -154,6 +155,14 @@ export function createSoundboardLibrary(dataDir, sessionManager) {
               ? req.query.name.trim().slice(0, 80)
               : '';
           const { kind } = req.query;
+          const layer =
+            kind === 'loop'
+              ? req.query.layer === 'music'
+                ? 'music'
+                : 'ambience'
+              : null;
+          const rawIcon = typeof req.query.icon === 'string' ? req.query.icon : null;
+          const icon = rawIcon && isValidCueIcon(rawIcon) ? rawIcon : null;
           const seconds =
             typeof req.query.seconds === 'string'
               ? Number(req.query.seconds)
@@ -188,6 +197,8 @@ export function createSoundboardLibrary(dataDir, sessionManager) {
             id: 'custom-' + randomUUID(),
             name,
             kind,
+            ...(layer ? { layer } : {}),
+            ...(icon ? { icon } : {}),
             seconds,
             mime,
             bytes: req.body.length,
@@ -234,12 +245,31 @@ export function createSoundboardLibrary(dataDir, sessionManager) {
     mount,
     get: (id, cueId) => catalog(id).get(cueId),
     list: (id) =>
-      [...catalog(id).values()].map(({ id, name, kind, seconds }) => ({
+      [...catalog(id).values()].map(({ id, name, kind, seconds, layer, icon }) => ({
         id,
         name,
         kind,
         seconds,
+        ...(layer ? { layer } : {}),
+        ...(icon ? { icon } : {}),
       })),
+    updateIcon(id, cueId, icon) {
+      if (!CUE_ID.test(cueId) || !isValidCueIcon(icon)) return false;
+      const entries = catalog(id);
+      const existing = entries.get(cueId);
+      if (!existing) return false;
+      const nextCue = { ...existing };
+      if (icon === null) {
+        delete nextCue.icon;
+      } else {
+        nextCue.icon = icon;
+      }
+      const manifest = metadata(id, cueId);
+      fs.writeFileSync(manifest + '.tmp', JSON.stringify(nextCue));
+      fs.renameSync(manifest + '.tmp', manifest);
+      entries.set(cueId, nextCue);
+      return true;
+    },
     remove(id, cueId) {
       const entries = catalog(id);
       if (!entries.has(cueId)) return false;
