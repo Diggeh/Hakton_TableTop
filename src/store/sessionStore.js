@@ -19,6 +19,9 @@ function normalizeToken(token) {
     ownerRole: normalizeOwnerRole(token.ownerRole ?? token.owner_role),
     locked: Boolean(token.locked),
     color: token.color ?? null,
+    category:
+      token.category ||
+      (Boolean(token.isMap ?? token.is_map) ? 'maps' : 'characters'),
     isMap: Boolean(token.isMap ?? token.is_map),
     imageUrl: token.imageUrl ?? token.image_url ?? null,
     width: token.width ?? null,
@@ -395,6 +398,23 @@ export const sessionStore = createStore((set) => ({
       const next = { ...state.tokens };
       delete next[id];
       return { tokens: next };
+    }),
+
+  upsertCharacter: (character) =>
+    set((state) => {
+      const normalized = normalizeCharacter(character);
+      if (!normalized) return state;
+      return {
+        characters: { ...state.characters, [normalized.id]: normalized },
+      };
+    }),
+
+  removeCharacter: (id) =>
+    set((state) => {
+      if (!state.characters[id]) return state;
+      const next = { ...state.characters };
+      delete next[id];
+      return { characters: next };
     }),
 
   moveToken: (id, x, y) =>

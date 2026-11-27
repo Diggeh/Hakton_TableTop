@@ -80,6 +80,7 @@ function parseTokenCombat(raw) {
 /** Convert a SQLite token row into the wire shape consumed by the renderer. */
 export function tokenToWire(token) {
   if (!token) return null;
+  const isMap = Boolean(token.is_map ?? token.isMap);
   return {
     id: token.id,
     mapId: token.map_id ?? token.mapId ?? null,
@@ -90,7 +91,8 @@ export function tokenToWire(token) {
     ownerRole: normalizeOwnerRole(token.owner_role ?? token.ownerRole),
     locked: Boolean(token.locked),
     color: token.color ?? null,
-    isMap: Boolean(token.is_map ?? token.isMap),
+    category: token.category || (isMap ? 'maps' : 'characters'),
+    isMap,
     imageUrl: token.image_url ?? token.imageUrl ?? null,
     width: token.width ?? null,
     height: token.height ?? null,
@@ -598,6 +600,14 @@ export function registerSocketRouter(io, repos, opts = {}) {
 
       const widthNum = Number(payload.width);
       const heightNum = Number(payload.height);
+      const rawCat =
+        typeof payload.category === 'string' ? payload.category.trim().toLowerCase() : '';
+      const validCats = new Set(['characters', 'maps', 'props', 'attachments', 'scenes']);
+      const category = validCats.has(rawCat)
+        ? rawCat
+        : Boolean(payload.isMap)
+          ? 'maps'
+          : 'characters';
       const token = repos.tokens.create({
         id: crypto.randomUUID(),
         mapId: map.id,
@@ -608,6 +618,7 @@ export function registerSocketRouter(io, repos, opts = {}) {
         ownerRole,
         locked: Boolean(payload.locked),
         color: normalizeColor(payload.color),
+        category,
         isMap: Boolean(payload.isMap),
         imageUrl:
           typeof payload.imageUrl === 'string' && payload.imageUrl.trim()
@@ -693,6 +704,12 @@ export function registerSocketRouter(io, repos, opts = {}) {
       }
       if ('locked' in payload) patch.locked = Boolean(payload.locked);
       if ('color' in payload) patch.color = normalizeColor(payload.color);
+      if ('category' in payload && typeof payload.category === 'string') {
+        const cleanCat = payload.category.trim().toLowerCase();
+        if (['characters', 'maps', 'props', 'attachments', 'scenes'].includes(cleanCat)) {
+          patch.category = cleanCat;
+        }
+      }
       if ('light' in payload) patch.light = sanitizeLight(payload.light);
       if ('rotation' in payload) patch.rotation = sanitizeRotation(payload.rotation);
       if ('isMap' in payload) patch.isMap = Boolean(payload.isMap);
@@ -741,6 +758,36 @@ export function registerSocketRouter(io, repos, opts = {}) {
 
       const wire = tokenToWire(token);
       broadcastTokenForRole(EVENTS.TOKEN_UPDATED, wire);
+
+      if (repos?.characters?.listAll && ('label' in patch || 'imageUrl' in patch || 'color' in patch)) {
+        const linked = repos.characters
+          .listAll()
+          .filter((c) => c.sheet_data?.tokenId === wire.id);
+        for (const ch of linked) {
+          const updatedChar = repos.characters.upsert({
+            id: ch.id,
+            ownerId: ch.owner_id,
+            name: wire.label || ch.name,
+            classLevel: ch.class_level ?? null,
+            sheetData: {
+              ...(ch.sheet_data ?? {}),
+              tokenId: wire.id,
+              imageUrl: wire.imageUrl ?? null,
+              color: wire.color ?? ch.sheet_data?.color ?? '#adfcf9',
+            },
+            inventoryData: ch.inventory_data ?? {},
+          });
+          const charWire = characterToWire(updatedChar);
+          const sessId = socket.data.sessionId;
+          for (const peer of io.sockets.sockets.values()) {
+            if (sessId && peer.data?.sessionId !== sessId) continue;
+            if (peer.data?.role === ROLES.DM || peer.data?.playerId === charWire.ownerId) {
+              peer.emit(EVENTS.CHARACTER_CREATED, charWire);
+            }
+          }
+        }
+      }
+
       respond({ ok: true, token: stripHiddenCombatFields(wire, socket.data.role) });
     });
 
@@ -911,35 +958,8 @@ export function registerSocketRouter(io, repos, opts = {}) {
       }
 
       if (!isDM()) {
-        // Players may only persist door open/close toggles inside sceneData.walls
-        const onlySceneData =
-          Object.keys(payload).every((k) => k === 'id' || k === 'sceneData') &&
-          payload.sceneData &&
-          typeof payload.sceneData === 'object';
-        const existingScene = parseSceneData(target.scene_data ?? target.sceneData);
-        const nextWalls = Array.isArray(payload.sceneData?.walls) ? payload.sceneData.walls : null;
-        const nextFog = Array.isArray(payload.sceneData?.fogShapes)
-          ? payload.sceneData.fogShapes
-          : null;
-        const doorToggleOnly =
-          onlySceneData &&
-          nextFog &&
-          nextWalls &&
-          nextFog.length === existingScene.fogShapes.length &&
-          nextWalls.length === existingScene.walls.length &&
-          nextWalls.every((w, idx) => {
-            const prev = existingScene.walls[idx];
-            return (
-              prev &&
-              w?.id === prev.id &&
-              Boolean(w.isDoor) === Boolean(prev.isDoor) &&
-              (Boolean(w.isDoor) || Boolean(w.isOpen) === Boolean(prev.isOpen))
-            );
-          });
-        if (!doorToggleOnly) {
-          respond({ ok: false, reason: 'forbidden' });
-          return;
-        }
+        respond({ ok: false, reason: 'forbidden' });
+        return;
       }
 
       const patch = {};
@@ -1162,6 +1182,138 @@ export function registerSocketRouter(io, repos, opts = {}) {
       socket.to(room).emit(EVENTS.RULER_CLEAR, {
         senderId: socket.data.playerId,
       });
+    });
+
+    socket.on(EVENTS.CHARACTER_CREATE, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (response) => {
+        if (ack) ack(response);
+      };
+
+      if (!repos?.characters?.upsert || !repos?.tokens?.get) {
+        respond({ ok: false, reason: 'storage_unavailable' });
+        return;
+      }
+      if (!isJoined()) {
+        respond({ ok: false, reason: 'forbidden' });
+        return;
+      }
+      if (typeof payload?.tokenId !== 'string' || !payload.tokenId) {
+        respond({ ok: false, reason: 'invalid_payload' });
+        return;
+      }
+
+      const token = repos.tokens.get(payload.tokenId);
+      if (!token) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+      const tokenCategory =
+        token.category || (Boolean(token.is_map) ? 'maps' : 'characters');
+      if (Boolean(token.is_map) || tokenCategory !== 'characters') {
+        respond({ ok: false, reason: 'invalid_token' });
+        return;
+      }
+
+      const existingAll = repos.characters.listAll?.() ?? [];
+      if (existingAll.some((c) => c.sheet_data?.tokenId === token.id)) {
+        respond({ ok: false, reason: 'already_exists' });
+        return;
+      }
+
+      const dm = isDM();
+      const callerId = socket.data.playerId;
+      let targetOwnerId = callerId;
+      let ownerName = socket.data.displayName || (dm ? 'DM' : 'Player');
+      let ownerRole = dm ? ROLES.DM : ROLES.PLAYER;
+
+      if (!dm) {
+        if (!token.owner_id || token.owner_id !== callerId) {
+          respond({ ok: false, reason: 'forbidden' });
+          return;
+        }
+        if ((repos.characters.listByOwner?.(callerId) ?? []).length > 0) {
+          respond({ ok: false, reason: 'limit_reached' });
+          return;
+        }
+      } else if (token.owner_id && token.owner_role === ROLES.PLAYER) {
+        if ((repos.characters.listByOwner?.(token.owner_id) ?? []).length > 0) {
+          respond({ ok: false, reason: 'limit_reached' });
+          return;
+        }
+        const sessionObj = sessionManager.getSession(socket.data.sessionId);
+        const targetParticipant = sessionObj?.participants?.find(
+          (p) => p.id === token.owner_id,
+        );
+        targetOwnerId = token.owner_id;
+        ownerName = targetParticipant?.displayName || 'Player';
+        ownerRole = ROLES.PLAYER;
+      }
+
+      const saved = repos.characters.upsert({
+        id: `char_${crypto.randomUUID()}`,
+        ownerId: targetOwnerId,
+        name: token.label || 'Character',
+        classLevel: null,
+        sheetData: {
+          tokenId: token.id,
+          imageUrl: token.image_url ?? null,
+          color: token.color ?? '#adfcf9',
+          ownerName,
+          ownerRole,
+        },
+        inventoryData: {},
+      });
+      const wire = characterToWire(saved);
+      const sessId = socket.data.sessionId;
+      for (const peer of io.sockets.sockets.values()) {
+        if (sessId && peer.data?.sessionId !== sessId) continue;
+        if (peer.data?.role === ROLES.DM || peer.data?.playerId === wire.ownerId) {
+          peer.emit(EVENTS.CHARACTER_CREATED, wire);
+        }
+      }
+      respond({ ok: true, character: wire });
+    });
+
+    socket.on(EVENTS.CHARACTER_DELETE, (payload = {}, maybeAck) => {
+      const ack = typeof maybeAck === 'function' ? maybeAck : null;
+      const respond = (response) => {
+        if (ack) ack(response);
+      };
+
+      if (!repos?.characters?.get || !repos?.characters?.delete) {
+        respond({ ok: false, reason: 'storage_unavailable' });
+        return;
+      }
+      if (!isJoined()) {
+        respond({ ok: false, reason: 'forbidden' });
+        return;
+      }
+      if (typeof payload?.id !== 'string' || !payload.id) {
+        respond({ ok: false, reason: 'invalid_payload' });
+        return;
+      }
+
+      const existing = repos.characters.get(payload.id);
+      if (!existing) {
+        respond({ ok: false, reason: 'not_found' });
+        return;
+      }
+      if (!isDM() && existing.owner_id !== socket.data.playerId) {
+        respond({ ok: false, reason: 'forbidden' });
+        return;
+      }
+
+      const ownerId = existing.owner_id;
+      repos.characters.delete(existing.id);
+      const sessId = socket.data.sessionId;
+      for (const peer of io.sockets.sockets.values()) {
+        if (sessId && peer.data?.sessionId !== sessId) continue;
+        if (peer.data?.role === ROLES.DM || peer.data?.playerId === ownerId) {
+          peer.emit(EVENTS.CHARACTER_DELETED, { id: existing.id });
+        }
+      }
+      respond({ ok: true, id: existing.id });
     });
 
     socket.on('disconnect', (reason) => {

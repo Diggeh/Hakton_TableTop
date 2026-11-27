@@ -26,7 +26,6 @@ import {
 import DiceOverlay from '../dice/DiceOverlay.jsx';
 import { party } from './fixtures.js';
 import ToolIcon from './ToolIcon.jsx';
-import AddTokenDialog from './AddTokenDialog.jsx';
 import HpRing from './HpRing.jsx';
 import { applyCombatHpChange, canViewTokenHp } from '../../shared/combat.js';
 import { RULER_MODES } from '../../shared/ruler.js';
@@ -47,6 +46,7 @@ export default function Board({
   role,
   playersOpen = false,
   diceOpen = false,
+  sheetOpen = false,
   initiativeOpen = false,
   notesOpen = false,
   chatOpen = false,
@@ -63,11 +63,11 @@ export default function Board({
   const host = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [error, setError] = useState('');
-  const [addTokenOpen, setAddTokenOpen] = useState(false);
   const [fogMenuOpen, setFogMenuOpen] = useState(false);
   const [gridMenuOpen, setGridMenuOpen] = useState(false);
   const [renamingTokenId, setRenamingTokenId] = useState(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [ownerMenuOpen, setOwnerMenuOpen] = useState(false);
   const [propertyMenuOpen, setPropertyMenuOpen] = useState(false);
   const [propertyMenuTab, setPropertyMenuTab] = useState('combat');
 
@@ -143,9 +143,10 @@ export default function Board({
     };
   }, []);
 
-  // Close inline rename & properties popover ONLY when switching or clearing selected token ID
+  // Close inline rename, owner & properties popover ONLY when switching or clearing selected token ID
   useEffect(() => {
     setRenamingTokenId(null);
+    setOwnerMenuOpen(false);
     setPropertyMenuOpen(false);
   }, [selectedTokenId]);
 
@@ -592,24 +593,25 @@ export default function Board({
       : { x: size.width / 2, y: size.height / 2 };
     const mapPt = screenToMap(canvasStore.getState().viewport, screenPt);
     const grid = map?.gridSize || DEFAULT_GRID_SIZE;
-    const isMapAsset =
-      category.toLowerCase() === 'maps' ||
-      String(payload.category || '').toLowerCase() === 'maps';
+    const normalizedCategory = String(category || 'Characters').trim().toLowerCase();
+    const isMapAsset = normalizedCategory === 'maps';
+    const isObjectProp =
+      normalizedCategory === 'props' || normalizedCategory === 'attachments';
     const snapped = isMapAsset ? mapPt : snapEnabled ? snapPoint(mapPt, grid) : mapPt;
     const finalPos = snapped;
 
     // Determine category-specific color & style
     let tokenColor;
-    if (category === 'Characters') {
+    if (normalizedCategory === 'characters') {
       const partyMatch = party.find(
         (p) => p.name.toLowerCase() === payload.name.toLowerCase(),
       );
       tokenColor = partyMatch?.color || '#adfcf9';
     } else if (isMapAsset) {
       tokenColor = '#8fd2c5';
-    } else if (category === 'Props') {
+    } else if (normalizedCategory === 'props') {
       tokenColor = '#f0a854';
-    } else if (category === 'Attachments') {
+    } else if (normalizedCategory === 'attachments') {
       tokenColor = '#db9685';
     } else {
       tokenColor =
@@ -617,26 +619,24 @@ export default function Board({
     }
 
     const storeAssets = assetStore.getState().assets;
-    const matchingAsset = isMapAsset
-      ? (payload.id ? storeAssets.find((a) => a.id === payload.id) : null) ||
-        storeAssets.find(
-          (a) =>
-            (a.category || '').toLowerCase() === 'maps' &&
-            a.name.toLowerCase() === payload.name.toLowerCase(),
-        ) ||
-        storeAssets.find(
-          (a) => a.name.toLowerCase() === payload.name.toLowerCase(),
-        )
-      : null;
+    const lowerName = payload.name.toLowerCase();
+    const matchingAsset =
+      (payload.id ? storeAssets.find((a) => a.id === payload.id) : null) ||
+      storeAssets.find(
+        (a) =>
+          (a.category || '').toLowerCase() === normalizedCategory &&
+          (a.name || '').toLowerCase() === lowerName,
+      ) ||
+      storeAssets.find((a) => (a.name || '').toLowerCase() === lowerName) ||
+      null;
 
-    const imageUrl = isMapAsset
-      ? payload.url ||
-        matchingAsset?.url ||
-        (matchingAsset?.id
-          ? `/assets/${encodeURIComponent(matchingAsset.id)}/file`
-          : null) ||
-        null
-      : null;
+    const imageUrl =
+      payload.url ||
+      matchingAsset?.url ||
+      (matchingAsset?.id
+        ? `/assets/${encodeURIComponent(matchingAsset.id)}/file`
+        : null) ||
+      null;
 
     let placedW;
     let placedH;
@@ -647,6 +647,18 @@ export default function Board({
         Number(payload.metadata?.scale || matchingAsset?.metadata?.scale) || 100;
       placedW = Math.max(80, Math.round(placedW * (alignScale / 100)));
       placedH = Math.max(80, Math.round(placedH * (alignScale / 100)));
+    } else if (isObjectProp && imageUrl) {
+      const rawW = Number(payload.width || matchingAsset?.width) || 0;
+      const rawH = Number(payload.height || matchingAsset?.height) || 0;
+      const targetMax = Math.max(24, Math.round(grid * 1.15));
+      if (rawW > 0 && rawH > 0) {
+        const fit = targetMax / Math.max(rawW, rawH);
+        placedW = Math.max(18, Math.round(rawW * fit));
+        placedH = Math.max(18, Math.round(rawH * fit));
+      } else {
+        placedW = targetMax;
+        placedH = targetMax;
+      }
     }
 
     const tokenPayload = {
@@ -654,6 +666,7 @@ export default function Board({
       x: finalPos.x,
       y: finalPos.y,
       color: tokenColor,
+      category: normalizedCategory,
       isMap: isMapAsset,
       imageUrl,
       width: placedW,
@@ -670,6 +683,7 @@ export default function Board({
         x: finalPos.x,
         y: finalPos.y,
         color: tokenColor,
+        category: normalizedCategory,
         locked: false,
         isMap: isMapAsset,
         imageUrl,
@@ -708,6 +722,7 @@ export default function Board({
   const activeMapStates = {
     players: playersOpen,
     dice: diceOpen,
+    sheet: sheetOpen,
     initiative: initiativeOpen,
     notes: notesOpen,
     soundboard: soundboardOpen,
@@ -984,6 +999,29 @@ export default function Board({
                   </>
                 )}
 
+                {isDM && !singleSelectedToken.isMap && (
+                  <IconButton
+                    label="Assign token owner"
+                    title={
+                      singleSelectedToken.ownerId
+                        ? `Owner: ${
+                            participants.find(
+                              (p) => p.id === singleSelectedToken.ownerId,
+                            )?.displayName || 'Player'
+                          }`
+                        : 'Assign token owner'
+                    }
+                    aria-pressed={ownerMenuOpen || Boolean(singleSelectedToken.ownerId)}
+                    aria-expanded={ownerMenuOpen}
+                    onClick={() => {
+                      setPropertyMenuOpen(false);
+                      setOwnerMenuOpen((v) => !v);
+                    }}
+                  >
+                    <ToolIcon name="players" />
+                  </IconButton>
+                )}
+
                 {isDM && (
                   <IconButton
                     label={
@@ -1022,6 +1060,64 @@ export default function Board({
             )}
           </div>
         )}
+
+        {/* DM Direct Token Ownership Popover */}
+        {isDM &&
+          ownerMenuOpen &&
+          singleSelectedToken &&
+          !singleSelectedToken.isMap &&
+          tokenScreenPos &&
+          !isSelectedTokenDragging && (
+            <div
+              className="token-owner-popover"
+              style={{
+                left: `${popupLeft}px`,
+                top: `${Math.min(Math.max(54, size.height - 190), popupTop + 42)}px`,
+              }}
+              role="dialog"
+              aria-label="Assign token owner"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="token-owner-popover-header">
+                <span>Owner</span>
+                <button
+                  type="button"
+                  className="close-menu-btn"
+                  aria-label="Close owner menu"
+                  onClick={() => setOwnerMenuOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="token-owner-options">
+                <button
+                  type="button"
+                  className={!singleSelectedToken.ownerId ? 'active' : ''}
+                  onClick={() => {
+                    handleChangeTokenOwner(singleSelectedToken, '');
+                    setOwnerMenuOpen(false);
+                  }}
+                >
+                  Unassigned (DM)
+                </button>
+                {connectedParticipants.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={singleSelectedToken.ownerId === p.id ? 'active' : ''}
+                    onClick={() => {
+                      handleChangeTokenOwner(singleSelectedToken, p.id);
+                      setOwnerMenuOpen(false);
+                    }}
+                  >
+                    {p.displayName}
+                    {p.role === 'dm' ? ' (DM)' : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
         {/* Non-Obstructing Token Properties Popover Menu (Combat & Light tabs beside token) */}
         {singleSelectedToken &&
@@ -1601,45 +1697,35 @@ export default function Board({
         <IconButton label="Zoom out" onClick={handleZoomOut}>
           −
         </IconButton>
-        {isDM && (
+        {isDM && selectedTokens.length > 0 && (
           <>
             <span className="toolbar-divider" />
             <IconButton
-              label="Add token"
-              onClick={() => setAddTokenOpen(true)}
+              label={
+                allSelectedLocked ? 'Unlock selected tokens' : 'Lock selected tokens'
+              }
+              title={
+                allSelectedLocked
+                  ? 'Locked — click to unlock'
+                  : 'Unlocked — click to lock'
+              }
+              aria-pressed={allSelectedLocked}
+              onClick={handleToggleLock}
             >
-              <ToolIcon name="plus" />
+              <ToolIcon name={allSelectedLocked ? 'lock' : 'unlock'} />
             </IconButton>
-              {selectedTokens.length > 0 && (
-              <>
-                <IconButton
-                  label={
-                    allSelectedLocked ? 'Unlock selected tokens' : 'Lock selected tokens'
-                  }
-                  title={
-                    allSelectedLocked
-                      ? 'Locked — click to unlock'
-                      : 'Unlocked — click to lock'
-                  }
-                  aria-pressed={allSelectedLocked}
-                  onClick={handleToggleLock}
-                >
-                  <ToolIcon name={allSelectedLocked ? 'lock' : 'unlock'} />
-                </IconButton>
-                <IconButton
-                  label="Delete selected tokens"
-                  title={
-                    allSelectedLocked
-                      ? 'Unlock selected tokens before deleting'
-                      : 'Delete selected tokens'
-                  }
-                  disabled={allSelectedLocked}
-                  onClick={handleDeleteSelected}
-                >
-                  <ToolIcon name="trash" />
-                </IconButton>
-              </>
-            )}
+            <IconButton
+              label="Delete selected tokens"
+              title={
+                allSelectedLocked
+                  ? 'Unlock selected tokens before deleting'
+                  : 'Delete selected tokens'
+              }
+              disabled={allSelectedLocked}
+              onClick={handleDeleteSelected}
+            >
+              <ToolIcon name="trash" />
+            </IconButton>
           </>
         )}
       </nav>
@@ -1918,14 +2004,6 @@ export default function Board({
           ? '5 ft / square'
           : `5 ft / square · sync ${Math.round(latency)} ms`}
       </span>
-      {isDM && addTokenOpen && (
-        <AddTokenDialog
-          map={map}
-          participants={participants}
-          onCreate={createToken}
-          onClose={() => setAddTokenOpen(false)}
-        />
-      )}
     </section>
   );
 }

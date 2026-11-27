@@ -638,6 +638,14 @@ export async function connect(options) {
     sessionStore.getState().appendRollRecord(record);
   });
 
+  // Character sheet broadcasts
+  socket.on(EVENTS.CHARACTER_CREATED, (character) => {
+    if (character?.id) sessionStore.getState().upsertCharacter(character);
+  });
+  socket.on(EVENTS.CHARACTER_DELETED, (payload = {}) => {
+    if (payload?.id) sessionStore.getState().removeCharacter(payload.id);
+  });
+
   // Peer autosave broadcasts (DM sees player edits, players see shared docs).
   socket.on(EVENTS.AUTOSAVE_SAVED, (payload) => {
     sessionStore.getState().applyAutosaveSaved(payload);
@@ -764,6 +772,7 @@ export function createToken(token) {
         ownerId: token.ownerId ?? null,
         locked: Boolean(token.locked),
         color: token.color ?? '#adfcf9',
+        category: token.category || (token.isMap ? 'maps' : 'characters'),
         isMap: Boolean(token.isMap),
         imageUrl: token.imageUrl || null,
         width: token.width || null,
@@ -808,6 +817,63 @@ export function deleteToken(id) {
     }
     if (response?.reason === 'disconnected' && id) {
       sessionStore.getState().removeToken(id);
+      return { ok: true, offline: true };
+    }
+    return response;
+  });
+}
+
+/** Create a character sheet bound to a Character Token (1 sheet max per Player). */
+export function createCharacterSheet({ tokenId }) {
+  return emitWithAck(EVENTS.CHARACTER_CREATE, { tokenId }).then((response) => {
+    if (response?.ok && response.character) {
+      sessionStore.getState().upsertCharacter(response.character);
+      return response;
+    }
+    if (response?.reason === 'disconnected' && tokenId) {
+      const state = sessionStore.getState();
+      const token = state.tokens?.[tokenId];
+      if (!token) return { ok: false, reason: 'not_found' };
+      const ownerId =
+        token.ownerId || state.currentUser?.id || 'local-user';
+      const participant = state.participants?.find((p) => p.id === ownerId);
+      const localChar = {
+        id: `char_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        ownerId,
+        name: token.label || 'Character',
+        classLevel: null,
+        sheetData: {
+          tokenId: token.id,
+          imageUrl: token.imageUrl ?? null,
+          color: token.color ?? '#adfcf9',
+          ownerName:
+            participant?.displayName ||
+            state.currentUser?.displayName ||
+            'Player',
+          ownerRole:
+            participant?.role ||
+            token.ownerRole ||
+            state.currentUser?.role ||
+            'player',
+        },
+        inventoryData: {},
+      };
+      state.upsertCharacter(localChar);
+      return { ok: true, offline: true, character: localChar };
+    }
+    return response;
+  });
+}
+
+/** Remove a character sheet. */
+export function deleteCharacterSheet(id) {
+  return emitWithAck(EVENTS.CHARACTER_DELETE, { id }).then((response) => {
+    if (response?.ok) {
+      sessionStore.getState().removeCharacter(id);
+      return response;
+    }
+    if (response?.reason === 'disconnected' && id) {
+      sessionStore.getState().removeCharacter(id);
       return { ok: true, offline: true };
     }
     return response;

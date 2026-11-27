@@ -14,30 +14,18 @@ import { SessionStatus, LiveRoster } from './SessionStatus.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
 import ChatPanel from './ChatPanel.jsx';
 import DiceTray, { buildTrayFormula } from './DiceTray.jsx';
-import { party } from './fixtures.js';
-import CharacterSheet from './CharacterSheet.jsx';
 import Compendium from './Compendium.jsx';
 import AutosaveStatus from './AutosaveStatus.jsx';
 import InitiativeTracker from './InitiativeTracker.jsx';
 import NotesPopup from './NotesPopup.jsx';
 import { MinimizedNotesBar, NoteEditorWindow } from './NoteEditorWindow.jsx';
+import CharacterSheetPopup from './CharacterSheetPopup.jsx';
+import {
+  CharacterSheetWindow,
+  MinimizedCharacterSheetsBar,
+} from './CharacterSheetWindow.jsx';
 import Soundboard from './Soundboard.jsx';
 import { IconButton, Modal } from './Primitives.jsx';
-
-/** Fixture name -> seeded SQLite character id. */
-const DEMO_CHARACTER_IDS = { mira: 'char-mira', thorne: 'char-thorne', ilyra: 'char-ilyra' };
-
-/** Finds the stored character row backing a fixture person. */
-function characterForPerson(characters, person) {
-  if (!person?.name) return null;
-  const byId = characters[DEMO_CHARACTER_IDS[person.name.toLowerCase()]];
-  if (byId) return byId;
-  return (
-    Object.values(characters).find(
-      (candidate) => candidate.name?.toLowerCase() === person.name.toLowerCase(),
-    ) ?? null
-  );
-}
 
 export default function Tabletop({
   campaign,
@@ -49,6 +37,8 @@ export default function Tabletop({
   onLeave,
 }) {
   const [playersOpen, setPlayersOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [openSheetWindows, setOpenSheetWindows] = useState([]);
   const [initiativeOpen, setInitiativeOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -96,25 +86,63 @@ export default function Tabletop({
     });
   }, [notesOwnerId, role, dmRecordsCount]);
 
-  function canEditCharacter(character) {
-    if (!character) return false;
-    if (role === 'DM') return true;
-    return Boolean(currentUser?.id && character.ownerId === currentUser.id);
+  function openSheetWindow(characterId) {
+    if (!characterId) return;
+    setOpenSheetWindows((prev) => {
+      const topZ = prev.reduce((max, w) => Math.max(max, w.zIndex || 55), 55) + 1;
+      const existing = prev.find((w) => w.characterId === characterId);
+      if (existing) {
+        return prev.map((w) =>
+          w.characterId === characterId
+            ? { ...w, minimized: false, zIndex: topZ }
+            : w,
+        );
+      }
+      const offset = (prev.length % 5) * 24;
+      return [
+        ...prev,
+        {
+          characterId,
+          x: 340 + offset,
+          y: 78 + offset,
+          width: 440,
+          height: 360,
+          minimized: false,
+          zIndex: topZ,
+        },
+      ];
+    });
   }
 
-  function handleHpChange(person, value) {
-    const store = sessionStore.getState();
-    const character = characterForPerson(store.characters, person);
-    if (!character) return;
-
-    const max = Number(character.sheetData?.hp?.max ?? person.max) || 0;
-    const next = Math.min(max, Math.max(0, Number(value) || 0));
-    store.patchCharacter(character.id, {
-      sheetData: { hp: { ...(character.sheetData?.hp ?? {}), current: next } },
+  function focusSheetWindow(characterId) {
+    setOpenSheetWindows((prev) => {
+      const topZ = prev.reduce((max, w) => Math.max(max, w.zIndex || 55), 55) + 1;
+      return prev.map((w) =>
+        w.characterId === characterId ? { ...w, zIndex: topZ } : w,
+      );
     });
+  }
 
-    const updated = sessionStore.getState().characters[character.id];
-    if (updated) autosave.markDirty(characterDocument(updated));
+  function updateSheetWindowBounds(characterId, patch) {
+    setOpenSheetWindows((prev) =>
+      prev.map((w) =>
+        w.characterId === characterId ? { ...w, ...patch } : w,
+      ),
+    );
+  }
+
+  function minimizeSheetWindow(characterId) {
+    setOpenSheetWindows((prev) =>
+      prev.map((w) =>
+        w.characterId === characterId ? { ...w, minimized: true } : w,
+      ),
+    );
+  }
+
+  function closeSheetWindow(characterId) {
+    setOpenSheetWindows((prev) =>
+      prev.filter((w) => w.characterId !== characterId),
+    );
   }
 
   function inspect(asset, category = 'Characters') {
@@ -135,8 +163,6 @@ export default function Tabletop({
     return { ok: true, roll };
   }
 
-  const person = party.find((p) => p.name === inspected?.name) || party[0];
-
   function closeSoundboard() {
     setSoundboardOpen(false);
     soundboardTrigger.current?.focus({ preventScroll: true });
@@ -154,6 +180,7 @@ export default function Tabletop({
           scene={scene}
           role={role}
           playersOpen={playersOpen}
+          sheetOpen={sheetOpen}
           initiativeOpen={initiativeOpen}
           notesOpen={notesOpen}
           diceOpen={diceOpen}
@@ -163,7 +190,7 @@ export default function Tabletop({
           assetTrayCategory={assetTrayCategory}
           assetManagerOpen={assetManagerOpen}
           onAction={(action, trigger) => {
-            if (action === 'sheet') inspect('Mira');
+            if (action === 'sheet') setSheetOpen((v) => !v);
             else if (action === 'home') setModal('leave');
             else if (action === 'players') setPlayersOpen((v) => !v);
             else if (action === 'initiative') setInitiativeOpen((v) => !v);
@@ -188,7 +215,12 @@ export default function Tabletop({
           onInspectAsset={inspect}
         />
 
-        {(playersOpen || initiativeOpen || diceOpen || soundboardOpen || notesOpen) && (
+        {(playersOpen ||
+          sheetOpen ||
+          initiativeOpen ||
+          diceOpen ||
+          soundboardOpen ||
+          notesOpen) && (
           <div className="floating-stack-top-left">
             {playersOpen && (
               <aside
@@ -210,6 +242,14 @@ export default function Tabletop({
                   <SessionStatus />
                 </div>
               </aside>
+            )}
+
+            {sheetOpen && (
+              <CharacterSheetPopup
+                role={role}
+                onOpenSheet={openSheetWindow}
+                onClose={() => setSheetOpen(false)}
+              />
             )}
 
             {initiativeOpen && (
@@ -298,6 +338,21 @@ export default function Tabletop({
         {openNoteWindows.map((win) => (
           <NoteEditorWindow key={win.noteId} windowState={win} />
         ))}
+        <MinimizedCharacterSheetsBar
+          windows={openSheetWindows}
+          onRestore={openSheetWindow}
+          onClose={closeSheetWindow}
+        />
+        {openSheetWindows.map((win) => (
+          <CharacterSheetWindow
+            key={win.characterId}
+            windowState={win}
+            onFocus={focusSheetWindow}
+            onChangeBounds={updateSheetWindowBounds}
+            onMinimize={minimizeSheetWindow}
+            onClose={closeSheetWindow}
+          />
+        ))}
       </div>
 
       {role === 'DM' && assetManagerOpen && (
@@ -376,58 +431,50 @@ export default function Tabletop({
             </>
           )}
           {modal === 'inspect' &&
-            (inspected.category === 'Characters' ? (
-              <CharacterSheet
-                person={person}
-                character={characterForPerson(characters, person)}
-                canEdit={canEditCharacter(characterForPerson(characters, person))}
-                onHpChange={(value) => handleHpChange(person, value)}
-              />
-            ) : (
-              (() => {
-                const lowerName = (inspected?.name || '').toLowerCase();
-                const lowerCat = (inspected?.category || '').toLowerCase();
-                const matchedAsset =
-                  storeAssets.find(
-                    (a) =>
-                      (a.name || '').toLowerCase() === lowerName &&
-                      (!lowerCat || (a.category || '').toLowerCase() === lowerCat),
-                  ) ||
-                  storeAssets.find((a) => (a.name || '').toLowerCase() === lowerName);
-                const rawUrl =
-                  matchedAsset?.url ||
-                  (matchedAsset?.id
-                    ? `/assets/${encodeURIComponent(matchedAsset.id)}/file`
-                    : null);
-                const previewSrc = rawUrl ? resolveAssetUrl(rawUrl) : null;
+            inspected &&
+            (() => {
+              const lowerName = (inspected?.name || '').toLowerCase();
+              const lowerCat = (inspected?.category || '').toLowerCase();
+              const matchedAsset =
+                storeAssets.find(
+                  (a) =>
+                    (a.name || '').toLowerCase() === lowerName &&
+                    (!lowerCat || (a.category || '').toLowerCase() === lowerCat),
+                ) ||
+                storeAssets.find((a) => (a.name || '').toLowerCase() === lowerName);
+              const rawUrl =
+                matchedAsset?.url ||
+                (matchedAsset?.id
+                  ? `/assets/${encodeURIComponent(matchedAsset.id)}/file`
+                  : null);
+              const previewSrc = rawUrl ? resolveAssetUrl(rawUrl) : null;
 
-                return (
-                  <>
-                    {previewSrc ? (
-                      <div className="asset-inspect-preview">
-                        <img src={previewSrc} alt={inspected.name} />
-                      </div>
-                    ) : (
-                      <p className="notice">Sample asset</p>
-                    )}
-                    <dl>
+              return (
+                <>
+                  {previewSrc ? (
+                    <div className="asset-inspect-preview">
+                      <img src={previewSrc} alt={inspected.name} />
+                    </div>
+                  ) : (
+                    <p className="notice">No image preview available.</p>
+                  )}
+                  <dl>
+                    <div>
+                      <dt>Category</dt>
+                      <dd>{inspected.category}</dd>
+                    </div>
+                    {matchedAsset?.width && matchedAsset?.height && (
                       <div>
-                        <dt>Category</dt>
-                        <dd>{inspected.category}</dd>
+                        <dt>Dimensions</dt>
+                        <dd>
+                          {matchedAsset.width} × {matchedAsset.height} px
+                        </dd>
                       </div>
-                      {matchedAsset?.width && matchedAsset?.height && (
-                        <div>
-                          <dt>Dimensions</dt>
-                          <dd>
-                            {matchedAsset.width} × {matchedAsset.height} px
-                          </dd>
-                        </div>
-                      )}
-                    </dl>
-                  </>
-                );
-              })()
-            ))}
+                    )}
+                  </dl>
+                </>
+              );
+            })()}
         </Modal>
       )}
     </div>

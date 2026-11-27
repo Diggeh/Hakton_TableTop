@@ -212,68 +212,67 @@ export default function FogLayer({
         </Group>
       ))}
 
-      {/* Walls & Interactive Doors */}
-      {walls.map((wall) => {
-        const midX = (wall.p1.x + wall.p2.x) / 2;
-        const midY = (wall.p1.y + wall.p2.y) / 2;
-        const isDoor = Boolean(wall.isDoor);
-        const isOpen = Boolean(wall.isOpen);
+      {/* Walls & Interactive Doors (strictly DM-only) */}
+      {isEffectiveDM &&
+        walls.map((wall) => {
+          const midX = (wall.p1.x + wall.p2.x) / 2;
+          const midY = (wall.p1.y + wall.p2.y) / 2;
+          const isDoor = Boolean(wall.isDoor);
+          const isOpen = Boolean(wall.isOpen);
 
-        // In Player view (or preview mode), hide non-doors
-        if (!isEffectiveDM && !isDoor) return null;
+          const strokeColor = isDoor
+            ? isOpen
+              ? '#6be39b'
+              : '#f0a854'
+            : '#56b9d8';
 
-        const strokeColor = isDoor
-          ? isOpen
-            ? '#6be39b'
-            : '#f0a854'
-          : '#56b9d8';
-
-        return (
-          <Group
-            key={wall.id}
-            listening={isEffectiveDM || isDoor}
-            onMouseDown={(e) => {
-              if (isDoor && fogTool !== 'erase') {
+          return (
+            <Group
+              key={wall.id}
+              listening={isEffectiveDM}
+              onMouseDown={(e) => {
+                if (isDoor && fogTool !== 'erase') {
+                  e.cancelBubble = true;
+                }
+              }}
+              onTouchStart={(e) => {
+                if (isDoor && fogTool !== 'erase') {
+                  e.cancelBubble = true;
+                }
+              }}
+              onClick={(e) => {
+                if (!isEffectiveDM) return;
                 e.cancelBubble = true;
-              }
-            }}
-            onTouchStart={(e) => {
-              if (isDoor && fogTool !== 'erase') {
-                e.cancelBubble = true;
-              }
-            }}
-            onClick={(e) => {
-              e.cancelBubble = true;
-              if (isEffectiveDM && fogTool === 'erase') {
-                canvasStore.getState().removeWall(wall.id);
-              } else if (isDoor) {
-                canvasStore.getState().toggleDoor(wall.id);
-              }
-            }}
-          >
-            <Line
-              points={[wall.p1.x, wall.p1.y, wall.p2.x, wall.p2.y]}
-              stroke={strokeColor}
-              strokeWidth={isDoor ? 6 : 4}
-              dash={isDoor && isOpen ? [6, 5] : undefined}
-              lineCap="round"
-              hitStrokeWidth={16}
-            />
-            {isDoor && (
-              <Rect
-                x={midX - 9}
-                y={midY - 9}
-                width={18}
-                height={18}
-                cornerRadius={3}
-                fill={isOpen ? '#173828' : '#3a2612'}
+                if (fogTool === 'erase') {
+                  canvasStore.getState().removeWall(wall.id);
+                } else if (isDoor) {
+                  canvasStore.getState().toggleDoor(wall.id);
+                }
+              }}
+            >
+              <Line
+                points={[wall.p1.x, wall.p1.y, wall.p2.x, wall.p2.y]}
                 stroke={strokeColor}
-                strokeWidth={2}
+                strokeWidth={isDoor ? 6 : 4}
+                dash={isDoor && isOpen ? [6, 5] : undefined}
+                lineCap="round"
+                hitStrokeWidth={16}
               />
-            )}
-          </Group>
-        );
-      })}
+              {isDoor && (
+                <Rect
+                  x={midX - 9}
+                  y={midY - 9}
+                  width={18}
+                  height={18}
+                  cornerRadius={3}
+                  fill={isOpen ? '#173828' : '#3a2612'}
+                  stroke={strokeColor}
+                  strokeWidth={2}
+                />
+              )}
+            </Group>
+          );
+        })}
 
       {/* Door placement ghost preview snapped onto nearest wall */}
       {doorGhost && (

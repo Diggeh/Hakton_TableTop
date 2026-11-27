@@ -436,11 +436,11 @@ test('Upload Tests: valid map and token uploads succeed across PNG, JPEG, WebP, 
   assert.equal(gifAsset.width, 64);
   assert.equal(gifAsset.height, 64);
 
-  // 5. Verify seedIfEmpty(repos) creates no preset campaigns while still seeding demo characters cleanly
+  // 5. Verify seedIfEmpty(repos) leaves campaigns, maps, and characters empty by default
   await seedIfEmpty(env.repos, env.storage);
   assert.equal(env.repos.campaigns.list().length, 0);
   assert.equal(env.repos.maps.first(), null);
-  assert.ok(env.repos.characters.get('char-mira'));
+  assert.equal(env.repos.characters.listAll().length, 0);
   const createdCampaign = env.repos.campaigns.create({ name: 'Custom Table' });
   const seededMap = env.repos.maps.activeForCampaign(createdCampaign.dbId);
   assert.equal(seededMap?.name, 'Untitled Scene');

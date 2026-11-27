@@ -52,6 +52,9 @@ export function buildBoardSnapshot(repos, campaignId) {
         ownerRole: token.owner_role ?? null,
         locked: Boolean(token.locked),
         color: token.color ?? null,
+        category:
+          token.category ||
+          (Boolean(token.is_map ?? token.isMap) ? 'maps' : 'characters'),
         isMap: Boolean(token.is_map ?? token.isMap),
         imageUrl: token.image_url ?? token.imageUrl ?? null,
         width: token.width ?? null,

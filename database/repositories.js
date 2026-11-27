@@ -40,7 +40,20 @@ function serializeSceneData(sceneData) {
  */
 export function createRepositories(db) {
   const tokenColumns =
-    'id, map_id, label, x, y, owner_id, owner_role, locked, color, is_map, image_url, width, height, light, rotation, combat';
+    'id, map_id, label, x, y, owner_id, owner_role, locked, color, category, is_map, image_url, width, height, light, rotation, combat';
+
+  const VALID_TOKEN_CATEGORIES = new Set([
+    'characters',
+    'maps',
+    'props',
+    'attachments',
+    'scenes',
+  ]);
+  const normalizeTokenCategory = (value, isMap = false) => {
+    const clean = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (VALID_TOKEN_CATEGORIES.has(clean)) return clean;
+    return isMap ? 'maps' : 'characters';
+  };
 
   const serializeJson = (value) => {
     if (!value || typeof value !== 'object') return null;
@@ -93,8 +106,8 @@ export function createRepositories(db) {
     ),
     tokenById: db.prepare(`SELECT ${tokenColumns} FROM tokens WHERE id = ?`),
     insertToken: db.prepare(`
-      INSERT INTO tokens (id, map_id, label, x, y, owner_id, owner_role, locked, color, is_map, image_url, width, height, light, rotation, combat)
-      VALUES (@id, @mapId, @label, @x, @y, @ownerId, @ownerRole, @locked, @color, @isMap, @imageUrl, @width, @height, @light, @rotation, @combat)`),
+      INSERT INTO tokens (id, map_id, label, x, y, owner_id, owner_role, locked, color, category, is_map, image_url, width, height, light, rotation, combat)
+      VALUES (@id, @mapId, @label, @x, @y, @ownerId, @ownerRole, @locked, @color, @category, @isMap, @imageUrl, @width, @height, @light, @rotation, @combat)`),
     upsertToken: db.prepare(`
       INSERT INTO tokens (id, map_id, label, x, y) VALUES (@id, @mapId, @label, @x, @y)
       ON CONFLICT(id) DO UPDATE SET x = excluded.x, y = excluded.y`),
@@ -398,6 +411,7 @@ export function createRepositories(db) {
         ownerRole = null,
         locked = false,
         color = null,
+        category = null,
         isMap = false,
         imageUrl = null,
         width = null,
@@ -416,6 +430,7 @@ export function createRepositories(db) {
           ownerRole: normalizeOwnerRole(ownerRole),
           locked: locked ? 1 : 0,
           color,
+          category: normalizeTokenCategory(category, isMap),
           isMap: isMap ? 1 : 0,
           imageUrl: typeof imageUrl === 'string' && imageUrl ? imageUrl : null,
           width: Number.isFinite(Number(width)) && Number(width) > 0 ? Number(width) : null,
@@ -433,6 +448,7 @@ export function createRepositories(db) {
           ownerRole: 'owner_role',
           locked: 'locked',
           color: 'color',
+          category: 'category',
           isMap: 'is_map',
           imageUrl: 'image_url',
           width: 'width',
@@ -449,6 +465,8 @@ export function createRepositories(db) {
           const value = patch[field];
           if (field === 'locked' || field === 'isMap') {
             params[field] = value ? 1 : 0;
+          } else if (field === 'category') {
+            params[field] = normalizeTokenCategory(value, Boolean(patch.isMap));
           } else if (field === 'width' || field === 'height') {
             params[field] =
               Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null;

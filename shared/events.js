@@ -74,6 +74,12 @@ export const EVENTS = Object.freeze({
   RULER_UPDATE: 'ruler:update',
   RULER_CLEAR: 'ruler:clear',
 
+  // Character sheets bound to Character Tokens
+  CHARACTER_CREATE: 'character:create',
+  CHARACTER_CREATED: 'character:created',
+  CHARACTER_DELETE: 'character:delete',
+  CHARACTER_DELETED: 'character:deleted',
+
   // Continuous auto-save
   AUTOSAVE_COMMIT: 'autosave:commit',
   AUTOSAVE_SAVED: 'autosave:saved',

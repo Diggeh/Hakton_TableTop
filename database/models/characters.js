@@ -32,6 +32,7 @@ export function createCharacterModel(db) {
   const byId = db.prepare('SELECT * FROM characters WHERE id = ?');
   const byOwner = db.prepare('SELECT * FROM characters WHERE owner_id = ? ORDER BY name');
   const all = db.prepare('SELECT * FROM characters ORDER BY name');
+  const remove = db.prepare('DELETE FROM characters WHERE id = ?');
 
   const updateWhole = db.prepare(`
     UPDATE characters SET
@@ -117,6 +118,7 @@ export function createCharacterModel(db) {
     get: (id) => hydrate(byId.get(id)),
     listByOwner: (ownerId) => byOwner.all(ownerId).map(hydrate),
     listAll: () => all.all().map(hydrate),
+    delete: (id) => remove.run(id).changes > 0,
 
     /** Partial in-place JSON edit via SQLite json_set, e.g. patchSheet(id, '$.hp.current', 12). */
     patchSheet(id, jsonPath, value) {

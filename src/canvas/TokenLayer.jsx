@@ -10,6 +10,7 @@ import { useCanvasImage } from './useCanvasImage.js';
 
 const DEFAULT_COLOR = '#adfcf9';
 const MIN_MAP_SIZE = 80;
+const MIN_PROP_SIZE = 18;
 
 function RotateHandleBadge({ x, y, onStartRotate, onCursor }) {
   return (
@@ -100,9 +101,12 @@ const TokenNode = memo(function TokenNode({
     };
   }, []);
 
-  const resolvedMapUrl =
-    token.isMap && token.imageUrl ? resolveAssetUrl(token.imageUrl) : null;
-  const { image } = useCanvasImage(resolvedMapUrl);
+  const resolvedImageUrl = token.imageUrl ? resolveAssetUrl(token.imageUrl) : null;
+  const { image } = useCanvasImage(resolvedImageUrl);
+  const isObjectSprite =
+    !token.isMap &&
+    (token.category === 'props' || token.category === 'attachments');
+  const minBoxSize = isObjectSprite ? MIN_PROP_SIZE : MIN_MAP_SIZE;
 
   const setRef = useCallback(
     (node) => {
@@ -129,8 +133,27 @@ const TokenNode = memo(function TokenNode({
       : livePosition
         ? livePosition.y
         : token.y;
-  const mapW = liveTransform?.width ?? (token.width || image?.naturalWidth || 800);
-  const mapH = liveTransform?.height ?? (token.height || image?.naturalHeight || 600);
+  const defaultSpriteDims = (() => {
+    const targetMax = Math.max(24, Math.round(grid * 1.15));
+    const nw = image?.naturalWidth || image?.width || 0;
+    const nh = image?.naturalHeight || image?.height || 0;
+    if (nw > 0 && nh > 0) {
+      const fit = targetMax / Math.max(nw, nh);
+      return {
+        w: Math.max(MIN_PROP_SIZE, Math.round(nw * fit)),
+        h: Math.max(MIN_PROP_SIZE, Math.round(nh * fit)),
+      };
+    }
+    return { w: grid, h: grid };
+  })();
+  const mapW =
+    liveTransform?.width ??
+    (token.width ||
+      (isObjectSprite ? defaultSpriteDims.w : image?.naturalWidth || 800));
+  const mapH =
+    liveTransform?.height ??
+    (token.height ||
+      (isObjectSprite ? defaultSpriteDims.h : image?.naturalHeight || 600));
   const displayRotation =
     liveRotation !== undefined
       ? liveRotation
@@ -285,21 +308,21 @@ const TokenNode = memo(function TokenNode({
         let nextH = startH;
 
         if (hx !== 0 && hy !== 0) {
-          const rawW = Math.max(MIN_MAP_SIZE, hx * projU);
-          const rawH = Math.max(MIN_MAP_SIZE, hy * projV);
+          const rawW = Math.max(minBoxSize, hx * projU);
+          const rawH = Math.max(minBoxSize, hy * projV);
           if (ev.shiftKey) {
             nextW = Math.round(rawW);
             nextH = Math.round(rawH);
           } else {
-            const minScale = Math.max(MIN_MAP_SIZE / startW, MIN_MAP_SIZE / startH);
+            const minScale = Math.max(minBoxSize / startW, minBoxSize / startH);
             const scale = Math.max(minScale, Math.max(rawW / startW, rawH / startH));
             nextW = Math.round(startW * scale);
             nextH = Math.round(startH * scale);
           }
         } else if (hx !== 0) {
-          nextW = Math.max(MIN_MAP_SIZE, Math.round(hx * projU));
+          nextW = Math.max(minBoxSize, Math.round(hx * projU));
         } else if (hy !== 0) {
-          nextH = Math.max(MIN_MAP_SIZE, Math.round(hy * projV));
+          nextH = Math.max(minBoxSize, Math.round(hy * projV));
         }
 
         const nextX = Math.round(
@@ -397,132 +420,169 @@ const TokenNode = memo(function TokenNode({
         if (!panMode) onCursor?.('default');
       }}
     >
-      {token.isMap ? (
-        <Group rotation={displayRotation}>
-          {selected && (
-            <Rect
-              x={-mapW / 2 - 4}
-              y={-mapH / 2 - 4}
-              width={mapW + 8}
-              height={mapH + 8}
-              stroke={token.locked ? '#db9685' : '#adfcf9'}
-              strokeWidth={2}
-              strokeScaleEnabled={false}
-              dash={[8, 6]}
-              listening={false}
-              cornerRadius={6}
-            />
-          )}
-          {image ? (
-            <KonvaImage
-              image={image}
-              x={-mapW / 2}
-              y={-mapH / 2}
-              width={mapW}
-              height={mapH}
-              cornerRadius={4}
-              shadowColor="#020a12"
-              shadowBlur={12}
-              shadowOpacity={0.5}
-            />
-          ) : (
-            <Group>
+      {token.isMap || isObjectSprite ? (
+        <>
+          <Group rotation={displayRotation}>
+            {selected && (
               <Rect
+                x={-mapW / 2 - 4}
+                y={-mapH / 2 - 4}
+                width={mapW + 8}
+                height={mapH + 8}
+                stroke={token.locked ? '#db9685' : '#adfcf9'}
+                strokeWidth={2}
+                strokeScaleEnabled={false}
+                dash={[8, 6]}
+                listening={false}
+                cornerRadius={6}
+              />
+            )}
+            {image ? (
+              <KonvaImage
+                image={image}
                 x={-mapW / 2}
                 y={-mapH / 2}
                 width={mapW}
                 height={mapH}
-                fill="#182c3c"
-                stroke={token.locked ? '#db9685' : hovered ? '#ffffff' : '#3f5f6f'}
-                strokeWidth={2}
-                cornerRadius={4}
+                cornerRadius={token.isMap ? 4 : 0}
                 shadowColor="#020a12"
-                shadowBlur={12}
-                shadowOpacity={0.5}
+                shadowBlur={token.isMap ? 12 : 6}
+                shadowOpacity={token.isMap ? 0.5 : 0.35}
               />
-              <Text
-                text={`🗺️ ${token.label}`}
-                x={-mapW / 2 + 16}
-                y={-mapH / 2 + 16}
-                fontSize={18}
-                fontStyle="bold"
-                fill="#adfcf9"
-                listening={false}
-              />
-            </Group>
-          )}
-          {selected && token.locked && (
-            <Group x={-mapW / 2 + 10} y={-mapH / 2 + 10} listening={false}>
+            ) : (
+              <Group>
+                <Rect
+                  x={-mapW / 2}
+                  y={-mapH / 2}
+                  width={mapW}
+                  height={mapH}
+                  fill={isObjectSprite ? fill : '#182c3c'}
+                  stroke={token.locked ? '#db9685' : hovered ? '#ffffff' : '#3f5f6f'}
+                  strokeWidth={2}
+                  cornerRadius={4}
+                  shadowColor="#020a12"
+                  shadowBlur={isObjectSprite ? 8 : 12}
+                  shadowOpacity={0.5}
+                />
+                <Text
+                  text={token.isMap ? `🗺️ ${token.label}` : token.label}
+                  x={isObjectSprite ? -mapW / 2 + 4 : -mapW / 2 + 16}
+                  y={isObjectSprite ? -fontSize / 2 : -mapH / 2 + 16}
+                  width={isObjectSprite ? Math.max(12, mapW - 8) : undefined}
+                  align={isObjectSprite ? 'center' : 'left'}
+                  wrap="none"
+                  ellipsis
+                  fontSize={isObjectSprite ? fontSize : 18}
+                  fontStyle="bold"
+                  fill={isObjectSprite ? '#081824' : '#adfcf9'}
+                  listening={false}
+                />
+              </Group>
+            )}
+            {selected && token.locked && (
+              <Group x={-mapW / 2 + 10} y={-mapH / 2 + 10} listening={false}>
+                <Rect
+                  width={74}
+                  height={22}
+                  fill="rgba(11, 24, 32, 0.88)"
+                  stroke="#db9685"
+                  strokeWidth={1.5}
+                  cornerRadius={6}
+                />
+                <Text
+                  text="Locked"
+                  x={0}
+                  y={4}
+                  width={74}
+                  align="center"
+                  fontSize={11}
+                  fontStyle="bold"
+                  fill="#ffd0c4"
+                />
+              </Group>
+            )}
+            {selected && canTransform && !panMode && (
+              <>
+                <Line
+                  points={[0, -mapH / 2 - 4, 0, -mapH / 2 - 18]}
+                  stroke="#adfcf9"
+                  strokeWidth={2}
+                  strokeScaleEnabled={false}
+                  listening={false}
+                />
+                <RotateHandleBadge
+                  x={0}
+                  y={-mapH / 2 - 28}
+                  onStartRotate={startRotateDrag}
+                  onCursor={onCursor}
+                />
+                {RESIZE_HANDLES.map((h) => {
+                  const isCorner = h.hx !== 0 && h.hy !== 0;
+                  if (isObjectSprite && !isCorner) return null;
+                  const hw = isCorner ? (isObjectSprite ? 9 : 12) : h.hy !== 0 ? 18 : 8;
+                  const hh = isCorner ? (isObjectSprite ? 9 : 12) : h.hx !== 0 ? 18 : 8;
+                  return (
+                    <Rect
+                      key={h.id}
+                      x={(h.hx * mapW) / 2}
+                      y={(h.hy * mapH) / 2}
+                      width={hw}
+                      height={hh}
+                      offsetX={hw / 2}
+                      offsetY={hh / 2}
+                      hitStrokeWidth={12}
+                      fill={isCorner ? '#adfcf9' : '#e7fbfa'}
+                      stroke="#081824"
+                      strokeWidth={1.8}
+                      strokeScaleEnabled={false}
+                      cornerRadius={isCorner ? 2 : 3}
+                      onMouseDown={(e) => startResizeDrag(h.hx, h.hy, h.cursor, e)}
+                      onTouchStart={(e) => startResizeDrag(h.hx, h.hy, h.cursor, e)}
+                      onMouseEnter={(e) => {
+                        e.cancelBubble = true;
+                        onCursor?.(h.cursor);
+                      }}
+                      onMouseLeave={(e) => {
+                        e.cancelBubble = true;
+                        onCursor?.('default');
+                      }}
+                    />
+                  );
+                })}
+              </>
+            )}
+          </Group>
+          {isObjectSprite && image && (hovered || selected) && token.label && (
+            <Group
+              x={0}
+              y={mapH / 2 + 6}
+              listening={false}
+            >
               <Rect
-                width={74}
-                height={22}
-                fill="rgba(11, 24, 32, 0.88)"
-                stroke="#db9685"
-                strokeWidth={1.5}
-                cornerRadius={6}
+                x={-Math.max(40, Math.min(130, token.label.length * 6.8 + 14)) / 2}
+                y={0}
+                width={Math.max(40, Math.min(130, token.label.length * 6.8 + 14))}
+                height={18}
+                cornerRadius={9}
+                fill="rgba(8, 20, 29, 0.88)"
+                stroke="rgba(173, 252, 249, 0.35)"
+                strokeWidth={1}
               />
               <Text
-                text="Locked"
-                x={0}
+                text={token.label}
+                x={-Math.max(40, Math.min(130, token.label.length * 6.8 + 14)) / 2}
                 y={4}
-                width={74}
+                width={Math.max(40, Math.min(130, token.label.length * 6.8 + 14))}
                 align="center"
-                fontSize={11}
+                wrap="none"
+                ellipsis
+                fontSize={10}
                 fontStyle="bold"
-                fill="#ffd0c4"
+                fill="#e7fbfa"
               />
             </Group>
           )}
-          {selected && canTransform && !panMode && (
-            <>
-              <Line
-                points={[0, -mapH / 2 - 4, 0, -mapH / 2 - 18]}
-                stroke="#adfcf9"
-                strokeWidth={2}
-                strokeScaleEnabled={false}
-                listening={false}
-              />
-              <RotateHandleBadge
-                x={0}
-                y={-mapH / 2 - 28}
-                onStartRotate={startRotateDrag}
-                onCursor={onCursor}
-              />
-              {RESIZE_HANDLES.map((h) => {
-                const isCorner = h.hx !== 0 && h.hy !== 0;
-                const hw = isCorner ? 12 : h.hy !== 0 ? 18 : 8;
-                const hh = isCorner ? 12 : h.hx !== 0 ? 18 : 8;
-                return (
-                  <Rect
-                    key={h.id}
-                    x={(h.hx * mapW) / 2}
-                    y={(h.hy * mapH) / 2}
-                    width={hw}
-                    height={hh}
-                    offsetX={hw / 2}
-                    offsetY={hh / 2}
-                    hitStrokeWidth={12}
-                    fill={isCorner ? '#adfcf9' : '#e7fbfa'}
-                    stroke="#081824"
-                    strokeWidth={1.8}
-                    strokeScaleEnabled={false}
-                    cornerRadius={isCorner ? 2 : 3}
-                    onMouseDown={(e) => startResizeDrag(h.hx, h.hy, h.cursor, e)}
-                    onTouchStart={(e) => startResizeDrag(h.hx, h.hy, h.cursor, e)}
-                    onMouseEnter={(e) => {
-                      e.cancelBubble = true;
-                      onCursor?.(h.cursor);
-                    }}
-                    onMouseLeave={(e) => {
-                      e.cancelBubble = true;
-                      onCursor?.('default');
-                    }}
-                  />
-                );
-              })}
-            </>
-          )}
-        </Group>
+        </>
       ) : (
         <>
           {selected && (
@@ -537,8 +597,8 @@ const TokenNode = memo(function TokenNode({
           )}
           <Circle
             radius={radius}
-            fill={fill}
-            opacity={0.94}
+            fill={image ? '#0e202c' : fill}
+            opacity={0.96}
             stroke={selected && token.locked ? '#db9685' : hovered ? '#ffffff' : '#e7fbfa'}
             strokeWidth={selected && token.locked ? 2.5 : 2}
             strokeScaleEnabled={false}
@@ -548,6 +608,43 @@ const TokenNode = memo(function TokenNode({
             shadowOpacity={0.45}
             perfectDrawEnabled={false}
           />
+          {image && (() => {
+            const nw = image.naturalWidth || image.width || radius * 2;
+            const nh = image.naturalHeight || image.height || radius * 2;
+            const scale = Math.max((radius * 2) / nw, (radius * 2) / nh);
+            const drawW = nw * scale;
+            const drawH = nh * scale;
+            const clipRadius = Math.max(2, radius - 1.5);
+            return (
+              <>
+                <Group
+                  clipFunc={(ctx) => {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, clipRadius, 0, Math.PI * 2, false);
+                    ctx.closePath();
+                  }}
+                  listening={false}
+                >
+                  <KonvaImage
+                    image={image}
+                    x={-drawW / 2}
+                    y={-drawH / 2}
+                    width={drawW}
+                    height={drawH}
+                  />
+                </Group>
+                <Circle
+                  radius={radius}
+                  fillEnabled={false}
+                  stroke={selected && token.locked ? '#db9685' : hovered ? '#ffffff' : '#e7fbfa'}
+                  strokeWidth={selected && token.locked ? 2.5 : 2}
+                  strokeScaleEnabled={false}
+                  dash={selected && token.locked ? [5, 4] : undefined}
+                  listening={false}
+                />
+              </>
+            );
+          })()}
           <Group rotation={displayRotation} listening={false}>
             <Line
               points={[radius - 2, -6, radius + 7, 0, radius - 2, 6]}
@@ -566,19 +663,48 @@ const TokenNode = memo(function TokenNode({
               onCursor={onCursor}
             />
           )}
-          <Text
-            text={token.label}
-            x={-grid * 0.85}
-            y={-fontSize / 2}
-            width={grid * 1.7}
-            align="center"
-            wrap="none"
-            ellipsis
-            fontSize={fontSize}
-            fontStyle="bold"
-            fill="#081824"
-            listening={false}
-          />
+          {!image ? (
+            <Text
+              text={token.label}
+              x={-grid * 0.85}
+              y={-fontSize / 2}
+              width={grid * 1.7}
+              align="center"
+              wrap="none"
+              ellipsis
+              fontSize={fontSize}
+              fontStyle="bold"
+              fill="#081824"
+              listening={false}
+            />
+          ) : (
+            (hovered || selected) && token.label && (
+              <Group x={0} y={radius + 6} listening={false}>
+                <Rect
+                  x={-Math.max(40, Math.min(130, token.label.length * 6.8 + 14)) / 2}
+                  y={0}
+                  width={Math.max(40, Math.min(130, token.label.length * 6.8 + 14))}
+                  height={18}
+                  cornerRadius={9}
+                  fill="rgba(8, 20, 29, 0.88)"
+                  stroke="rgba(173, 252, 249, 0.35)"
+                  strokeWidth={1}
+                />
+                <Text
+                  text={token.label}
+                  x={-Math.max(40, Math.min(130, token.label.length * 6.8 + 14)) / 2}
+                  y={4}
+                  width={Math.max(40, Math.min(130, token.label.length * 6.8 + 14))}
+                  align="center"
+                  wrap="none"
+                  ellipsis
+                  fontSize={10}
+                  fontStyle="bold"
+                  fill="#e7fbfa"
+                />
+              </Group>
+            )
+          )}
         </>
       )}
     </Group>
@@ -762,10 +888,11 @@ export default function TokenLayer({
   const handleResizeCommit = useCallback((id, next) => {
     const latest = sessionStore.getState().tokens[id];
     if (!latest || !next) return;
+    const minSize = latest.isMap ? MIN_MAP_SIZE : MIN_PROP_SIZE;
     const x = Math.round(Number(next.x) || 0);
     const y = Math.round(Number(next.y) || 0);
-    const width = Math.max(MIN_MAP_SIZE, Math.round(Number(next.width) || 0));
-    const height = Math.max(MIN_MAP_SIZE, Math.round(Number(next.height) || 0));
+    const width = Math.max(minSize, Math.round(Number(next.width) || 0));
+    const height = Math.max(minSize, Math.round(Number(next.height) || 0));
     sessionStore.getState().upsertToken({ ...latest, x, y, width, height });
     emitTokenMove(id, x, y);
     updateToken(id, { width, height });
